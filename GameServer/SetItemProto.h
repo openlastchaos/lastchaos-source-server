@@ -1,8 +1,6 @@
 #ifndef __SET_ITEM_PROTO_H__
 #define __SET_ITEM_PROTO_H__
 
-#ifdef SET_ITEM
-
 typedef struct __tagSetItemOption
 {
 	int		nWearCnt;									// 착용 개수
@@ -23,46 +21,56 @@ public:
 	CSetItemProto();
 	~CSetItemProto();
 
-	int GetIndex() const					{ return m_nIndex;					}
-	int GetOptionCnt() const				{ return m_nOptionCnt;				}
-	int GetWearCnt(int nPos) const			{ return m_option[nPos].nWearCnt;	}
+	int GetIndex() const
+	{
+		return m_nIndex;
+	}
+	int GetOptionCnt() const
+	{
+		return m_nOptionCnt;
+	}
+	int GetWearCnt(int nPos) const
+	{
+		return m_option[nPos].nWearCnt;
+	}
 
-	void SetIndex(int nIndex)				{ m_nIndex = nIndex;				}
-	
+	void SetIndex(int nIndex)
+	{
+		m_nIndex = nIndex;
+	}
+
 	void InitData(int nPos, int nIndex, int nJob, int nOptionCnt, int* pItemIdx, SETITEMOPTION * pOption);
-	const SETITEMOPTION* FindOption(int nWearCnt) const	
-	{ 
+	const SETITEMOPTION* FindOption(int nWearCnt) const
+	{
 		for (int i = 0; i < MAX_SET_ITEM_OPTION; i++)
 		{
 			if (m_option[i].nWearCnt == nWearCnt)
-				return (const SETITEMOPTION*)(m_option + i); 
+				return (const SETITEMOPTION*)(m_option + i);
 		}
-		return NULL; 
+		return NULL;
 	}
-	const SETITEMOPTION* GetOption(int n) const	{ return (const SETITEMOPTION*)(m_option + n); }
+	const SETITEMOPTION* GetOption(int n) const
+	{
+		return (const SETITEMOPTION*)(m_option + n);
+	}
 };
 
 class CSetItemProtoList
 {
-	CSetItemProto*	m_listSetItem;
-	int				m_nCount;
-
 public:
+	typedef std::map<int, CSetItemProto*> map_t;
+
 	CSetItemProtoList();
 	~CSetItemProtoList();
 
 	bool Load();
 	CSetItemProto* Find(int nIndex);
-	
+
 protected:
-	static int CompIndex(const void* p1, const void* p2)
-	{
-		CSetItemProto* d1 = (CSetItemProto*)p1;
-		CSetItemProto* d2 = (CSetItemProto*)p2;
-		return d1->GetIndex() - d2->GetIndex();
-	}
+	map_t			map_;
+	CSetItemProto*	m_listSetItem;
+	int				m_nCount;
 };
 
-#endif // SET_ITEM
-
 #endif // __SET_ITEM_PROTO_H__
+//

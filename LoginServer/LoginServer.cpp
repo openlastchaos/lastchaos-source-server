@@ -1,36 +1,52 @@
 // LoginServer.cpp : Defines the entry point for the console application.
 //
-
+#include <boost/format.hpp>
 #include "stdhdrs.h"
+
+#include "../ShareLib/bnf.h"
+#include "../ShareLib/SignalProcess.h"
 #include "Log.h"
 #include "Server.h"
-#include "DBCmd.h"
+#include "../ShareLib/DBCmd.h"
+#include "MessengerInLogin.h"
+
+#include "../ShareLib/PrintExcuteInfo.h"
+
+#ifdef SERVER_AUTHENTICATION
+#include "../ShareLib/ServerAuthentication.h"
+#endif
+
+#if !defined(CIRCLE_WINDOWS) && defined(DEV_GAMIGO_HTTPS)
+#include "../ShareLib/LCHttps.h"
+#endif // Linux Lib 사용에 GER 만 적용, // Gamigo 요청 Https 인증 방식
 
 void at_exit_exec (void)
 {
 	gserver.DisconnectDB();
 }
 
+void process_after_signal(int signo);
+
 int main(int argc, char* argv[], char* envp[])
 {
-	int nRetCode = 1004;
+	// 로그 초기화
+	LogSystem::setSubstitutedValue("logfile", "Login");
+	LogSystem::configureXml("../log.xml");
 
-#ifdef SIGPIPE
-	signal (SIGPIPE, SIG_IGN);
-#endif
+	PrintExcuteInfo::Instance()->PrintStart("Login", LC_LOCAL_STRING);
+
+	if (InitSignal(process_after_signal) == false)
+		return 1;
 
 	if (!gserver.LoadSettingFile())
 	{
-		puts("Load Setting File Error!!");
+		LOG_INFO("Load Setting File Error!!");
 		exit(0);
 	}
 
-	sprintf(g_buf, "LS%02d", gserver.m_subno);
-	g_log.InitLogFile(false, &g_gamelogbuffer, g_buf);
-
 	if (!gserver.ConnectDB())
 	{
-		puts("Connect DB Error!!");
+		LOG_INFO("Connect DB Error!!");
 		exit(0);
 	}
 
@@ -38,23 +54,66 @@ int main(int argc, char* argv[], char* envp[])
 
 	mysql_close(&gserver.m_dbdata);
 
-	puts("Login Server Running...");
+#if !defined(CIRCLE_WINDOWS) && defined(DEV_GAMIGO_HTTPS)
+	//char * ipAddr = inet_ntoa( *gserver.GetBindAddr() );
+	//if( strcmp(ipAddr, "10.1.90.31") !=0 && strcmp(ipAddr, "10.1.90.34") !=0 && strcmp(ipAddr, "10.1.90.35") !=0 && strcmp(ipAddr, "101.79.53.208") !=0)
+	if ( gserver.DoHttpsAuth() )
+	{
+		CLCHttps gamigoAuth;
+		if( gamigoAuth.Connect("https://chk.global.lc.gamigo.com/auth",
+							   "E8:E6:4C:1B:58:40:C9:70:A4:74:EB:F9:CF:C6:19:17:E3:F8:A7:DD") != CLCHttps::E_MATCH_FINGERPRINT )
+		{
+			LOG_INFO("Connect Fingerprint Error");
+			return 1;
+		}
+	}
+#endif // Linux Lib 사용에 GER 만 적용, // Gamigo 요청 Https 인증 방식
+
+	LOG_INFO("Login Server Running...");
 
 	atexit (at_exit_exec);
 
-	gserver.Run();
-	gserver.Close();
+	//////////////////////////////////////////////////////////////////////////
+	std::string bind_host = gserver.m_config.Find("Server", "IP");
+	if (bind_host == "ALL")
+		bind_host = "0.0.0.0";
 
-	gserver.DisconnectDB();
+	int bind_port = atoi(gserver.m_config.Find("Server", "Port"));
+	if (bnf::instance()->CreateListen(bind_host, bind_port, 15, &gserver) == SessionBase::INVALID_SESSION_HANDLE)
+	{
+		puts("Login : can't bind listen session");
+		return 1;
+	}
 
-	if (gserver.m_breboot)
+	bnf::instance()->CreateMSecTimer(1 * 1000, CServerTimer::instance());
+	CServerTimerPerMinute::instance()->Init();
+
+	MessengerInLogin::instance()->Connect();
+
+#ifdef SERVER_AUTHENTICATION
+	if (ServerAuthentication::instance()->isValidCompileTime() == false)
+		return 1;
+#endif
+
+	puts("Login server started...");
+	bnf::instance()->Run();
+	//////////////////////////////////////////////////////////////////////////
+
+	if (gserver.m_bshutdown)
 	{
 		remove(LOGIN_SERVER_OPEN_CHECK_FILENAME);
 		FILE *fp = fopen (".shutdown", "w");
 		fclose (fp);
 	}
 
-	GAMELOG << init("SYSTEM") << "End!" << end;
+	PrintExcuteInfo::Instance()->PrintEnd();
 
-	return nRetCode;
+	return 0;
+}
+
+void process_after_signal(int signo)
+{
+	bnf::instance()->Stop();
+
+	PrintExcuteInfo::Instance()->SetSignalNo(signo);
 }

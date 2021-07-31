@@ -1,15 +1,12 @@
 #ifndef __DRATAN_CASTLE_H__
 #define __DRATAN_CASTLE_H__
 
-#ifdef DRATAN_CASTLE
 
-#include "stdhdrs.h"
 #include "Server.h"
 #include "Log.h"
 #include "CmdMsg.h"
 #include "WarCastle.h"
 
-#ifdef DYNAMIC_DUNGEON
 class CDungeon
 {
 private:
@@ -18,32 +15,86 @@ private:
 
 	int m_nMobRate;
 	int m_nEnvRate;
-	
+
 	CZone * m_pZone;
-	int m_nChangeTime;	
+	int m_nChangeTime;
+
+	bool m_owner_mode;		//true : 성주 관리 모드, false : 일반 관리 모드
+	int m_changeNormal_time;
+	GoldType_t m_changeNeedNas;
+
 public:
 	CDungeon();
 	~CDungeon();
 
-	void SetFeeRate(int nRate)	{ m_nEnterFeeRate = nRate; }
-	void SetHuntRate(int nRate) { m_nHuntRate = nRate; }
+	void SetFeeRate(int nRate)
+	{
+		m_nEnterFeeRate = nRate;
+	}
+	void SetHuntRate(int nRate)
+	{
+		m_nHuntRate = nRate;
+	}
 
-	void SetMobRate(int nRate)	{ m_nMobRate = nRate; }
-	void SetEnvRate(int nRate)	{ m_nEnvRate = nRate; }
+	void SetMobRate(int nRate)
+	{
+		m_nMobRate = nRate;
+	}
+	void SetEnvRate(int nRate)
+	{
+		m_nEnvRate = nRate;
+	}
+
+	void setOwnerMode(bool ownerMode);
+
+	void setChangeNormalTime(int time)
+	{
+		m_changeNormal_time = time;
+	}
 	
-	int GetFeeRate()	{ return m_nEnterFeeRate; }
-	int	GetHuntRate()	{ return m_nHuntRate; }
+	void setChangeNeedNas(GoldType_t nas)
+	{
+		m_changeNeedNas = nas;
+	}
 
-	int GetMobRate()	{ return m_nMobRate; }
-	int GetEnvRate()	{ return m_nEnvRate; }
+	int GetFeeRate()
+	{
+		return m_nEnterFeeRate;
+	}
+	int	GetHuntRate()
+	{
+		return m_nHuntRate;
+	}
+
+	int GetMobRate()
+	{
+		return m_nMobRate;
+	}
+	int GetEnvRate()
+	{
+		return m_nEnvRate;
+	}
+
+	bool GetOwnerMode()
+	{
+		return m_owner_mode;
+	}
+
+	int GetChangeNormalTime()
+	{
+		return m_changeNormal_time;
+	}
+
+	GoldType_t getChangeNeedNas()
+	{
+		return m_changeNeedNas;
+	}
 
 	void ChangeFeeRate(int nRate);
 	void ChangeHuntRate(int nRate);
 
 	void ChangeEnvRate(int nRate);
 	void ChangeMobRate(int nRate);
-	
-	
 
 	void SetChangeTime(int nTime);
 	int GetChangeTime();
@@ -52,8 +103,9 @@ public:
 	CZone * GetZone();
 
 	void ChangeSetting();
+
+	bool checkOwnerMode();
 };
-#endif // DYNAMIC_DUNGEON
 
 typedef struct _tagGuard
 {
@@ -83,9 +135,11 @@ public:
 	bool InsertGuard(int idx, float x, float z, float h);
 	int GetCount(int idx);
 	int GetCount();
-	GUARD * GetGuardList(int idx);
 	int GetMaxCount();
-	int GetMaxKindCount() { return maxcount;}
+	int GetMaxKindCount()
+	{
+		return maxcount;
+	}
 	void clean();
 };
 
@@ -93,8 +147,8 @@ class CDratanCastle : public CWarCastle
 {
 public:
 	static CDratanCastle * CreateInstance();
-	
-	enum 
+
+	enum
 	{
 		TOWER_WARP = 6,
 	};
@@ -105,21 +159,17 @@ private:
 
 	static CDratanCastle * pInstance;
 
-	enum 
-	{ 
-		COUNT_DRATAN_GATE_NPC = 3,
-#ifdef TEST_SERVER
-		WAR_TIME = 60 * 60,
-#else
+	enum
+	{
+		COUNT_DRATAN_GATE_NPC = 5,
 		WAR_TIME = 2 * 60 * 60,
-#endif // TEST_SERVER
-//		WAR_TIME = 2 * PULSE_REAL_HOUR, 
+
+		REGEN_REBIRTH_NPC_TIME = 20 * 60
 	};
-	
 
 	int m_respondCnt;			// 크리스탈과 교감하고 있는 캐릭수
 	int m_RespondMember[5];		// 교감 캐릭터 인덱스
-	char m_nMasterTower[7];		// 
+	char m_nMasterTower[7];		//
 	// 공격형 타워	근거리 공격형, 원거리 공격형, 마법 공격형, 가드형 타워 속도 하락형, 능력치 하락형, 독 중독형, 워프용 워프 연결
 
 	char m_reinforce[3];	// 강화수치
@@ -135,10 +185,10 @@ public:
 	bool		m_bLoop;				// 운영자 명령으로 공성 멈춤
 	CNPC*		m_pDungeonNPC;			// 지하던전 NPC
 
-#ifdef DYNAMIC_DUNGEON
+	bool		m_isNotChange;				//운영자 명령어를 위한 변수(true 면 시간별로 감소하지 않는다.)
+
 	CDungeon	m_dvd;					// 공성 던전
-#endif // DYNAMIC_DUNGEON
-	
+
 // virtual function 구현
 protected:
 	void SetGateNPC(CNPC* npc);
@@ -146,7 +196,10 @@ protected:
 	void InitRegenPosition();
 
 public:
-	int GetZoneIndex() { return ZONE_DRATAN; }
+	int GetZoneIndex()
+	{
+		return ZONE_DRATAN;
+	}
 	void SetNextWarTime(int nextWarTime);
 	bool SetNextWarTime(int wday, int hour);
 	bool IsJoinTime();
@@ -158,20 +211,29 @@ public:
 	bool TakeLordItem(CPC* pc);
 	int GetLordItemIndex(char job1, char job2);
 	bool IsDefenseWarpPoint(int pos);
-	int GetGateNPCCount() { return (GetGateNPC(0) == NULL) ? 0 : COUNT_DRATAN_GATE_NPC; }
-	CNPC* GetGateNPC(int idx) { return (idx < 0 || idx >= COUNT_DRATAN_GATE_NPC) ? NULL : m_gateNPC[idx]; }
+	int GetGateNPCCount()
+	{
+		return (GetGateNPC(0) == NULL) ? 0 : COUNT_DRATAN_GATE_NPC;
+	}
+	CNPC* GetGateNPC(int idx)
+	{
+		return (idx < 0 || idx >= COUNT_DRATAN_GATE_NPC) ? NULL : m_gateNPC[idx];
+	}
 	void GetInnerCastleRect(char* nYlayer, int* nX0x2, int* nZ0x2, int* nX1x2, int* nZ1x2);
 // --- virtual function 구현
-	
+
 	void CheckWarCastle();
 	bool CheckSubServer();
 	int GetCurSubServerCastleZoneIndex();
-	int CheckJoin(CPC* ch);	
+	int CheckJoin(CPC* ch);
 	void CheckWarCastleNotice();
 	void CheckWarCastleStartWar();
 	void CheckWarCastleStartWarCastle();
 	void GetNextWarTime(struct tm* nextWarTime, bool bHumanable);
-	int GetNextWarTime() { return m_nextWarTime; }
+	int GetNextWarTime()
+	{
+		return m_nextWarTime;
+	}
 	void CheckWarCastleEnd();
 
 	void CheckWarCastleNPC();
@@ -189,17 +251,21 @@ public:
 	void RegenGuardNPC();
 	void RemoveGuardNPC();
 	bool LoadCastleData();
-	
-	CArea * GerArea();
-	
-	int GetRespondCount() { return m_respondCnt; }
-	void SetRespondCount(int cnt) { m_respondCnt = cnt;}
+
+	int GetRespondCount()
+	{
+		return m_respondCnt;
+	}
+	void SetRespondCount(int cnt)
+	{
+		m_respondCnt = cnt;
+	}
 
 	void InitMasterTower();
 
 	char GetTowerStatus(int i);
 	bool SetTowerStatus(int i, char values);
-	
+
 	void SetOwner(CGuild* guild);
 	void ResetOwner();
 
@@ -227,34 +293,42 @@ public:
 
 	void GetOutNonDefense();
 	bool IsInInnerCastle(CCharacter* pChar);
-	void RemoveCastleTowerHalf();
 	bool CanLordChat(CPC* pc);
-	
+
 	void ChangeAttackGuild(int gindex);
 
 	bool AddAttackGuild(int index);
 	bool AddDefenseGuild(int index);
 	bool IsAttackGuild(int index);
 	bool IsDefenseGuild(int index);
-	
+
 	void RemoveCastleControlNPC();
 	void MoveToRegenPoint();
-	
+
 	void RemoveRebirthNPC();
 	void RegenRebirthNPC();
 
 	void StopCastleTower();
 
-	// 공성이 끝났을 경우 수성만 빼고 전부 Dartan 마을로 강제 이동
-	void EndWarRegenPoint();
-
-#ifdef DYNAMIC_DUNGEON
 	// 공성 던전의 캐릭 이동 시키기
 	void MoveingDVD();
 
 	// 공성 난이도 하락
 	void CheckDVD();
-#endif // DYNAMIC_DUNGEON
+
+	void ChangeGuildNameColor();
+
+	int	GetWarTime()
+	{
+		return WAR_TIME;
+	}
+
+	int		m_nRegenTimeRebirthNPC[7];
+	void	CheckRegenRebirthNPC();
+	int		GetRegenNPCRebirthTime()
+	{
+		return REGEN_REBIRTH_NPC_TIME;
+	}
 };
-#endif // DRATAN_CASTLE
 #endif // __DRATAN_CASTLE_H__
+//

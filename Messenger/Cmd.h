@@ -1,7 +1,7 @@
 #ifndef __CMD_H__
 #define __CMD_H__
 
-#include "NetMsg.h"
+#include <map>
 
 #define CMD_NUM 200
 
@@ -14,7 +14,7 @@ public:
 	~CCmd();
 
 	int	m_cmdType;
-	void (*m_cmdFunc) (CNetMsg& msg, CDescriptor*);
+	void (*m_cmdFunc) (CNetMsg::SP& msg, CDescriptor*);
 	int m_minLevel;
 };
 
@@ -24,13 +24,13 @@ public:
 	CCmdList();
 	~CCmdList();
 
-	CCmd* m_cmd[CMD_NUM];
-	int m_cnt;
+	bool Add(int cmdType, void (*cmdFunc)(CNetMsg::SP&, CDescriptor*), int minlevel);
+	bool Run(int cmd_num, CNetMsg::SP& msg, CDescriptor* dest);
 
-	bool Add(int cmdType, void cmdFunc(CNetMsg&, CDescriptor*), int minlevel);
-	void Sort(void);
-	int Find(int cmdType);
-	void Run(int cmd_num, CNetMsg& msg, CDescriptor* dest);
+private:
+	typedef std::map<int, CCmd> map_t;
+	map_t		map_;
 };
 
 #endif
+//

@@ -1,23 +1,22 @@
 #include "stdhdrs.h"
+
 #include "Log.h"
-#include "Cmd.h"
 #include "Character.h"
 #include "Server.h"
 #include "CmdMsg.h"
 #include "doFunc.h"
 
-#ifdef FACTORY_SYSTEM
 
-void do_Factory(CPC* ch, CNetMsg& msg)
+void do_Factory(CPC* ch, CNetMsg::SP& msg)
 {
 //	if (DEAD(ch) || ch->IsSetPlayerState(PLAYER_STATE_SITDOWN))
 //		return ;
-	
-	msg.MoveFirst();
-	
+
+	msg->MoveFirst();
+
 	unsigned char subtype;
-	msg >> subtype;
-	
+	RefMsg(msg) >> subtype;
+
 	switch (subtype)
 	{
 	case MSG_FACTORY_LEARN:
@@ -26,26 +25,44 @@ void do_Factory(CPC* ch, CNetMsg& msg)
 	case MSG_FACTORY_ITEM_LIST:
 		do_FactoryList(ch, msg);
 		break;
+	case MSG_FACTORY_ITEM_MAKE_REQ:
+		do_FactoryMakeReq(ch, msg);
+		break;
 	case MSG_FACTORY_ITEM_MAKE:
 		do_FactoryMake(ch, msg);
+		break;
 	}
 }
 
-void do_FactoryLearn(CPC* ch, CNetMsg& msg)
+void do_FactoryLearn(CPC* ch, CNetMsg::SP& msg, bool GMCommand)
 {
-	CNetMsg rmsg;
-
 	try
 	{
+		msg->MoveFirst();
 		unsigned char subtype;
 		int nIndex;
-		
-		msg.MoveFirst();
-		
-		msg >> subtype
-			>> nIndex;
-		
-		CFactoryProto * pFactory = gserver.m_factoryItemProtoList.Find(nIndex);
+
+#ifdef NPC_CHECK
+		int npcIndex;
+		CNPC *npc;
+		RefMsg(msg) >> subtype
+					>> npcIndex
+					>> nIndex;
+		if(!GMCommand)
+		{
+			npc = ch->m_pArea->FindProtoNPCInCell(ch, npcIndex, false, 2);
+			if(!npc)
+			{
+				GAMELOG << init("FactoryLearn FAIL: NOT EXIST NPC (Dangerous User)", ch) << end;
+				return ;
+			}
+		}
+#else
+		RefMsg(msg) >> subtype
+					>> nIndex;
+#endif
+
+		CFactoryProto * pFactory = gserver->m_factoryItemProtoList.Find(nIndex);
 		if (!pFactory)
 			throw MSG_FACTORY_ERROR_SYSTEM;
 
@@ -53,219 +70,218 @@ void do_FactoryLearn(CPC* ch, CNetMsg& msg)
 		if (!ch->m_sealSkillList.Find(FACTORY_UNION_REG_SKILL))
 			throw MSG_FACTORY_ERROR_SYSTEM;
 
+		// 스킬 체크
+		if (!ch->m_sealSkillList.Find(pFactory->GetSealType()))
+			throw MSG_FACTORY_ERROR_SYSTEM;
+
 		// 이미 배웠으면 더 배울 필요없다.
 		if (ch->m_listFactory.Find(pFactory))
 			throw MSG_FACTORY_ERROR_ALREADY_REG;
 
 		// 나스
-		if (ch->m_moneyItem->Count() < pFactory->GetNas())
+		if ( ch->m_inventory.getMoney() < pFactory->GetNas())
 			throw MSG_FACTORY_ERROR_NAS;
 
 		// 숙련도
 		if (ch->GetSealExp(pFactory->GetSealType()) < pFactory->GetNeedExp())
 			throw MSG_FACTORY_ERROR_EXP;
 
-		// 나스 소모
-		int r, c;
-		CItem * pMoney = ch->m_moneyItem;
-		if (ch->m_invenNormal.FindItem(&r, &c, pMoney->m_idNum, pMoney->m_plus, pMoney->m_flag))
-		{
-			CItem* p = ch->m_invenNormal.GetItem(r, c);
-			if (p)
-			{
-				DecreaseFromInventory(ch, pMoney, pFactory->GetNas());
-				if (pMoney->Count() < 1)
-				{
-					ItemDeleteMsg(rmsg, pMoney);
-					SEND_Q(rmsg, ch->m_desc);
-					RemoveFromInventory(ch, pMoney, true, true);
-				}
-				else
-				{
-					ItemUpdateMsg(rmsg, pMoney, -pFactory->GetNas());
-					SEND_Q(rmsg, ch->m_desc);
-				}
-			}
-		}
+		ch->m_inventory.decreaseMoney(pFactory->GetNas());
 
 		// 추가
 		ch->m_listFactory.Add(pFactory);
 		GAMELOG << init("FACTORY ITEM LEARN", ch) << pFactory->GetIndex() << end;
-	
-		FactoryLearnMsg(rmsg, pFactory);
-		SEND_Q(rmsg, ch->m_desc);
+
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			FactoryLearnMsg(rmsg, pFactory);
+			SEND_Q(rmsg, ch->m_desc);
+		}
 	}
 	catch (MSG_FACTORY_ERROR_TYPE learnerr)
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		FactoryErrorMsg(rmsg, learnerr);
 		SEND_Q(rmsg, ch->m_desc);
 	}
 }
 
-
-void do_FactoryList(CPC* ch, CNetMsg& msg)
+void do_FactoryList(CPC* ch, CNetMsg::SP& msg)
 {
 	unsigned char subtype;
-	int nSealType;
+	char cUI;
+	int nSkillIdx;
 
-	msg.MoveFirst();
-		
-	msg >> subtype
-		>> nSealType;
+	msg->MoveFirst();
 
-	CNetMsg rmsg;
-	FactoryListMsg(rmsg, ch, nSealType);
-	SEND_Q(rmsg, ch->m_desc);
+	RefMsg(msg) >> subtype
+				>> cUI              // 클라이언트에서 UI구분을 위해
+				>> nSkillIdx;
+
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		rmsg->Init(MSG_FACTORY);
+		RefMsg(rmsg) << (unsigned char)MSG_FACTORY_ITEM_LIST
+					 << cUI
+					 << nSkillIdx;
+
+		FactoryListMsg(rmsg, ch, nSkillIdx);	// 이 함수 안쪽에서 rmsg 패킷에 여러 정보를 입력한다.
+		SEND_Q(rmsg, ch->m_desc);
+	}
 }
 
-void do_FactoryMake(CPC* ch, CNetMsg& msg)
+void do_FactoryMakeReq(CPC* ch, CNetMsg::SP& msg)
 {
-	CNetMsg rmsg;
-
 	unsigned char subtype;
 	int nIndex;
 
-	msg.MoveFirst();
-		
-	msg >> subtype
-		>> nIndex;
+	msg->MoveFirst();
+
+	RefMsg(msg) >> subtype
+				>> nIndex;
 
 	try
 	{
-		CFactoryProto * pFactory = gserver.m_factoryItemProtoList.Find(nIndex);
+		CFactoryProto * pFactory = gserver->m_factoryItemProtoList.Find(nIndex);
 		if (!pFactory)
 			throw MSG_FACTORY_ERROR_SYSTEM;
 
-		// 스킬 있냐?
-		//pFactory->GetSealType()
-		//ch->FindSkill()
+		// 스킬 체크
+		if (!ch->m_sealSkillList.Find(pFactory->GetSealType()))
+			throw MSG_FACTORY_ERROR_SKILL;
 
 		// 재료 체크
-		int i;
-		CItem* item[MAX_FACTORY_ITEM_STUFF];
-		for (i = 0; i < MAX_FACTORY_ITEM_STUFF; i++)
-		{
-			item[i] = NULL;
-			if (!pFactory->GetStuff(i))
-				continue ;
-			int r, c;
-			if (!ch->m_invenNormal.FindItem(&r, &c, pFactory->GetStuff(i)->nItemIdx, 0, 0))
-				throw MSG_FACTORY_ERROR_ITEM;
-			item[i] = ch->m_invenNormal.GetItem(r, c);
-			if (!item[i] || item[i]->Count() < pFactory->GetStuff(i)->nCount)
-				throw MSG_FACTORY_ERROR_ITEM;
-		}
-
-		// 인벤토리에 빈칸이 있는지
-		int r, c;
-		if(!ch->m_invenNormal.FindEmpty(&r, &c))
-			throw MSG_FACTORY_ERROR_INVEN;
-
-		// 제작 아이템 추가
-		bool bCountable = false;
-		CNetMsg itemMsg;
-
-		CItem * pMakeItem = gserver.m_itemProtoList.CreateItem(pFactory->GetItemIdx(), WEARING_NONE, 0, 0, 1);
-		if (AddToInventory(ch, pMakeItem, false, true, r, c))
-		{
-			// 겹쳐졌는지 검사
-			if (pMakeItem->tab() == -1)
-			{
-				// 수량 변경 알림
-				int r, c;
-				if (ch->m_invenNormal.FindItem(&r, &c, pMakeItem->m_idNum, pMakeItem->m_plus, pMakeItem->m_flag))
-				{
-					CItem* p = ch->m_invenNormal.GetItem(r, c);
-					if (p)
-						ItemUpdateMsg(itemMsg, p, pMakeItem->Count());
-				}
-			}
-			else
-			{
-				ItemAddMsg(itemMsg, pMakeItem);
-			}
-			SEND_Q(itemMsg, ch->m_desc);
-		}
-		else
-		{
-			delete pMakeItem;
-			throw MSG_FACTORY_ERROR_SYSTEM;
-		}
-
-		if (bCountable)
-			delete pMakeItem;
-
-
-		// 나스 소모
-		CItem * pMoney = ch->m_moneyItem;
-		if (ch->m_invenNormal.FindItem(&r, &c, pMoney->m_idNum, pMoney->m_plus, pMoney->m_flag))
-		{
-			CItem* p = ch->m_invenNormal.GetItem(r, c);
-			if (p)
-			{
-				DecreaseFromInventory(ch, pMoney, pFactory->GetNas());
-				if (pMoney->Count() < 1)
-				{
-					ItemDeleteMsg(rmsg, pMoney);
-					SEND_Q(rmsg, ch->m_desc);
-					RemoveFromInventory(ch, pMoney, true, true);
-				}
-				else
-				{
-					ItemUpdateMsg(rmsg, pMoney, -pFactory->GetNas());
-					SEND_Q(rmsg, ch->m_desc);
-				}
-			}
-		}
-
-		// 아이템 소모
-		for (i = 0; i < MAX_FACTORY_ITEM_STUFF; i++)
+		for (int i = 0; i < MAX_FACTORY_ITEM_STUFF; i++)
 		{
 			if (!pFactory->GetStuff(i))
 				continue;
 
-			if (item[i] && pFactory->GetStuff(i)->nItemIdx > 0)
-			{
-				DecreaseFromInventory(ch, item[i], pFactory->GetStuff(i)->nCount);
-				if (item[i]->Count() < 1)
-				{
-					ItemDeleteMsg(rmsg, item[i]);
-					SEND_Q(rmsg, ch->m_desc);
-					RemoveFromInventory(ch, item[i], true, true);
-				}
-				else
-				{
-					ItemUpdateMsg(rmsg, item[i], -pFactory->GetStuff(i)->nCount);
-					SEND_Q(rmsg, ch->m_desc);
-				}
-			}
+			if( pFactory->GetStuff(i)->nItemIdx < 1 )
+				continue;
+
+			CItem* item = ch->m_inventory.FindByDBIndex(pFactory->GetStuff(i)->nItemIdx, 0, 0);
+			if (item == NULL)
+				throw MSG_FACTORY_ERROR_ITEM;
+		}
+
+		// 인벤토리에 빈칸이 있는지
+		if (ch->m_inventory.getEmptyCount() < 1)
+			throw MSG_FACTORY_ERROR_INVEN;
+
+// [110125: selo] 보상 아이템 드롭 수정
+		if( !ch->CheckInvenForPrize(pFactory->GetItemIdx(),0,0,1) )
+		{
+			return;
+		}
+
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			rmsg->Init(MSG_FACTORY);
+			RefMsg(rmsg) << (unsigned char)MSG_FACTORY_ITEM_MAKE_REP
+						 << (unsigned char)MSG_FACTORY_ERROR_MAKE_OK;
+			SEND_Q(rmsg, ch->m_desc);
+		}
+	}
+	catch (MSG_FACTORY_ERROR_TYPE learnerr)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		FactoryErrorMsg(rmsg, learnerr);
+		SEND_Q(rmsg, ch->m_desc);
+	}
+}
+
+void do_FactoryMake(CPC* ch, CNetMsg::SP& msg)
+{
+	unsigned char subtype;
+	int nIndex;
+
+	msg->MoveFirst();
+
+	RefMsg(msg) >> subtype
+				>> nIndex;
+
+	try
+	{
+		CFactoryProto * pFactory = gserver->m_factoryItemProtoList.Find(nIndex);
+		if (!pFactory)
+			throw MSG_FACTORY_ERROR_SYSTEM;
+
+		// 스킬 체크
+		if (!ch->m_sealSkillList.Find(pFactory->GetSealType()))
+			throw MSG_FACTORY_ERROR_SKILL;
+
+		// 재료 체크
+		item_search_t vec[MAX_FACTORY_ITEM_STUFF];
+		for (int i = 0; i < MAX_FACTORY_ITEM_STUFF; i++)
+		{
+			if (!pFactory->GetStuff(i))
+				continue ;
+
+			if (pFactory->GetStuff(i)->nItemIdx < 1 )
+				continue ;
+
+			int sc = ch->m_inventory.searchItemByCondition(pFactory->GetStuff(i)->nItemIdx, 0, 0, vec[i]);
+			if (sc == 0 || sc < pFactory->GetStuff(i)->nCount)
+				throw MSG_FACTORY_ERROR_ITEM;
+		}
+
+		// 인벤토리에 빈칸이 있는지
+		if (ch->m_inventory.getEmptyCount() < 1)
+			throw MSG_FACTORY_ERROR_INVEN;
+
+		// 제작 아이템 추가
+		CItem * pMakeItem = gserver->m_itemProtoList.CreateItem(pFactory->GetItemIdx(), WEARING_NONE, 0, 0, 1);
+		if (pMakeItem == NULL)
+			throw MSG_FACTORY_ERROR_SYSTEM;
+
+		if (ch->m_inventory.addItem(pMakeItem) == false)
+		{
+			delete pMakeItem;
+			throw MSG_FACTORY_ERROR_SYSTEM;
+		}
+
+		// 아이템 소모
+		for (int i = 0; i < MAX_FACTORY_ITEM_STUFF; i++)
+		{
+			const FACTORY_STUFF * pStuff = pFactory->GetStuff(i);
+			if (!pStuff)
+				continue;
+
+			ch->m_inventory.deleteItem(vec[i], pStuff->nCount);
 		}
 
 		// 숙련도 증가
 		LONGLONG llCharExp = ch->GetSealExp(pFactory->GetSealType());
 		LONGLONG llMakeExp = pFactory->GetMakeExp();
-		LONGLONG llPlusExp = 0;
-		 	 if (llCharExp		 == llMakeExp || (llCharExp -  9) < llMakeExp)	llPlusExp = llMakeExp;
-		else if ((llCharExp - 10) > llMakeExp || (llCharExp - 19) < llMakeExp)	llPlusExp = llMakeExp * 0.8;
-		else if ((llCharExp - 20) > llMakeExp || (llCharExp - 29) < llMakeExp)	llPlusExp = llMakeExp * 0.5;
-		else if ((llCharExp - 30) > llMakeExp) llPlusExp = 0;
+		int	expProb = 0;
 
-		llCharExp += llPlusExp;
+		if (llCharExp - llMakeExp < 10 ) expProb = 100 ;
+		else if (llCharExp - llMakeExp < 20 ) expProb = 80;
+		else if (llCharExp - llMakeExp < 30 ) expProb = 50 ;
+		else expProb = 0;
+
+		if( GetRandom(1,100) <= expProb )
+		{
+			llCharExp ++;
+			CNetMsg::SP rmsg(new CNetMsg);
+			SysMsg(rmsg, MSG_SYS_FACTORY_EXP);
+			RefMsg(rmsg) << (LONGLONG)1;
+			SEND_Q(rmsg, ch->m_desc);
+		}
+
 		ch->SetSealExp(pFactory->GetSealType(), llCharExp);
 
-		FactoryMakeMsg(rmsg, ch, pFactory);
-		SEND_Q(rmsg, ch->m_desc);
-
-		SysMsg(rmsg, MSG_SYS_FACTORY_EXP);
-		rmsg << llPlusExp;
-		SEND_Q(rmsg, ch->m_desc);
-
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			FactoryMakeMsg(rmsg, ch, pFactory);
+			SEND_Q(rmsg, ch->m_desc);
+		}
 	}
 	catch (MSG_FACTORY_ERROR_TYPE learnerr)
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		FactoryErrorMsg(rmsg, learnerr);
 		SEND_Q(rmsg, ch->m_desc);
 	}
 }
 
-#endif // FACTORY_SYSTEM

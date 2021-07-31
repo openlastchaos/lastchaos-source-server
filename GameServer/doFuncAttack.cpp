@@ -1,74 +1,79 @@
 #include "stdhdrs.h"
+
 #include "Log.h"
-#include "Cmd.h"
 #include "Character.h"
 #include "Server.h"
 #include "CmdMsg.h"
-#include "doFunc.h"
 #include "Battle.h"
 #include "DratanCastle.h"
+#include "../ShareLib/packetType/ptype_old_do_attack.h"
 
 // 믈리 어택
-//N1InPersonalDungeon : BW
-
-void do_pd_Attack(CPC* pc, CNetMsg& msg)
+void do_pd_Attack(CPC* pc, CNetMsg::SP& msg)
 {
-#ifdef DRATAN_CASTLE
 	CDratanCastle * pCastle = CDratanCastle::CreateInstance();
-	if (pCastle != NULL)
+	pCastle->CheckRespond(pc);
+
+	RequestClient::doPDAttack* packet = reinterpret_cast<RequestClient::doPDAttack*>(msg->m_buf);
+
+	if (packet->multicount > 20)
 	{
-		pCastle->CheckRespond(pc);
+		LOG_ERROR("HACKING : invalid multi count[%d]. charIndex[%d]", packet->multicount, pc->m_index);
+		pc->m_desc->Close("invalid multi count");
+		return;
 	}
-#endif // DRATAN_CASTLE
 
-	//MSG_PD_ATTACK	: targetchartype(c) targetindex(n) attackType(c) multicount(c) multiindex(n:multicount) 
-	char tCharType, attackType, multicount = 0;
-	int tIndex, multiIndex = -1;
-
-	msg >> tCharType
-		>> tIndex
-		>> attackType
-		>> multicount;
-
-	if (multicount > 20) multicount = 20;
+	// multi target의 중복 검사
+	if (packet->multicount > 1)
+	{
+		std::set<int> tset;
+		for (int i = 0; i < packet->multicount; ++i)
+		{
+			if (tset.insert(packet->list[i].index).second == false)
+			{
+				LOG_ERROR("HACKING : duplicate multi target[%d]. charIndex[%d]", packet->list[i].index, pc->m_index);
+				pc->m_desc->Close("duplicate multi target");
+				return;
+			}
+		}
+	}
 
 	// 대상 검색 : 인접 셀에서만
 	CArea* area = pc->m_pArea;
-	if (!area) return ;
-	
-	CCharacter* tch = area->FindCharInCell(pc, tIndex, (MSG_CHAR_TYPE)tCharType);
-	if(!tch) return;
+	if (area == NULL)
+	{
+		LOG_ERROR("HACKING : not found area. charIndex[%d]", pc->m_index);
+		pc->m_desc->Close("not found area");
+		return;
+	}
+
+	CCharacter* tch = area->FindCharInCell(pc, packet->tIndex, (MSG_CHAR_TYPE)packet->tCharType);
+	if (tch == NULL)
+		return;
 
 	int preIndex = -1;
-	do
+	for (int i = 0; i < packet->multicount; ++i)
 	{
-		multicount--;
-		if(multicount < 0) return ;
-
-		preIndex = multiIndex;
-
-		msg >> multiIndex;
-
-		if(preIndex == multiIndex)
+		if(preIndex == packet->list[i].index)
 		{
 			// 가까운 마을로
 			int nearZone;
 			int nearZonePos;
-			int i = gserver.FindNearestZone(pc->m_pZone->m_index, GET_X(pc), GET_Z(pc), &nearZone, &nearZonePos);
-			if (i == -1)
-				return ;
-			
-			CZone* pZone = gserver.m_zones + i;
-			
+			CZone* pZone = gserver->FindNearestZone(pc->m_pZone->m_index, GET_X(pc), GET_Z(pc), &nearZone, &nearZonePos);
+			if (pZone == NULL)
+				return;
+
 			GoZone(pc, nearZone,
-				pZone->m_zonePos[nearZonePos][0],															// ylayer
-				GetRandom(pZone->m_zonePos[nearZonePos][1], pZone->m_zonePos[nearZonePos][3]) / 2.0f,		// x
-				GetRandom(pZone->m_zonePos[nearZonePos][2], pZone->m_zonePos[nearZonePos][4]) / 2.0f);		// z
+				   pZone->m_zonePos[nearZonePos][0],															// ylayer
+				   GetRandom(pZone->m_zonePos[nearZonePos][1], pZone->m_zonePos[nearZonePos][3]) / 2.0f,		// x
+				   GetRandom(pZone->m_zonePos[nearZonePos][2], pZone->m_zonePos[nearZonePos][4]) / 2.0f);		// z
 
 			return;
 		}
 
-		CCharacter* ch = area->FindCharInCell(pc, multiIndex, (MSG_CHAR_TYPE) MSG_CHAR_NPC);
+		preIndex = packet->list[i].index;
+
+		CCharacter* ch = area->FindCharInCell(pc, packet->list[i].index, (MSG_CHAR_TYPE) MSG_CHAR_NPC);
 
 		if(!ch) continue;
 
@@ -80,82 +85,85 @@ void do_pd_Attack(CPC* pc, CNetMsg& msg)
 				CElemental *ele = TO_ELEMENTAL(ch);
 				bugPC = ele->GetOwner();
 			}
-#ifdef ENABLE_PET
 			if( IS_PET(ch) )
 			{
 				CPet* pet = TO_PET(ch);
 				bugPC = pet->GetOwner();
 			}
-#endif
-			 if( IS_PC(ch) )
-			 {
-				 bugPC = TO_PC(ch);
-			 }
 
-			 if( !bugPC )
-				 return;
+			if( IS_PC(ch) )
+			{
+				bugPC = TO_PC(ch);
+			}
+
+			if( !bugPC )
+				return;
 
 			// 가까운 마을로
 			int nearZone;
 			int nearZonePos;
-			int i = gserver.FindNearestZone(bugPC->m_pZone->m_index, GET_X(bugPC), GET_Z(bugPC), &nearZone, &nearZonePos);
-			if (i == -1)
-				return ;
-			
-			CZone* pZone = gserver.m_zones + i;
-			
+			CZone* pZone = gserver->FindNearestZone(bugPC->m_pZone->m_index, GET_X(bugPC), GET_Z(bugPC), &nearZone, &nearZonePos);
+			if (pZone == NULL)
+				return;
+
 			GoZone(bugPC, nearZone,
-				pZone->m_zonePos[nearZonePos][0],															// ylayer
-				GetRandom(pZone->m_zonePos[nearZonePos][1], pZone->m_zonePos[nearZonePos][3]) / 2.0f,		// x
-				GetRandom(pZone->m_zonePos[nearZonePos][2], pZone->m_zonePos[nearZonePos][4]) / 2.0f);		// z
+				   pZone->m_zonePos[nearZonePos][0],															// ylayer
+				   GetRandom(pZone->m_zonePos[nearZonePos][1], pZone->m_zonePos[nearZonePos][3]) / 2.0f,		// x
+				   GetRandom(pZone->m_zonePos[nearZonePos][2], pZone->m_zonePos[nearZonePos][4]) / 2.0f);		// z
 
 			GAMELOG << init("PD_BUG", bugPC)
 					<< end;
 			return;
 		}
 
-		int ret;
-		ret = ProcAttack(ch, tch, ch->GetAttackType(NULL), NULL, 0);
+		int ret = ProcAttack(ch, tch, ch->GetAttackType(NULL), NULL, 0);
 		if (ret == -1)
 			return ;
-	}while(multicount);
-
+	}
 }
 
-
-void do_Attack(CPC* pc, CNetMsg& msg)
+void do_Attack(CPC* pc, CNetMsg::SP& msg)
 {
-#ifdef DRATAN_CASTLE
 	CDratanCastle * pCastle = CDratanCastle::CreateInstance();
-	if (pCastle != NULL)
-	{
-		pCastle->CheckRespond(pc);
-	}
-#endif // DRATAN_CASTLE
+	pCastle->CheckRespond(pc);
 
-	char tCharType, aCharType, attackType, multicount = 0;
-	int tIndex, aIndex;
-
-	msg >> aCharType
-		>> aIndex
-		>> tCharType
-		>> tIndex
-		>> attackType
-		>> multicount;
+	RequestClient::doAttack* packet = reinterpret_cast<RequestClient::doAttack*>(msg->m_buf);
 
 	// 동시 공격은 최대 5
-	if (multicount > 5)
-		multicount = 5;
+	if (packet->multicount > 5)
+	{
+		LOG_ERROR("HACKING : invalid multi count[%d]. charIndex[%d]", packet->multicount, pc->m_index);
+		pc->m_desc->Close("invalid multi count");
+		return;
+	}
+
+	// multi target의 중복 검사
+	if (packet->multicount > 1)
+	{
+		std::set<int> tset;
+		for (int i = 0; i < packet->multicount; ++i)
+		{
+			if (tset.insert(packet->list[i].index).second == false)
+			{
+				LOG_ERROR("HACKING : duplicate multi target[%d]. charIndex[%d]", packet->list[i].index, pc->m_index);
+				pc->m_desc->Close("duplicate multi target");
+				return;
+			}
+		}
+	}
 
 	// 대상 검색 : 인접 셀에서만
 	CArea* area = pc->m_pArea;
-	if (!area) return ;
-	CCharacter* ch = area->FindCharInCell(pc, aIndex, (MSG_CHAR_TYPE)aCharType);
+	if (area == NULL)
+		return;
+
+	CCharacter* ch = area->FindCharInCell(pc, packet->aIndex, (MSG_CHAR_TYPE)packet->aCharType);
 	if (ch == NULL)
-		return ;
-	CCharacter* tch = area->FindCharInCell(ch, tIndex, (MSG_CHAR_TYPE)tCharType);
+		return;
+
+	CCharacter* tch = area->FindCharInCell(ch, packet->tIndex, (MSG_CHAR_TYPE)packet->tCharType);
 	if (tch == NULL)
-		return ;
+		return;
 
 	// 공격자가 PC이면 자신의 캐릭만 조정
 	if (IS_PC(ch) && ch != pc)
@@ -165,6 +173,18 @@ void do_Attack(CPC* pc, CNetMsg& msg)
 	{
 	case MSG_CHAR_PC:
 		{
+			if( IS_NPC(tch))
+			{
+				CPC * pPC = TO_PC(ch);
+				CNPC * pNPC = TO_NPC(tch);
+				if( pPC->GetSummonNpc(SUMMON_NPC_TYPE_MERCENARY) == pNPC )
+					return;
+			}
+
+			//pvp보호 아이템 체크
+			if (checkPvPProtect(pc, tch) == false)
+				return;
+
 			// 공격 거리 검사
 			if (GetDistance(ch, tch) > ch->m_attackRange * 2)
 				return ;
@@ -174,12 +194,9 @@ void do_Attack(CPC* pc, CNetMsg& msg)
 				return ;
 
 			// 펫 타고 있으면 불가능
-#ifdef ENABLE_PET
 			if (pc->GetPet() && pc->GetPet()->IsMount())
 				return ;
-#endif // #ifdef ENABLE_PET
 
-#ifdef ENABLE_WAR_CASTLE
 			// 공성 아이템 착용시 해당 스킬 발동
 			int mixSkillIndex[] = { pc->m_opSturnIndex, pc->m_opBloodIndex, pc->m_opPoisonIndex, pc->m_opSlowIndex, pc->m_opMoveIndex };
 			int mixSkillLevel[] = { pc->m_opSturnLevel, pc->m_opBloodLevel, pc->m_opPoisonLevel, pc->m_opSlowLevel, pc->m_opMoveLevel };
@@ -190,7 +207,7 @@ void do_Attack(CPC* pc, CNetMsg& msg)
 			{
 				if (mixSkillIndex[i] > 0 && mixSkillLevel[i] > 0)
 				{
-					skillMixItem = gserver.m_skillProtoList.Create(mixSkillIndex[i], mixSkillLevel[i]);
+					skillMixItem = gserver->m_skillProtoList.Create(mixSkillIndex[i], mixSkillLevel[i]);
 					if (skillMixItem)
 					{
 						bool bApply;
@@ -202,16 +219,16 @@ void do_Attack(CPC* pc, CNetMsg& msg)
 						return ;
 				}
 			}
-#endif // ENABLE_WAR_CASTLE
 
 			if (IS_PC(ch))
 			{
 				CPC* pPCAttacker = TO_PC(ch);
+				CItem* weaponItem = pPCAttacker->m_wearInventory.wearItemInfo[WEARING_WEAPON];
 
 				// 암흑 공격
 				if (pPCAttacker->m_opAttackBlind > 0)
 				{
-					CSkill* pSkillBlind = gserver.m_skillProtoList.Create(415, pPCAttacker->m_opAttackBlind);
+					CSkill* pSkillBlind = gserver->m_skillProtoList.Create(415, pPCAttacker->m_opAttackBlind);
 					int nRetApplySkill = 0;
 					if (pSkillBlind)
 					{
@@ -227,7 +244,7 @@ void do_Attack(CPC* pc, CNetMsg& msg)
 				// 독 공격
 				if (pPCAttacker->m_opAttackPoison > 0)
 				{
-					CSkill* pSkillPoison = gserver.m_skillProtoList.Create(414, pPCAttacker->m_opAttackPoison);
+					CSkill* pSkillPoison = gserver->m_skillProtoList.Create(414, pPCAttacker->m_opAttackPoison);
 					int nRetApplySkill = 0;
 					if (pSkillPoison)
 					{
@@ -243,7 +260,6 @@ void do_Attack(CPC* pc, CNetMsg& msg)
 		} // PC 검사
 
 		break;
-
 
 	case MSG_CHAR_PET:
 	case MSG_CHAR_ELEMENTAL:
@@ -262,30 +278,42 @@ void do_Attack(CPC* pc, CNetMsg& msg)
 		break;
 	}
 
-	if (DEAD(ch) || TO_PC(pc)->m_bImmortal || !ch->CanAttack() || pc->IsDisable())	return ;
-#ifdef NIGHTSHADOW_SKILL
+	if(IS_PC(tch))
+	{
+		if( TO_PC(tch)->m_bImmortal == true )
+			return;
+	}
+
+	if (DEAD(ch) || !ch->CanAttack() || pc->IsDisable())	return ;
 	// 결계걸린 대상은 공격 못한다.
 	if ( tch->m_assist.m_state & AST_FREEZE )	return;
-#endif // NIGHTSHADOW_SKILL
+	//무적 버프 대상은 공격할 수 없다.
+	if ( tch->m_assist.m_state & AST_SAFEGUARD )
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		SysMsg(rmsg, MSG_SYS_DO_NOT_ATTACK_IMMOTAL);
+		SEND_Q(rmsg, pc->m_desc);
+		return;
+	}
+
 
 	// 대상이 NPC일때만 멀티 공격
 	if (!IS_NPC(tch))
-		multicount = 0;
+		packet->multicount = 0;
 
 	// 최소한 공격 1회 이상
 	bool bAttacked = false;
 	bool bAttackedPet = false;		// 애완동물은 NPC상대시 레벨 검사
 
 	// 멀티 공격 검사용
-	CLCList<int> listMultiTarget(NULL);
+	std::set<int> listMultiTarget;
 
-	int multitarget;
 	while (tch)
 	{
 		bool bBlocked = false;
 
-		// NPC를 공격할 때에만 속성맵 검사
-		if (IS_NPC(tch))
+		// NPC를 공격할 때에만 속성맵 검사 (프리PK 지역이 아닐때만)
+		if ( IS_NPC(tch) && !(tch->GetMapAttr() & MATT_FREEPKZONE) )
 		{
 			char tempy = GET_YLAYER(ch);
 			bBlocked = (!area->IsNotBlocked(ch, tch, true, tempy));
@@ -315,12 +343,6 @@ void do_Attack(CPC* pc, CNetMsg& msg)
 							pTemp->m_pulseMoveLock = 0;
 							pTemp->m_postregendelay = 0;
 						}
-
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
-						// 임시로 테스트를 위한 설정, 한대 때리면 테이밍 됨
-						pTemp->SetOwner(pc);
-						pTemp->Set_MobFlag( STATE_MONSTER_TAMING );
-#endif  // NIGHTSHADOW_SKILL	
 					}
 				}
 #else
@@ -331,75 +353,105 @@ void do_Attack(CPC* pc, CNetMsg& msg)
 					{
 						bAttackedPet = true;
 					}
-
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
-						// 임시로 테스트를 위한 설정, 한대 때리면 테이밍 됨
-						pTemp->SetOwner(pc);
-						pTemp->Set_MobFlag( STATE_MONSTER_TAMING );
-#endif  // NIGHTSHADOW_SKILL	
-
 				}
 #endif
 			}
-			listMultiTarget.AddToTail(tch->m_index);
+
+			listMultiTarget.insert(tch->m_index);
 			ret = ProcAttack(ch, tch, ch->GetAttackType(NULL), NULL, 0);
 		}
 
-		if (ret == -1)
+		if (ret == -1 || tch->m_index == -1) // ProcAttack()안에서 Character 객체가 소멸된 경우도 포함
 		{
 			tch = NULL;
 			continue ;
 		}
 
-		if (area->m_zone->IsPersonalDungeon())
+		//공격 발동형 스킬 추가
+		if( pc->m_optionAttSkillList.count() > 0 )
 		{
-			if (multicount && !DEAD(ch))
+			//공격 할 시에 적에게 스킬 적용
+			void* pos = pc->m_optionAttSkillList.GetHeadPosition();
+			bool bApply = false;
+			while (pos)
 			{
-				multicount--;
-				msg >> multitarget;
-				tch = area->FindCharInCell(ch, multitarget, (MSG_CHAR_TYPE)tCharType);
-				if (tch)
+				CSkill* skill = pc->m_passiveSkillList.GetNext(pos);
+				if (skill && skill->m_proto)
 				{
-					if (GetDistance(ch, tch) > ch->m_attackRange * 2)
-						tch = NULL;
-					if (tch && listMultiTarget.FindData(tch->m_index) != NULL)
+					int rand = GetRandom(1, 10000);
+					if( rand < skill->m_optionSkillProb )
 					{
-						GAMELOG << init("HACK ATTACK MULTI TARGET", pc)
-								<< "ZONE" << delim
-								<< pc->m_pZone->m_index << delim
-								<< "TARGET" << delim
-								<< tCharType << delim
-								<< multitarget
-								<< end;
-						if (pc->m_desc->IncreaseHackCount(1))
-							return ;
-						tch = NULL;
+						ApplySkill(ch, tch, skill, -1, bApply);
+						if(bApply == false)
+						{
+							GAMELOG << init("EVENT_PCBANG_2NDS SKILL FAILED (LOGIN) ", pc ) << end;// 스킬 적용 실패
+						}
 					}
 				}
 			}
-			else
+		}
+
+		if (area->m_zone->IsPersonalDungeon() == false)
+		{
+			tch = NULL;
+			continue;
+		}
+
+		if (packet->multicount && !DEAD(ch))
+		{
+			int multitarget = packet->list[packet->multicount].index;
+			--packet->multicount;
+
+			tch = area->FindCharInCell(ch, multitarget, (MSG_CHAR_TYPE)packet->tCharType);
+			if (tch == NULL)
+			{
+				continue;
+			}
+
+			if (GetDistance(ch, tch) > ch->m_attackRange * 2)
+			{
 				tch = NULL;
+				continue;
+			}
+
+			std::set<int>::iterator it = listMultiTarget.find(tch->m_index);
+			if (it != listMultiTarget.end())
+			{
+				GAMELOG << init("HACK ATTACK MULTI TARGET", pc)
+						<< "ZONE" << delim
+						<< pc->m_pZone->m_index << delim
+						<< "TARGET" << delim
+						<< packet->tCharType << delim
+						<< multitarget
+						<< end;
+
+				if (pc->m_desc->IncreaseHackCount(1))
+					return ;
+
+				tch = NULL;
+			}
 		}
 		else
+		{
 			tch = NULL;
-	}
+			continue;
+		}
 
-#ifdef EVENT_NEWYEAR_2006_TIME
-	// 공격시 이벤트 시간 갱신 검사
-	if (gserver.m_bNewYear2006Event && bAttacked && !ch->IsInPeaceZone(true))
-		pc->m_pulseEventNewYear2006 = gserver.m_pulse;
-#endif // #ifdef EVENT_NEWYEAR_2006_TIME
+		if (packet->multicount <= 0)
+		{
+			tch = NULL;
+			continue;
+		}
+	} // end while
 
-#ifdef ENABLE_PET
 	if (bAttackedPet && !ch->IsInPeaceZone(true))
-		pc->m_pulseLastAttackSkill = gserver.m_pulse;
-#endif // #ifdef ENABLE_PET
+		pc->m_pulseLastAttackSkill = gserver->m_pulse;
 
 #ifdef EVENT_SEARCHFRIEND_TIME
 	// 공격시 이벤트 시간 갱신 검사
-	if (gserver.m_bSearchFriendEvent && (pc->m_nEventSearchFriendListCount >= 1)
-		&& (pc->m_bEventSearchFriendSelect == true) && (pc->m_nTimeEventSearchFriend <= 216000) 
-		&& bAttacked && !ch->IsInPeaceZone(true))
-		pc->m_pulseEventSearchFriend = gserver.m_pulse;
+	if (gserver->m_bSearchFriendEvent && (pc->m_nEventSearchFriendListCount >= 1)
+			&& (pc->m_bEventSearchFriendSelect == true) && (pc->m_nTimeEventSearchFriend <= 216000)
+			&& bAttacked && !ch->IsInPeaceZone(true))
+		pc->m_pulseEventSearchFriend = gserver->m_pulse;
 #endif // #ifdef EVENT_SEARCHFRIEND_TIME
 }

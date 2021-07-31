@@ -4,1236 +4,832 @@
 #include "Descriptor.h"
 #include "Character.h"
 
-#ifdef DRATAN_CASTLE
 #include "DratanCastle.h"
-#endif // DRATAN_CASTLE
 
-#ifdef NEW_GUILD
 #include "Guild.h"
-#endif // NEW_GUILD
-
-#ifdef NEW_SERIAL_PACKAGE_EVENT
-#include "PromotionItem.h"
-#endif //NEW_SERIAL_PACKAGE_EVENT
 
 class CWarCastle;
 class CDratanCastle;
 
 // 캐릭터 관련
-void AppearMsg(CNetMsg& msg, CCharacter* ch, bool bNew = false);
-void DisappearMsg(CNetMsg& msg, CCharacter* ch);
-void StatusMsg(CNetMsg& msg, CPC* ch);
-void AtMsg(CNetMsg& msg, CPC* ch);
-void ExpSPMsg(CNetMsg& msg, LONGLONG exp, int sp);
+void AppearMsg(CNetMsg::SP& msg, CCharacter* ch, bool bNew = false, bool bAction = false );
+void DisappearMsg(CNetMsg::SP& msg, CCharacter* ch);
+void DisappearMsgForClientEffect(CNetMsg::SP& msg, CCharacter* ch, int owner_index);
+void DisappearAllMsg(CNetMsg::SP& msg);		//내 주변에 있는 것들을 지워라
+void TargetClearMsg(CNetMsg::SP& msg, int targetIndex);
+void StatusMsg(CNetMsg::SP& msg, CPC* ch);
+void AtMsg(CNetMsg::SP& msg, CPC* ch);
+void ExpSPMsg(CNetMsg::SP& msg, LONGLONG exp, int sp);
 
-#ifdef FEEITEM
-void NameChangeRepMsg(CNetMsg& msg, MSG_EX_NAMECHANGE_ERROR_TYPE type, const char* name, char bguild);
-void CashItemPurchaseRepMsg(CNetMsg& msg, MSG_EX_CASHITEM_ERROR_TYPE errorcode, int cashBalance);
-void CashItemBringRepMsg(CNetMsg& msg, MSG_EX_CASHITEM_ERROR_TYPE errorcode, bool bPresent);
-void CashItemPurchaseListRepMsg(CNetMsg& msg, MSG_EX_CASHITEM_ERROR_TYPE errorcode, int count, int idx[], int ctid[]);
-void CashItemBalanceRepMsg(CNetMsg& msg, MSG_EX_CASHITEM_ERROR_TYPE errorcode, int cashBalace);
-#ifdef LIMIT_CATALOG
-void CashItemLimitCatalAddMsg(CNetMsg& msg);
-#endif // LIMIT_CATALOG
-#ifdef CASH_ITEM_COUPON
-void CashItemCouponListRepMsg(CNetMsg& msg, MSG_EX_CASHITEM_ERROR_TYPE errorcode, int nCouponCount, CASH_COUPON* pCoupon );
-void CashItemPurchaseByCouponRepMsg(CNetMsg& msg, MSG_EX_CASHITEM_ERROR_TYPE errorcode, int cashBalance);
-#endif //CASH_ITEM_COUPON
+void NameChangeRepMsg(CNetMsg::SP& msg, MSG_EX_NAMECHANGE_ERROR_TYPE type, const char* name, char bguild);
+void CashItemPurchaseRepMsg(CNetMsg::SP& msg, MSG_EX_CASHITEM_ERROR_TYPE errorcode, int cashBalance);
+void CashItemBringRepMsg(CNetMsg::SP& msg, MSG_EX_CASHITEM_ERROR_TYPE errorcode, bool bPresent);
+void CashItemPurchaseListRepMsg(CNetMsg::SP& msg, MSG_EX_CASHITEM_ERROR_TYPE errorcode, int count, int idx[], int ctid[]);
+void CashItemBalanceRepMsg(CNetMsg::SP& msg, MSG_EX_CASHITEM_ERROR_TYPE errorcode, int cashBalace);
 
-void NameChangeFriendMsg(CNetMsg& msg, int index, const char* name, char job );
-void NameChangeGuildMemberMsg(CNetMsg& msg, int index, const char* name, char job );
+void NameChangeFriendMsg(CNetMsg::SP& msg, int index, const char* name, char job );
+void NameChangeGuildMemberMsg(CNetMsg::SP& msg, int index, const char* name, char job );
 
-void CashItemMoonstoneStartRepMsg(CNetMsg& msg, MSG_EX_CASHITEM_MOONSTONE_ERROR_TYPE errorcode, char grade);
-void CashItemGiftRecvNoticeRepMsg(CNetMsg& msg, char bGiftExist);
-void CashItemGiftSendRepMsg(CNetMsg& msg, MSG_EX_CASHITEM_ERROR_TYPE errCode);
-void CashItemGiftHistoryRepMsg(CNetMsg& msg, bool bSend, MSG_EX_CASHITEM_ERROR_TYPE errCode );
-void CashItemGiftRecvListRepMsg(CNetMsg& msg, unsigned char listflag, CNetMsg recvMsg);
-#endif // FEEITEM
+void CashItemMoonstoneStartRepMsg(CNetMsg::SP& msg, MSG_EX_CASHITEM_MOONSTONE_ERROR_TYPE errorcode, char grade);
+void CashItemGiftRecvNoticeRepMsg(CNetMsg::SP& msg, char bGiftExist);
+void CashItemGiftSendRepMsg(CNetMsg::SP& msg, MSG_EX_CASHITEM_ERROR_TYPE errCode);
+void CashItemGiftHistoryRepMsg(CNetMsg::SP& msg, bool bSend, MSG_EX_CASHITEM_ERROR_TYPE errCode );
+void CashItemGiftRecvListRepMsg(CNetMsg::SP& msg, unsigned char listflag, CNetMsg::SP& recvMsg);
+
 // 변신 관련
-void ChangeErrMsg(CNetMsg& msg, MSG_CHANGE_ERR_TYPE type);
-void ChangeStartMsg(CNetMsg& msg, CPC* ch);
-void ChangeStopMsg(CNetMsg& msg, CPC* ch);
-
+void ChangeErrMsg(CNetMsg::SP& msg, MSG_CHANGE_ERR_TYPE type);
+void ChangeStartMsg(CNetMsg::SP& msg, CPC* ch);
+void ChangeStopMsg(CNetMsg::SP& msg, CPC* ch);
 
 // 공격 관련
-void DamageMsg(CNetMsg& msg, CCharacter* ch, CCharacter* tch, MSG_DAMAGE_TYPE damageType, int skillidx, int damage, char flag);
-
-
-// Inventory
-bool InventoryMsg(CNetMsg& msg, CPC* ch, char resultArrange, int tab, int row);
-
+void DamageMsg(CNetMsg::SP& msg, CCharacter* ch, CCharacter* tch, MSG_DAMAGE_TYPE damageType, int skillidx, int damage, char flag, int holyItemIndex);
 
 // Wearing
 // 050223 : bs : plus 효과를 위한 정보 추가
-void WearingMsg(CNetMsg& msg, CPC* ch, char wearpos, int item_db_index, int item_plus);
+void WearingMsg(CNetMsg::SP& msg, CPC* ch, char wearpos, int item_db_index, int item_plus);
 // --- 050223 : bs : plus 효과를 위한 정보 추가
-
 
 // Item 관련
-void ItemNotUseMsg(CNetMsg& msg, MSG_ITEM_USE_ERROR_TYPE error);
-void ItemProlongMsg(CNetMsg& msg, int itemindex, int useTime, bool bprolong);
-void ItemUseMsg(CNetMsg& msg, CPC* ch, char tab, char row, char col, int itemindex, int extra);
-void ItemTakeMsg(CNetMsg& msg, CCharacter* ch, CItem* item);
-void ItemDeleteMsg(CNetMsg& msg, CItem* item);
-void ItemWearMsg(CNetMsg& msg, char wear_pos, CItem* item1, CItem* item2);
-void ItemSwapMsg(CNetMsg& msg, char tab_idx, char row_idx1, char col_idx1, int item_idx1, char row_idx2, char col_idx2, int item_idx2);
-void ItemAddMsg(CNetMsg& msg, CItem* item);
-void ItemUpdateMsg(CNetMsg& msg, CItem* item, LONGLONG changeCount);
-void ItemDropMsg(CNetMsg& msg, CCharacter* ch, CItem* item);
-void ItemAppearMsg(CNetMsg& msg, CItem* item);
-void ItemDisappearMsg(CNetMsg& msg, CItem* item);
-void ItemUpgradeRepMsg(CNetMsg& msg, char result);
-void ItemRefineRepMsg(CNetMsg& msg, char result);
-void ItemOptionAddRepMsg(CNetMsg& msg, CItem* item, MSG_ITEM_OPTION_ADD_RESULT result);
-void ItemOptionDelRepMsg(CNetMsg& msg, CItem* item, MSG_ITEM_OPTION_DEL_RESULT result);
-void ItemProcessRepMsg(CNetMsg& msg, MSG_ITEM_PROCESS_RESULT result);
-void ItemMakeRepMsg(CNetMsg& msg, MSG_ITEM_MAKE_RESULT result);
-void ItemMixRepMsg(CNetMsg& msg, MSG_ITEM_MIX_RESULT result);
-void ItemArcaneRepMsg(CNetMsg& msg, MSG_ITEM_ARCANE_RESULT result);
-void ItemGetMsg(CNetMsg& msg, CPC* ch, CItem* item);
-#ifdef ENABLE_CHANGEJOB
-void ItemChangeWeaponRepMsg(CNetMsg& msg, int olddbindex, int newdbindex);
-#endif
-void ItemProcessNPCMsg(CNetMsg& msg, int itemdbindex, int count, MSG_ITEM_PROCESS_NPC_ERROR_TYPE errcode);
-void ItemAddBoosterMsg(CNetMsg& msg, MSG_ITEM_ADD_BOOSTER_ERROR_TYPE errcode);
-#ifdef ENABLE_WAR_CASTLE
-void ItemMixWarItemMsg(CNetMsg& msg, MSG_ITEM_MIX_WARITEM_ERROR_TYPE errcode);
-#endif
+void ItemProlongMsg(CNetMsg::SP& msg, int itemindex, int useTime, bool bprolong);
+void ItemTakeMsg(CNetMsg::SP& msg, CCharacter* ch, CItem* item);
 
-#ifdef LEVELDOWN_SCROLL
-void ItemLevelDownErrMsg(CNetMsg& msg, MSG_ITEM_LEVELDOWN_ERROR_TYPE errcode);
-#endif	// LEVELDOWN_SCROLL
+void ItemDropMsg(CNetMsg::SP& msg, CCharacter* ch, CItem* item);
+void ItemAppearMsg(CNetMsg::SP& msg, CItem* item);
+void ItemDisappearMsg(CNetMsg::SP& msg, int vIndex);
+void ItemUpgradeRepMsg(CNetMsg::SP& msg, char result, bool isRune = false, char nPlusNum = 0);
+void ItemRefineRepMsg(CNetMsg::SP& msg, char result);
+void ItemOptionAddRepMsg(CNetMsg::SP& msg, CItem* item, MSG_ITEM_OPTION_ADD_RESULT result);
+void ItemOptionDelRepMsg(CNetMsg::SP& msg, CItem* item, MSG_ITEM_OPTION_DEL_RESULT result);
+void ItemProcessRepMsg(CNetMsg::SP& msg, MSG_ITEM_PROCESS_RESULT result);
+void ItemMakeRepMsg(CNetMsg::SP& msg, MSG_ITEM_MAKE_RESULT result);
+void ItemMixRepMsg(CNetMsg::SP& msg, MSG_ITEM_MIX_RESULT result);
+void ItemArcaneRepMsg(CNetMsg::SP& msg, MSG_ITEM_ARCANE_RESULT result);
+void ItemGetMsg(CNetMsg::SP& msg, CPC* ch, CItem* item);
+void ItemProcessNPCMsg(CNetMsg::SP& msg, int itemdbindex, int count, MSG_ITEM_PROCESS_NPC_ERROR_TYPE errcode);
+void ItemAddBoosterMsg(CNetMsg::SP& msg, MSG_ITEM_ADD_BOOSTER_ERROR_TYPE errcode);
+void ItemMixWarItemMsg(CNetMsg::SP& msg, MSG_ITEM_MIX_WARITEM_ERROR_TYPE errcode);
+void ItemCheckCompotion(CNetMsg::SP& msg, unsigned short tab, unsigned short invenIndex, int index );
 
-#ifdef ATTACK_PET // 공격형 펫 관련
-void ExAPetStatusMsg(CNetMsg& msg, CAPet* pet);
-void ExAPetFuntionMsg( CNetMsg& msg, MSG_EX_ATTACK_PET_ERRORTYPE subtype, CAPet* apet, unsigned char error );
-void HelperAttackPetMsg( CNetMsg& msg , unsigned char subtype, int ownerIndex );
-void ItemAPetWearMsg( CNetMsg& msg, char wear_pos, CItem* item1, CItem* item2 );
-void ItemAPetWearingMsg( CNetMsg& msg, CAPet* apet );
-void AddItemExAPetMsg( CNetMsg& msg, CItem* addItem );
-void ExApetSellInfo( CNetMsg& msg, CAPet* apet );
+void ItemWearCostumeMsg(CNetMsg::SP& msg, char wear_pos, CItem* item1, CItem* item2);
+void CostumeWearingMsg(CNetMsg::SP& msg, CPC* ch, char wear_pos, int item_db_index);
+void PreInventoryMsg(CNetMsg::SP& msg, CPC* ch);
 
-#ifdef APET_AI
-void APetAIListMsg(CNetMsg& msg, CAPet* apet);
-void APetAIOnOffMsg(CNetMsg& msg, CAPet* apet, unsigned char ucErrMsg);
-#endif //APET_AI
-#endif //ATTACK_PET
+// [110207:selo] 한 벌 의상
+void CostumeWearingSuitMsg(CNetMsg::SP& msg, CPC* ch);
+void prepareSuitMsg(CNetMsg::SP& msg, CPC* ch);
 
+#ifdef DEV_LETS_PARTYTIME
+void ItemPartyTypeUseMsg( CNetMsg::SP& msg, int itemIndex ,const char* nick );
+#endif //DEV_LETS_PARTYTIME
 
+void ExAPetStatusMsg(CNetMsg::SP& msg, CAPet* pet);
+void ExAPetFuntionMsg( CNetMsg::SP& msg, MSG_EX_ATTACK_PET_ERRORTYPE subtype, CAPet* apet, unsigned char error );
+void HelperAttackPetMsg( CNetMsg::SP& msg , unsigned char subtype, int ownerIndex );
+void ItemAPetWearMsg( CNetMsg::SP& msg, char wear_pos, CItem* item1, CItem* item2 );
+void ItemAPetWearingMsg( CNetMsg::SP& msg, CAPet* apet );
+void AddItemExAPetMsg( CNetMsg::SP& msg, CItem* addItem );
+void ExApetSellInfo( CNetMsg::SP& msg, CAPet* apet );
 
+void APetAIListMsg(CNetMsg::SP& msg, CAPet* apet);
+void APetAIOnOffMsg(CNetMsg::SP& msg, CAPet* apet, unsigned char ucErrMsg);
 
-void BillItemListReqMsg(CNetMsg& msg, int userindex, int charindex);
+void APetUseMsg( CNetMsg::SP& msg , unsigned char errorMsg );
+
+// 아이템 정보 전송 시 공통 적인 부분을 이 함수 안에 추가한다..
+void ItemPublicMsg(CNetMsg::SP& msg, CItem * pItem, bool bOption = true);
+
+void BillItemListReqMsg(CNetMsg::SP& msg, int userindex, int charindex);
 // 채팅관련
-void ChatWhisperMsg(CNetMsg& msg, int sindex, const char* sname, const char* rname, const char* chat);
-void SayMsg(CNetMsg& msg, MSG_CHAT_TYPE chatType, int sender_index, const char* sender_name, const char* receiver_name, const char* chat,int nGroup=-1);
-
-
-// 이동관련
-void GoZoneMsg(CNetMsg& msg, int zone, int extra, const char* ip, int port);
-void MoveMsg(CNetMsg& msg, MSG_MOVE_TYPE movetype, CCharacter* ch);
-void GotoMsg(CNetMsg& msg, CPC* ch, char bHack = 0);
-
+void ChatWhisperMsg(CNetMsg::SP& msg, int sindex, const char* sname, const char* rname, const char* chat);
+void SayMsg(CNetMsg::SP& msg, MSG_CHAT_TYPE chatType, int sender_index, const char* sender_name, const char* receiver_name, const char* chat,int nGroup=-1);
+void SayChannelMsg( CNetMsg::SP& msg, unsigned char chattype, int sender_index ,const char* sender_name, unsigned char channel, const char* chat  );
 
 // DB 관련
-#ifdef FEEITEM
-void DBCharEndMsg(CNetMsg & msg, int remain0, int remain1, unsigned int nSeed);
-#else
-void DBCharEndMsg(CNetMsg & msg);
-#endif // FEEITEM
-
-// 050223 : bs : plus 효과를 위한 정보 추가
-void DBCharExistMsg(CNetMsg& msg, int index, const char* name, const char* nick, char job, char job2, char hairstyle, char facestyle, int level, LONGLONG ex, int sp, int hp, int maxhp, int mp, int maxmp, int wear[MAX_WEARING], int plus[MAX_WEARING], int nDeleteDelayRemain);
-// --- 050223 : bs : plus 효과를 위한 정보 추가
-void DBSuccessMsg(CNetMsg& msg);
-void DBOKMsg(CNetMsg& msg, int zone);
-void DBOtherServerMsg(CNetMsg& msg, int zone, const char* ip, int port);
-
+void DBCharEndMsg(CNetMsg::SP& msg, int remain0, int remain1, unsigned int nSeed);
+void DBCharExistMsg(CNetMsg::SP& msg, int index, const char* name, const char* nick, char job, char job2, char hairstyle, char facestyle, int level, LONGLONG ex, int sp, int hp, int maxhp, int mp, int maxmp, int wear[MAX_WEARING], int plus[MAX_WEARING], int nDeleteDelayRemain);
+void DBSuccessMsg(CNetMsg::SP& msg);
+void DBOKMsg(CNetMsg::SP& msg, int zone);
+void DBOtherServerMsg(CNetMsg::SP& msg, int zone, const char* ip, int port);
 
 // 메신저 관련
-void MsgrConnectMsg(CNetMsg& msg, int version, int server, int subno, int count, int* zones);
-void MsgrRepWhisperNotFoundMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int sindex, const char* sname);
-void MsgrRepWhisperRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int sindex, const char* sname, const char* rname, const char* chat);
-void MsgrWhisperReqMsg(CNetMsg& msg, int seq, int server, int subno, int sindex, const char* sname, const char* rname, const char* chat);
-void MsgrGuildChatMsg(CNetMsg& msg, int seq, int server, int subno, int sindex, const char* sname, int guildindex, const char* chat);
-void MsgrNoticeMsg(CNetMsg& msg, int seq, int server, int subno, int zone, const char* chat);
-void MsgrLogoutReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, const char* id);
-void MsgrPlayerCountReq(CNetMsg& msg, int server, int subno, int charidx);
-void MsgrPlayerCountRep(CNetMsg& msg, int seq, int server, int subno, int zone, int charidx, int countZone, int* countPC, int* countProduce, int* countShop, int* countPlay);
-void MsgrLogoutRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, char success, const char* id);
-void MsgrEndGameReqMsg(CNetMsg& msg);
-void MsgrRebootReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone);
-void MsgrObserverMsg(CNetMsg& msg, int seq, int server, int subno, int zone, const char* chat);
+void MsgrConnectMsg(CNetMsg::SP& msg, int version, int server, int subno, int count, int* zones);
+void MsgrRepWhisperNotFoundMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int sindex, const char* sname);
+void MsgrRepWhisperRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int sindex, const char* sname, const char* rname, const char* chat);
+void MsgrWhisperReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int sindex, const char* sname, const char* rname, const char* chat);
+void MsgrNoticeMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, const char* chat);
+void MsgrUpdateRevMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int rev, const char* chat, int date);
+void MsgrLogoutReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, const char* id);
+void MsgrPlayerCountReq(CNetMsg::SP& msg, int server, int subno, int charidx);
+void MsgrPlayerCountRep(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charidx, int countZone, int* countPC, int* countProduce, int* countShop, int* countPlay);
+void MsgrLogoutRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, char success, const char* id);
+void MsgrEndGameReqMsg(CNetMsg::SP& msg);
+void MsgrRebootReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone);
+void MsgrObserverMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, const char* chat);
+void MsgrNpcNoticeMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int npcIndex, const char* chat);
 
-#ifdef NEW_DOUBLE_GM
-void MsgrDoubleEventReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int percent[]);
-void MsgrDoubleEventRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, int cmd);
+#ifdef NEW_DOUBLE_GM_AUTO
+void MsgrDoubleEventReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int percent[], int start[], int end[]);
 #else
-void MsgrDoubleEventReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, bool bStart);
-#endif
+void MsgrDoubleEventReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int percent[]);
+#endif // NEW_DOUBLE_GM_AUTO
+void MsgrDoubleEventRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, int cmd);
 
-void MsgrDoubleExpEventReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int expPercent);
+void MsgrDoubleExpEventReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int expPercent);
 
-void MsgrLattoEventReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, bool bStart, int thisServer, int thisSubno, int charIndex);
-void MsgrNewYearEventReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, bool bStart, int thisServer, int thisSubno, int charIndex);
-void MsgrValentineEventReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, bool bStart, int thisServer, int thisSubno, int charIndex);
-void MsgrWhiteDayEventReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, bool bStart, int thisServer, int thisSubno, int charIndex);
-void MsgrLetterEventReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, bool bStart, int thisServer, int thisSubno, int charIndex);
-void MsgrDoubleExpEventRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int expPercent);
-void MsgrEventReqMsg(CNetMsg& msg, int server, int subno, int zone, int thisServer, int thisSubno, int charIndex, const char* eventcmd, int flag);
+void MsgrValentineEventReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, bool bStart, int thisServer, int thisSubno, int charIndex);
+void MsgrWhiteDayEventReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, bool bStart, int thisServer, int thisSubno, int charIndex);
+void MsgrDoubleExpEventRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int expPercent);
+void MsgrEventReqMsg(CNetMsg::SP& msg, int server, int subno, int zone, int thisServer, int thisSubno, int charIndex, const char* eventcmd, int flag);
 
-void MsgrEventReqMsg(CNetMsg& msg, MSG_MSGR_TYPE msgType, int seq, int server, int subno, int zone, int charindex, int cmd, int drop);
-void MsgrEventRepMsg(CNetMsg& msg, MSG_MSGR_TYPE msgType, int seq, int server, int subno, int zone, int charindex, int cmd, int drop);
+void MsgrEventReqMsg(CNetMsg::SP& msg, MSG_MSGR_TYPE msgType, int seq, int server, int subno, int zone, int charindex, int cmd, int drop);
+void MsgrEventRepMsg(CNetMsg::SP& msg, MSG_MSGR_TYPE msgType, int seq, int server, int subno, int zone, int charindex, int cmd, int drop);
 
 #ifdef NEW_DOUBLE_EVENT_AUTO
-void MsgrDoubleEventAutoRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, char cmd, char state);
-void MsgrDoubleEventAutoReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, char cmd);
+#ifdef NEW_DOUBLE_EVENT_AUTO_TIME
+void MsgrDoubleEventAutoReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, char cmd, int start[], int end[]);
+void MsgrDoubleEventAutoRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, char cmd, char state, int start[], int end[]);
+#else
+void MsgrDoubleEventAutoRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, char cmd, char state);
+void MsgrDoubleEventAutoReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, char cmd);
+#endif // NEW_DOUBLE_EVENT_AUTO_TIME
 #endif // NEW_DOUBLE_EVENT_AUTO
 
-#ifdef UPGRADE_EVENT
-void MsgrUpgradeEventReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, char cmd, int prob);
-void MsgrUpgradeEventRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, char cmd);
-#endif // UPGRADE_EVENT
+#ifdef UPGRADE_EVENT_AUTO
+void MsgrUpgradeEventReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, char cmd, int prob, long tStart = -1, long tEnd = -1);
+void MsgrUpgradeEventRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, char cmd, long start = -1, long end = -1);
+#else // UPGRADE_EVENT_AUTO
+void MsgrUpgradeEventRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, char cmd);
+void MsgrUpgradeEventReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, char cmd, int prob);
+#endif // UPGRADE_EVENT_AUTO
+void EventEnchantRate(CNetMsg::SP& msg, unsigned char IsStart, int nEnchantRate);
 
-#ifdef MESSENGER_NEW
 // 서브 타입은 MSG_MSGR_MESSENER 관련된것만
-void MsgrMessengerChatMsg(CNetMsg& msg, MSG_MSGR_TYPE subtype, int makeCharIndex, int chatIndex, int chatColor, int charIndex, CLCString chat = "" );
-void MsgrMessengerChatMsg(CNetMsg& msg, MSG_MSGR_TYPE subtype, int makeCharIndex, int chatIndex, int chatColor, const char* charName, CLCString chat = "" );
-#endif // MESSENGER_NEW
-
-#ifdef CHANCE_EVENT
-void MsgrChanceEventReqMsg(CNetMsg & msg, int seq, int server, int subno, int zone, int charindex, int cmd, int slevel, int elevel, int percent[]);
-void MsgrChanceEventRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, int cmd);
-#endif // CHANCE_EVENT
+void MsgrMessengerChatMsg(CNetMsg::SP& msg, MSG_MSGR_TYPE subtype, int makeCharIndex, int chatIndex, int chatColor, int charIndex, CLCString chat = "" );
+void MsgrMessengerChatMsg(CNetMsg::SP& msg, MSG_MSGR_TYPE subtype, int makeCharIndex, int chatIndex, int chatColor, const char* charName, CLCString chat = "" );
 
 #ifdef DOUBLE_PET_EXP
-void MsgrDoublePetExpEventReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int PetExpPercent);
-void MsgrDoublePetExpEventRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int PetExpPercent);
+#ifdef DOUBLE_PET_EXP_AUTO
+void MsgrDoublePetExpEventReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int PetExpPercent, long start = -1, long end = -1);
+void MsgrDoublePetExpEventRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int PetExpPercent, long start = -1, long end = -1);
+#else
+void MsgrDoublePetExpEventReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int PetExpPercent);
+void MsgrDoublePetExpEventRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int PetExpPercent);
+#endif
 #endif // DOUBLE_PET_EXP
 
 #ifdef DOUBLE_ATTACK
-void MsgrDoubleAttackEventReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int AttackPercent);
-void MsgrDoubleAttackEventRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int AttackPercent);
+void MsgrDoubleAttackEventReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int AttackPercent);
+void MsgrDoubleAttackEventRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int AttackPercent);
 #endif // DOUBLE_ATTACK
 
 #ifdef EVENT_DROPITEM
-void MsgrEventDropItemReqMsg( CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, char type, int npcidx, int itemidx, int prob, int thisServer, int thisSub);
-void MsgrEventDropItemRepMsg( CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, char type, int npcidx, int itemidx, int prob, int thisServer, int thisSub);
+void MsgrEventDropItemReqMsg( CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, char type, int npcidx, int itemidx, int prob, int thisServer, int thisSub);
+void MsgrEventDropItemRepMsg( CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, char type, int npcidx, int itemidx, int prob, int thisServer, int thisSub);
 #endif // EVENT_DROPITEM
 
+void MsgrDungeonTimeReqMsg(CNetMsg::SP& msg, MSG_MSGR_TYPE type, int arg1, int arg2);
+
+void MsgrReloadCatalogMsg( CNetMsg::SP& msg , MSG_MSGR_TYPE type );
+
+void MsgrPopupNoticeMsg( CNetMsg::SP& msg , int seq, int server, int subno, int zone, int html_num, int runtime, time_t start_time );
+void MsgrPopupNoticeCloseMsg( CNetMsg::SP& msg , int seq, int server, int subno, int zone, int html_num );
+void MsgrPopupNoticeClearMsg( CNetMsg::SP& msg , int seq, int server, int subno, int zone);
+
 // 시스템 메시지
-void FailMsg(CNetMsg& msg, MSG_FAIL_TYPE failtype);
-void SysWhisperNotFoundMsg(CNetMsg& msg);
-void SysFullInventoryMsg(CNetMsg& msg, char tab);
-void SysMsg(CNetMsg& msg, MSG_SYS_TYPE systype);
-void SysBloodItemMsg(CNetMsg& msg, int itemdbindex);
-void SysEnableSuperStoneMsg(CNetMsg& msg, int fame);//0627
-void NoviceNotifyMsg(CNetMsg& msg, const char* name);
-void NoticeInfoMsg(CNetMsg& msg, int notice);//0704
-void SysCannotDuplcationMsg(CNetMsg& msg, int newIndex, int curIndex);
+void FailMsg(CNetMsg::SP& msg, MSG_FAIL_TYPE failtype);
+void SysWhisperNotFoundMsg(CNetMsg::SP& msg);
+void SysFullInventoryMsg(CNetMsg::SP& msg, char tab);
+void SysMsg(CNetMsg::SP& msg, MSG_SYS_TYPE systype);
+void SysBloodItemMsg(CNetMsg::SP& msg, int itemdbindex);
+void SysEnableSuperStoneMsg(CNetMsg::SP& msg, int fame);//0627
+void NoviceNotifyMsg(CNetMsg::SP& msg, const char* name);
+void NoticeInfoMsg(CNetMsg::SP& msg, int notice);//0704
+void SysCannotDuplcationMsg(CNetMsg::SP& msg, int newIndex, int curIndex);
 
 // 환경관련
-void EnvWeatherMsg(CNetMsg& msg, int zoneNo);
-void EnvTimeMsg(CNetMsg& msg);
-void EnvTaxChangeMsg(CNetMsg& msg);
+void EnvWeatherMsg(CNetMsg::SP& msg, int zoneNo);
 
 // 교환 관련
-void ExchangeReqMsg(CNetMsg& msg, MSG_EXCHANGE_REQ_TYPE reqType, CPC* src, CPC* dest);
-void ExchangeItemMsg(CNetMsg& msg, MSG_EXCHANGE_ITEM_ACTION action, CItem* item, LONGLONG count);
-
-// 장소 기억 관련
-void MemPosListMsg(CNetMsg& msg, CPC* ch);
-void MemPosWriteMsg(CNetMsg& msg, CPC* ch, int slot);
-
-#ifdef PRIMIUM_MEMORYBOOK
-void MemPosPlusListMsg(CNetMsg& msg, CPC* ch);
-void MemPosPlusWriteMsg(CNetMsg& msg, CPC* ch, int slot);
-#endif	// PRIMIUM_MEMORYBOOK
+void ExchangeReqMsg(CNetMsg::SP& msg, MSG_EXCHANGE_REQ_TYPE reqType, CPC* src, CPC* dest);
+void ExchangeItemMsg(CNetMsg::SP& msg, MSG_EXCHANGE_ITEM_ACTION action, CItem* item, LONGLONG count, GoldType_t nasCount);
 
 // 운영자 명령 관련
-void GMWhoAmIMsg(CNetMsg& msg, CPC* ch);
-void GMCommandMsg(CNetMsg& msg, const char* cmd);
+void GMWhoAmIMsg(CNetMsg::SP& msg, CPC* ch);
 
 // 파티 관련
-void PartyInviteMsg(CNetMsg& msg, char nPartyType, int nBossIndex, const char* strBossName);
-void PartyMsg(CNetMsg& msg, MSG_PARTY_TYPE subtype);
-void PartyAddMsg(CNetMsg& msg, int nCharIndex, const char* strCharName, CPC* tch, char isboss);
-void PartyDelMsg(CNetMsg& msg, bool bKick, int nTargetIndex);
-void PartyInfoMsg(CNetMsg& msg, int nIndex, int nLevel, int nHP, int nMaxHP, int nMP, int nMaxMP, float x, float z, char nYlayer, int nZone);
-void PartyErrorMsg(CNetMsg& msg, MSG_PARTY_ERROR_TYPE partyerror);
-void PartyAssistInfoMsg(CNetMsg& msg, CPC* tch);
-void PartyChangeBoss(CNetMsg& msg, const char* bossname, int nNewBossIndex, const char* newname, bool bMandate = false);
+void PartyInviteMsg(CNetMsg::SP& msg, char cPartyType1, char cPartyType2, char cPartyType3, int nBossIndex, const char* strBossName);;
 
-#ifdef NEW_UI
-void HelperPartyChangeTypeReqMsg(CNetMsg& msg, int nBossIndex, char partytype, char cDiviType);
-void PartyChangeType(CNetMsg& msg, char cPartyType,char cDiviType);
-#endif // NEW_UI
+void PartyMsg(CNetMsg::SP& msg, MSG_PARTY_TYPE subtype);
+void PartyAddMsg(CNetMsg::SP& msg, int nCharIndex, const char* strCharName, CPC* tch, char isboss);
+void PartyDelMsg(CNetMsg::SP& msg, bool bKick, int nTargetIndex);
+void PartyInfoMsg(CNetMsg::SP& msg, CPC* ch, bool isOnline);
+void PartyErrorMsg(CNetMsg::SP& msg, MSG_PARTY_ERROR_TYPE partyerror);
+void PartyAssistInfoMsg(CNetMsg::SP& msg, CPC* tch);
+void PartyChangeBoss(CNetMsg::SP& msg, const char* bossname, int nNewBossIndex, const char* newname, bool bMandate = false);
 
-#ifdef PARTY_RAID
-void HelperPartyEndPartyReqMsg(CNetMsg& msg, int nBossIndex);
-#endif //PARTY_RAID
+void HelperPartyChangeTypeReqMsg(CNetMsg::SP& msg, int nBossIndex, char partytype,char cDiviType,char cAllOneSet);
+void PartyChangeType(CNetMsg::SP& msg, char cPartyType,char cDiviType,char cAllOneSet);
+void PartyTypeinfo(CNetMsg::SP& msg, char cTypeAll, char cType1, char cType2);
+void PartyEndPartyStartMsg(CNetMsg::SP& msg);
+void HelperPartyEndPartyReqMsg(CNetMsg::SP& msg, int nBossIndex);
+void HelperPartyBreakReqMsg(CNetMsg::SP& msg, int nBossIndex);
+
+void HelperPartyOffline( CNetMsg::SP& msg, int nBossIndex, int targetIndex );
+void HelperPartyOnline( CNetMsg::SP& msg, int nBossIndex, int targetIndex, int targetLevel );
 
 // QuickSlot 관련
-void QuickSlotAddMsg(CNetMsg& msg, CPC* ch, char page, char slot);
-void QuickSlotListMsg(CNetMsg& msg, CPC* ch, char page);
+void QuickSlotAddMsg(CNetMsg::SP& msg, CPC* ch, char page, char slot);
+void QuickSlotListMsg(CNetMsg::SP& msg, CPC* ch, char page);
 
 // 싱글던전 - NPC 리젠관련
-void NPCRegenMsg(CNetMsg& msg, CNPC* npc, int entityIndex);
+void NPCRegenMsg(CNetMsg::SP& msg, CNPC* npc, int entityIndex);
 
 // 컨넥터 관련
-void ConnConnectMsg(CNetMsg& msg, int version, int server, int subno, int count, int* zones);
-void ConnLoginMsg(CNetMsg& msg, CDescriptor* d);
-void ConnLogoutMsg(CNetMsg& msg, const char* id);
-void ConnPlayingMsg(CNetMsg& msg, CDescriptor* d, MSG_LOGIN_TYPE mode);
-void ConnRebootReqMsg(CNetMsg& msg);
-void ConnPreopenGiftMsg(CNetMsg& msg, int userindex, int charindex, bool bCancel);
-void ConnLevelupPointMsg(CNetMsg& msg, int userindex, int point);
-void ConnStashState(CNetMsg& msg, int userindex, int charindex);
-void ConnStashCheckPassword(CNetMsg& msg, int userindex, int charindex, const char* pw);
-void ConnStashChangePassword(CNetMsg& msg, int userindex, int charindex, const char* oldpw, const char* newpw);
-void ConnStashSeal(CNetMsg& msg, int userindex, int charindex);
+void ConnConnectMsg(CNetMsg::SP& msg, int version, int server, int subno, int count, int* zones);
+void ConnLoginMsg(CNetMsg::SP& msg, CDescriptor* d);
+void ConnLogoutMsg(CNetMsg::SP& msg, const char* id);
+void ConnPlayingMsg(CNetMsg::SP& msg, CDescriptor* d, MSG_LOGIN_TYPE mode);
+void ConnRebootReqMsg(CNetMsg::SP& msg);
+void ConnPreopenGiftMsg(CNetMsg::SP& msg, int userindex, int charindex, bool bCancel);
 
-void ConnEvent2pan4panLetterReqMsg(CNetMsg& msg, int userindex, int charindex, MSG_EVENT_2PAN4PAN_WORD_TYPE wordtype);
-void ConnEvent2pan4panLetterRollbackReqMsg(CNetMsg& msg, int userindex, int charindex, MSG_EVENT_2PAN4PAN_WORD_TYPE wordtype);
 
-void ConnEvent2pan4panGoodsReqMsg(CNetMsg& msg, int userindex, int charindex);
-void ConnEvent2pan4panGoodsCommitMsg(CNetMsg& msg, int userindex, int charindex, int count, int* goodindex);
 
-void ConnEvent2pan4panBoxReqMsg(CNetMsg& msg, int userindex, int charindex);
-void ConnEvent2pan4panBoxCommitMsg(CNetMsg& msg, int userindex, int charindex, int count, int* goodindex);
-
-void ConnEvent2pan4panMoneyReqMsg(CNetMsg& msg, int userindex, int charindex, int itemindex);
-
-#ifdef EVENT_PARTNER_CODENEO
-void ConnEventPartnerCodeNEOReqMsg( CNetMsg& msg, int userindex, int createcharacter );
-#endif
 
 #ifdef RANKER_NOTICE
-void ConnRankerReqMsg(CNetMsg& msg, int userindex, int charindex);
+void ConnRankerReqMsg(CNetMsg::SP& msg, int userindex, int charindex);
 #endif
 
 // 유료아이템 관련
-void ConnCashItemPurchaseHistoryReq(CNetMsg& msg, int userindex, int charindex, int y, char m, char d);
-void ConnCashItemPurchaselistReq(CNetMsg& msg, int userindex, int charindex);
+void ConnCashItemPurchaseHistoryReq(CNetMsg::SP& msg, int userindex, int charindex, int y, char m, char d);
+void ConnCashItemPurchaselistReq(CNetMsg::SP& msg, int userindex, int charindex);
 // 역시 bPresent 이면 기프트 테이블 참조, 아니면 보통
-void ConnCashItemBringReq(CNetMsg& msg, bool bPresent, int userindex, int charindex, int count, int idx[], int ctid[]);
-void ConnCashItemPurchaseReqMsg(CNetMsg& msg, int userindex, const char* idname, int charindex, int cash, int count, int ctid[], int requestCash = -1);
-void ConnCashItemBalanceReq(CNetMsg& msg, int userindex, const char* idname);
-#ifdef CASH_ITEM_GIFT
-void ConnCashItemPresentHistoryReq(CNetMsg& msg, bool bSend, int userindex, int charindex, int y, char m, char d);
-void ConnCashItemGiftReqMsg(CNetMsg& msg, int sendUserIndex, int sendCharIndex, const char* sendCharName, const char* sendMsg, int recvuserIndex, int recvcharIndex, const char* recvcharName, int count, int idx[], int ctid[]);
-void ConnCashItemGiftRecvListReqMsg(CNetMsg& msg, int userIndex, int charIndex );
-#endif
-#ifdef CASH_ITEM_COUPON
-void ConnCashItemCouponListReq( CNetMsg& msg, int userindex, const char* idname );
-void ConnCashItemPurchaseByCouponReqMsg(CNetMsg& msg, int userindex, const char* idname, int charindex, int couponID, int cash, int count, int ctid[] );
-#endif // CASH_ITEM_COUPON
-
-
-
-/////////////////////////////////////////////
-// BANGWALL : 2005-07-05 오후 2:36:09
-// Comment : 태섭적용
-void ConnStashDeletePassword(CNetMsg& msg, int userindex, int charindex, const char* idnum);
-void ConnStashSetNewPassword(CNetMsg& msg, int userindex, int charindex, const char* newpw, const char* solpw = NULL);
-
-///////////////////////////////////////////////
-// WHS25 : 2006-11-15 오후 9 : 35
-// Comment : 미국 오픈 베타 무기 지급 이벤트
-#ifdef EVENT_OPEN_BETA_GIFT
-void ConnOpenBetaGiftMsg(CNetMsg& msg, int userindex, int charindex/*, bool bCancel*/);
-void EventOpenBetaGiftMsg(CNetMsg& msg );
-#endif // EVENT_OPEN_BETA_GIFT
-
-
-// 스킬 관련
-void SkillListMsg(CNetMsg& msg, CPC* ch);
-void SkillLearnErrorMsg(CNetMsg& msg, MSG_SKILL_LEARN_ERROR_TYPE errorcode);
-void SkillLearnMsg(CNetMsg& msg, CSkill* skill);
-void SkillReadyMsg(CNetMsg& msg, CCharacter* ch, CSkill* skill, CCharacter* tch);
-void SkillCancelMsg(CNetMsg& msg, CCharacter* ch);
-void SkillFireMsg(CNetMsg& msg, CCharacter* ch, CSkill* skill, CCharacter* tch, char count, char* mtargettype, int* mtargetindex, char cMoveChar, float x, float z, float h, float r, char yLayer);
-void SkillErrorMsg(CNetMsg& msg, MSG_SKILL_ERROR_TYPE errcode, int skillindex, int extraInfo);
-void SkillAutoUseMsg(CNetMsg& msg, int skillindex);
+void ConnCashItemBringReq(CNetMsg::SP& msg, bool bPresent, int userindex, int charindex, int count, int idx[], int ctid[]);
+void ConnCashItemPurchaseReqMsg(CNetMsg::SP& msg, int userindex, const char* idname, int charindex, int cash, int count, int ctid[], int requestCash = -1);
+void ConnCashItemBalanceReq(CNetMsg::SP& msg, int userindex, const char* idname);
+void ConnCashItemPresentHistoryReq(CNetMsg::SP& msg, bool bSend, int userindex, int charindex, int y, char m, char d);
+void ConnCashItemGiftReqMsg(CNetMsg::SP& msg, int sendUserIndex, int sendCharIndex, const char* sendCharName, const char* sendMsg, int recvuserIndex, int recvcharIndex, const char* recvcharName, int count, int idx[], int ctid[]);
+void ConnCashItemGiftRecvListReqMsg(CNetMsg::SP& msg, int userIndex, int charIndex );
 
 // 캐릭터 보조/저주 상태 관련
-void AssistAddMsg(CNetMsg& msg, CCharacter* ch, int itemidx, int index, char level, int remain);
-void AssistDelMsg(CNetMsg& msg, CCharacter* ch, int itemidx, int index);
-void AssistListMsg(CNetMsg& msg, CPC* ch);
+void AssistAddMsg(CNetMsg::SP& msg, CCharacter* ch, int itemidx, int index, char level, int remain
+				  , int remainCount
+				 );
+void AssistModifyMsg(CNetMsg::SP& msg, CCharacter* ch, int itemidx, int index, char level, int remain, int remainCount);
+void AssistDelMsg(CNetMsg::SP& msg, CCharacter* ch, int itemidx, int index);
+void AssistListMsg(CNetMsg::SP& msg, CPC* ch);
 
 // 몹 상태 메시지
-void CharStatusMsg(CNetMsg& msg, CCharacter* ch, int state2);
+void CharStatusMsg(CNetMsg::SP& msg, CCharacter* ch, LONGLONG state2);
 
 // 부활 msg
-void RebirthMsg(CNetMsg& msg, CCharacter* ch);
+void RebirthMsg(CNetMsg::SP& msg, CCharacter* ch);
 
 // 기타 이펙트 메시지
-void EffectEtcMsg(CNetMsg& msg, CCharacter* ch, MSG_EFFECT_ETC_TYPE effectType);
-void EffectSkillMsg(CNetMsg& msg, CCharacter* ch, const CSkillProto* proto);
-void EffectProduceMsg(CNetMsg& msg, CCharacter* ch, CCharacter* tch, MSG_PRODUCE_KIND kind);
-void EffectItemMsg(CNetMsg& msg, CCharacter* ch, CItem* item);
+void EffectEtcMsg(CNetMsg::SP& msg, CCharacter* ch, MSG_EFFECT_ETC_TYPE effectType);
+void EffectSkillMsg(CNetMsg::SP& msg, CCharacter* ch, const CSkillProto* proto);
+void EffectProduceMsg(CNetMsg::SP& msg, CCharacter* ch, CCharacter* tch, MSG_PRODUCE_KIND kind);
+void EffectItemMsg(CNetMsg::SP& msg, CCharacter* ch, CItem* item);
 
 // 퀘스트 msg
-void QuestPCListMsg(CNetMsg& msg, CPC* pc);
-void QuestNPCListMsg(CNetMsg& msg, int total, int* flag, int* index);
-void QuestCreateListMsg(CNetMsg& msg, int count, int* index);
-void QuestStartMsg(CNetMsg& msg, CQuest* quest);
-void QuestCompleteMsg(CNetMsg& msg, CQuest* quest);
-void QuestStatusMsg(CNetMsg& msg, CQuest* quest);
-void QuestPrizeMsg(CNetMsg& msg, CQuest* quest);
-void QuestGiveUpMsg(CNetMsg& msg, CQuest* quest);
-void QuestFailMsg(CNetMsg& msg, CQuest* quest);
-void QuestErrorMsg(CNetMsg& msg, MSG_QUEST_ERROR_TYPE type);
+void QuestPCListMsg(CNetMsg::SP& msg, CPC* pc);
+void QuestNPCListMsg(CNetMsg::SP& msg, int total, int* flag, int* index);
+void QuestCreateListMsg(CNetMsg::SP& msg, int count, int* index);
+void QuestStartMsg(CNetMsg::SP& msg, CQuest* quest);
+void QuestCompleteMsg(CNetMsg::SP& msg, CQuest* quest);
+void QuestStatusMsg(CNetMsg::SP& msg, CQuest* quest);
+void QuestPrizeMsg(CNetMsg::SP& msg, CQuest* quest);
+void QuestGiveUpMsg(CNetMsg::SP& msg, CQuest* quest);
+void QuestFailMsg(CNetMsg::SP& msg, CQuest* quest);
+void QuestErrorMsg(CNetMsg::SP& msg, MSG_QUEST_ERROR_TYPE type);
 
-void QuestCompleteListMsg(CNetMsg& msg, CPC* pc);
-void QuestAbandonListMsg(CNetMsg& msg, CPC* pc);
-void QuestGiveUpMsg(CNetMsg& msg, int questIndex);
-void QuestForceGiveUpMsg(CNetMsg& msg, CQuest* quest);
-void QuestUnCompleteMsg(CNetMsg& msg, CQuest* quest);
+void QuestCompleteListMsg(CNetMsg::SP& msg, CPC* pc);
+void QuestAbandonListMsg(CNetMsg::SP& msg, CPC* pc);
+void QuestGiveUpMsg(CNetMsg::SP& msg, int questIndex);
+void QuestForceGiveUpMsg(CNetMsg::SP& msg, CQuest* quest);
 
-void QuestPD4ErrorMsg(CNetMsg& smg, MSG_QUEST_PD4_ERROR_TYPE type);
+void QuestPD4ErrorMsg(CNetMsg::SP& msg, MSG_QUEST_PD4_ERROR_TYPE type);
+void QuestRestoreAbandonMsg(CNetMsg::SP& msg, int nRestoreCount, int nRestoreIndex[]);
+
 // 스탯 포인트 관련
-void StatPointRemainMsg(CNetMsg& msg, CPC* ch);
-void StatPointUseMsg(CNetMsg& msg, CPC* ch, MSG_STATPOINT_USE_TYPE type, int value);
-void StatPointErrorMsg(CNetMsg& msg, MSG_STATPOINT_ERROR_TYPE errcode);
-
-// Action 관련
-void ActionMsg(CNetMsg& msg, CPC* ch, char type, char action);
+void StatPointRemainMsg(CNetMsg::SP& msg, CPC* ch);
+void StatPointUseMsg(CNetMsg::SP& msg, CPC* ch, MSG_STATPOINT_USE_TYPE type, int value);
+void StatPointErrorMsg(CNetMsg::SP& msg, MSG_STATPOINT_ERROR_TYPE errcode);
 
 // 이동 장치 관련
-void WarpStartMsg(CNetMsg& msg, CPC* ch);
-void WarpCancelMsg(CNetMsg& msg, CPC* ch);
-void WarpEndMsg(CNetMsg& msg, CPC* ch);
-void WarpTeleportMsg(CNetMsg& msg, int pos, CPC* ch);
-#ifdef ENABLE_WAR_CASTLE
-void WarpPromptMsg(CNetMsg& msg, int zoneindex, int pos);
-#endif
+void WarpStartMsg(CNetMsg::SP& msg, CPC* ch);
+void WarpCancelMsg(CNetMsg::SP& msg, CPC* ch);
+void WarpEndMsg(CNetMsg::SP& msg, CPC* ch);
+void WarpTeleportMsg(CNetMsg::SP& msg, int pos, CPC* ch);
+void WarpPromptMsg(CNetMsg::SP& msg, int zoneindex, int pos);
 
-void WarpErrorMsg(CNetMsg& msg, MSG_WARP_ERROR_TYPE subtype, const char* name);
-void WarpReqIngMsg(CNetMsg& msg, MSG_WARP_TYPE subtype);
-void WarpReqMsg(CNetMsg& msg, CPC* ch, MSG_WARP_TYPE subtype);
-
-// 특수 스킬 관련
-void SSkillListMsg(CNetMsg& msg, CPC* ch);
-void SSkillLearnErrorMsg(CNetMsg& msg, MSG_SSKILL_LEARN_ERROR_TYPE errorcode);
-void SSkillLearnMsg(CNetMsg& msg, CSSkill* sskill);
-void SSkillRemoveMsg(CNetMsg& msg, CSSkill* sskill);
+void WarpErrorMsg(CNetMsg::SP& msg, MSG_WARP_ERROR_TYPE subtype, const char* name);
+void WarpReqIngMsg(CNetMsg::SP& msg, MSG_WARP_TYPE subtype);
+void WarpReqMsg(CNetMsg::SP& msg, CPC* ch, MSG_WARP_TYPE subtype);
 
 // PK 관련 메시지
-void PKItemSealMsg(CNetMsg& msg, CItem* item);
-void PKRecoverItemSealMsg(CNetMsg& msg, CItem* item);
-void PKErrorMsg(CNetMsg& msg, char errcode);
+void PKItemSealMsg(CNetMsg::SP& msg, CItem* item);
+void PKRecoverItemSealMsg(CNetMsg::SP& msg, CItem* item);
+void PKErrorMsg(CNetMsg::SP& msg, char errcode);
 #ifdef FREE_PK_SYSTEM
-void FreePKMsg(CNetMsg& msg);
+void FreePKMsg(CNetMsg::SP& msg);
 #endif //FREE_PK_SYSTEM
 
 // 이벤트 관련
-void EventErrorMsg(CNetMsg& msg, MSG_EVENT_ERROR_TYPE errcode);
-void EventPreopenGiftMsg(CNetMsg& msg, int itemdbindex);
-void EventLattoMsg(CNetMsg& msg, MSG_EVENT_LATTO_TYPE type, int arg1 = -1, int arg2 = -1);
-void EventLetterMsg(CNetMsg& msg, MSG_EVENT_LETTER_TYPE type);
-void EventChangeWeaponMsg(CNetMsg& msg, int olddbindex, int newdbindex);
-void EventMoonStoneMsg(CNetMsg& msg, MSG_EVENT_MOONSTONE_TYPE type, MSG_EVENT_MOONSTONE_CHANGE_TYPE subtype, int arg1 = -1, int arg2 = -1, int accumulate = 0);
-void EventTreasureBoxMsg(CNetMsg& msg, MSG_EVENT_TREASUREBOX_TYPE type, int arg);
-void EventSuperStoneMsg(CNetMsg& msg, MSG_EVENT_SUPERSTONE_TYPE type);//0627
-void EventChangeWithoutOptionMsg(CNetMsg& msg, int olditem, int newsubtype);
-void Event2pan4panLetterMsg(CNetMsg& msg, MSG_EVENT_2PAN4PAN_WORD_TYPE wordtype);
-void Event2pan4panGoodsCheckMsg(CNetMsg& msg, int count);
-void Event2pan4panGoodsRepMsg(CNetMsg& msg, MSG_EVENT_2PAN4PAN_GOODS_ERROR_TYPE errcode, int count, int* items, LONGLONG* itemcounts);
-void Event2pan4panBoxCheckMsg(CNetMsg& msg, int count);
-void Event2pan4panBoxRepMsg(CNetMsg& msg, MSG_EVENT_2PAN4PAN_BOX_ERROR_TYPE errcode, int count, int* items, LONGLONG* itemcounts);
-void Event2pan4panMoneyRepMsg(CNetMsg& msg, int success);
-#ifdef EVENT_PCBANG
-void EventPCbangRepMsg(CNetMsg& msg, int index);
-#endif
-
-#ifdef EVENT_TREASUREBOX_RED
-void EventTreasureBoxRedMsg(CNetMsg& msg, MSG_EVENT_TREASUREBOX_TYPE type, int arg);
-#endif // EVENT_TREASUREBOX_RED
+void EventErrorMsg(CNetMsg::SP& msg, MSG_EVENT_ERROR_TYPE errcode);
+void EventTreasureBoxMsg(CNetMsg::SP& msg, MSG_EVENT_TREASUREBOX_TYPE type, int arg);
+void EventSuperStoneMsg(CNetMsg::SP& msg, MSG_EVENT_SUPERSTONE_TYPE type);//0627
 
 // 개인상점
-void PersonalShopErrorMsg(CNetMsg& msg, MSG_PERSONALSHOP_ERROR_TYPE errcode);
-void PersonalShopSellStartMsg(CNetMsg& msg, CPC* ch);
-void PersonalShopSellListMsg(CNetMsg& msg, CPC* ch);
-void PersonalShopChangeMsg(CNetMsg& msg, CPC* ch);
-void PersonalShopBuyMsg(CNetMsg& msg, CNetMsg& buymsg, CPC* tch);
+void PersonalShopErrorMsg(CNetMsg::SP& msg, MSG_PERSONALSHOP_ERROR_TYPE errcode);
+void PersonalShopSellStartMsg(CNetMsg::SP& msg, CPC* ch);
+void PersonalShopSellListMsg(CNetMsg::SP& msg, CPC* ch);
+void PersonalShopChangeMsg(CNetMsg::SP& msg, CPC* ch);
+void PersonalShopBuyMsg(CNetMsg::SP& msg, CNetMsg::SP& buymsg, CPC* tch);
 
 // 정당방위 관련
-void RightAttackMsg(CNetMsg& msg, CPC* target, MSG_RIGHT_ATTACK_TYPE type);
-
-// 창고 관련
-void StashIsSetPassword(CNetMsg& msg, bool bisset);
-void StashErrorMsg(CNetMsg& msg, MSG_STASH_ERROR_TYPE err);
-void StashListRepMsg(CNetMsg& msg, const CItem* item, bool isstart, bool isend, bool isempty, int remain = 0);
-void StashKeepRepMsg(CNetMsg& msg, int keepcount, int* itemdbindex, LONGLONG* count);
-void StashTakeRepMsg(CNetMsg& msg, int takecount, int* itemdbindex, LONGLONG* count);
-void StashChangePasswordRepMsg(CNetMsg& msg, bool bisset);
-void StashSealMsg(CNetMsg& msg);
-
-/////////////////////////////////////////////
-// BANGWALL : 2005-07-05 오후 2:36:31
-// Comment : 테섭적용
-
-void StashSetNewPasswordRepMsg(CNetMsg& msg, char bsuccess);
-void StashDeletePasswordRepMsg(CNetMsg& msg, char bsuccess);
-
+void RightAttackMsg(CNetMsg::SP& msg, CPC* target, MSG_RIGHT_ATTACK_TYPE type);
 
 // 길드 관련
-void GuildErrorMsg(CNetMsg& msg, MSG_GUILD_ERROR_TYPE errcode);
-void GuildInfoMsg(CNetMsg& msg, CPC* pc);
-void GuildListMsg(CNetMsg& msg, CPC* pc);
-void GuildOnlineMsg(CNetMsg& msg, CGuildMember* member);
-void GuildLevelInfoMsg(CNetMsg& msg, int guildindex, int guildlevel);
-void GuildBreakUpNotifyMsg(CNetMsg& msg, int guildindex, const char* guildname);
-void GuildRegistCancelMsg(CNetMsg& msg, bool bTarget);
-void GuildMemberAddMsg(CNetMsg& msg, int guildindex, int charindex, const char* name);
-void GuildMemberOutMsg(CNetMsg& msg, int guildindex, int charindex, const char* name);
-void GuildMemberKickMsg(CNetMsg& msg, int guildindex, int bossindex, int charindex, const char* name);
-void GuildInfoChangeMsg(CNetMsg& msg, int charindex, int guildindex, const char* name, MSG_GUILD_POSITION_TYPE pos);
-void GuildChangeBossMsg(CNetMsg& msg, int guildindex, int current, int change);
-void GuildAppointOfficerMsg(CNetMsg& msg, int guildindex, int charindex);
-void GuildFireOfficerMsg(CNetMsg& msg, int guildindex, int charindex);
+void GuildErrorMsg(CNetMsg::SP& msg, MSG_GUILD_ERROR_TYPE errcode, CGuild * guild = NULL);
+void GuildInfoMsg(CNetMsg::SP& msg, CPC* pc);
+void GuildListMsg(CNetMsg::SP& msg, CPC* pc);
+void GuildOnlineMsg(CNetMsg::SP& msg, CGuildMember* member);
+void GuildLevelInfoMsg(CNetMsg::SP& msg, int guildindex, int guildlevel);
+void GuildBreakUpNotifyMsg(CNetMsg::SP& msg, int guildindex, const char* guildname);
+void GuildRegistCancelMsg(CNetMsg::SP& msg, bool bTarget);
+void GuildMemberAddMsg(CNetMsg::SP& msg, int guildindex, int charindex, const char* name);
+void GuildMemberOutMsg(CNetMsg::SP& msg, int guildindex, int charindex, const char* name);
+void GuildMemberKickMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex, const char* name);
+void GuildInfoChangeMsg(CNetMsg::SP& msg, int charindex, int guildindex, const char* name, MSG_GUILD_POSITION_TYPE pos, CPC* ch);
+void GuildChangeBossMsg(CNetMsg::SP& msg, int guildindex, int current, int change);
+void GuildAppointOfficerMsg(CNetMsg::SP& msg, int guildindex, int charindex);
+void GuildFireOfficerMsg(CNetMsg::SP& msg, int guildindex, int charindex);
 
-void GuildBattleReqReqMsg(CNetMsg& msg, int guildindex, const char* name, int prize, int time);
-void GuildBattleReqRejectMsg(CNetMsg& msg, int reject_charindex);
-void GuildBattleReqAccpetMsg(CNetMsg& msg, int guidindex1, const char* name1, int guildindex2, const char* name2, int prize, int zone, int time);
-void GuildBattleStopReqMsg(CNetMsg& msg, int guildindex, const char* name);;
-void GuildBattleStopRejectMsg(CNetMsg& msg, int reject_charindex);
-void GuildBattleEndMsg(CNetMsg& msg, int winner_guildindex, int guidindex1, const char* name1, int guildindex2, const char* name2, int prize);
-void GuildBattleStartMsg(CNetMsg& msg, int guidindex1, const char* name1, int guildindex2, const char* name2, int prize, int zone, int time);
-void GuildBattleStatusMsg(CNetMsg& msg, int guildindex1, const char* name1, int killcount1, int guildindex2, const char* name2, int killcount2, int battletime, int battleZone);
-void GuildBattleErrMsg(CNetMsg& msg, MSG_GUILD_EROOR_BATTLE_TYPE type);
-#ifdef ENABLE_WAR_CASTLE
-void GuildWarGetTimeMsg(CNetMsg& msg, MSG_GUILD_WAR_ERROR_TYPE errcode, CWarCastle* castle);
-void GuildWarNoticeTimeMsg(CNetMsg& msg, int zoneindex, char month, char day, char hour, char min);
-void GuildWarNoticeTimeRemainMsg(CNetMsg& msg, int zoneindex, char min);
-void GuildWarNoticeStartMsg(CNetMsg& msg, int zoneindex, int remainSec);
-void GuildWarJoinAttackGuildMsg(CNetMsg& msg, MSG_GUILD_WAR_ERROR_TYPE errcode, CWarCastle* castle);
-void GuildWarJoinDefenseGuildMsg(CNetMsg& msg, MSG_GUILD_WAR_ERROR_TYPE errcode, CWarCastle* castle);
-void GuildWarJoinAttackCharMsg(CNetMsg& msg, MSG_GUILD_WAR_ERROR_TYPE errcode, CWarCastle* castle);
-void GuildWarJoinDefenseCharMsg(CNetMsg& msg, MSG_GUILD_WAR_ERROR_TYPE errcode, CWarCastle* castle);
-void GuildWarPointMsg(CNetMsg& msg, CPC* pc, CWarCastle* castle);
-void GuildWarNoticeStartCastleMsg(CNetMsg& msg, int zoneindex, int remainSec, int guildindex1, const char* guildname1, int guildindex2, const char* guildname2, int guildindex3, const char* guildname3);
-void GuildWarNoticeRemainFieldTimeMsg(CNetMsg& msg, int zoneindex, int remainSec);
-void GuildWarCastleStateMsg(CNetMsg& msg, int zoneindex, CPC* pc, CWarCastle* castle);
-void GuildWarGateStateMsg(CNetMsg& msg, int oldstate, int newstate);
-void GuildWarEndMsg(CNetMsg& msg, int zoneindex, char bWinDefense, int ownerindex, const char* ownername, int charindex, const char* charname, int nextMonth, int nextDay, int nextHour, int wDay);
-void GuildWarSetTimeRepMsg(CNetMsg& msg, MSG_GUILD_WAR_ERROR_TYPE errcode, char month, char day, char hour, char min);
-void GuildWarInvalidCommandMsg(CNetMsg& msg, MSG_GUILD_TYPE reqtype);
-void GuildStashHistoryRepMsg(CNetMsg& msg, MSG_GUILD_STASH_ERROR_TYPE errcode, int month[7], int day[7], LONGLONG money[7]);
-void GuildStashViewRepMsg(CNetMsg& msg, MSG_GUILD_STASH_ERROR_TYPE errcode, LONGLONG money);
-void GuildStashTakeRepMsg(CNetMsg& msg, MSG_GUILD_STASH_ERROR_TYPE errcode);
-#endif // #ifdef ENABLE_WAR_CASTLE
+void GuildBattleReqReqMsg(CNetMsg::SP& msg, int guildindex, const char* name, int prize, int time);
+void GuildBattleReqRejectMsg(CNetMsg::SP& msg, int reject_charindex);
+void GuildBattleReqAccpetMsg(CNetMsg::SP& msg, int guidindex1, const char* name1, int guildindex2, const char* name2, int prize, int zone, int time);
+void GuildBattleStopReqMsg(CNetMsg::SP& msg, int guildindex, const char* name);;
+void GuildBattleStopRejectMsg(CNetMsg::SP& msg, int reject_charindex);
+void GuildBattleEndMsg(CNetMsg::SP& msg, int winner_guildindex, int guidindex1, const char* name1, int guildindex2, const char* name2, int prize);
+void GuildBattleStatusMsg(CNetMsg::SP& msg, int guildindex1, const char* name1, int killcount1, int guildindex2, const char* name2, int killcount2, int battletime, int battleZone);
+void GuildBattleErrMsg(CNetMsg::SP& msg, MSG_GUILD_EROOR_BATTLE_TYPE type);
 
-#ifdef NEW_GUILD
-void GuildInclineEstablishMsg( CNetMsg& msg, char guildincline ); 
-void GuildNewInfo( CNetMsg& msg, CPC* ch, int avelevel, int guildpoint, int usepoint );
-void GuildMemberListRep( CNetMsg& msg, int membercount, int* membercharindex, int* cumulatePoint, const char CharName[][MAX_CHAR_NAME_LENGTH], const char PositionName[][GUILD_POSITION_NAME+1], char* job, char* job2, int* level, int* position, CGuild* guild );
-void GuildNewManageRep( CNetMsg& msg, int membercount, int* membercharindex, int* contributeExp, int* contributeFame, const char CharName[][MAX_CHAR_NAME_LENGTH], const char PositionName[][GUILD_POSITION_NAME+1], int* level, int* position,  CGuild* guild, char first );
-void GuildNewNotify( CNetMsg& msg,const char* title, const char* text );
-void GuildNewNotifyTrans( CNetMsg& msg, const char* guildname, const char* title, const char* text );
-void GuildSkillListRepMsg( CNetMsg& msg, int skillcount, int* skillIndex, int* skillLearnLevel );
-void GuildSkillLearnMsg(CNetMsg& msg, CSkill* skill);
+void GuildWarGetTimeMsg(CNetMsg::SP& msg, MSG_GUILD_WAR_ERROR_TYPE errcode, CWarCastle* castle);
+void GuildWarNoticeTimeMsg(CNetMsg::SP& msg, int zoneindex, char month, char day, char hour, char min);
+void GuildWarNoticeTimeRemainMsg(CNetMsg::SP& msg, int zoneindex, char min);
+void GuildWarNoticeStartMsg(CNetMsg::SP& msg, int zoneindex, int remainSec);
+void GuildWarJoinAttackGuildMsg(CNetMsg::SP& msg, MSG_GUILD_WAR_ERROR_TYPE errcode, CWarCastle* castle);
+void GuildWarJoinDefenseGuildMsg(CNetMsg::SP& msg, MSG_GUILD_WAR_ERROR_TYPE errcode, CWarCastle* castle);
+void GuildWarJoinAttackCharMsg(CNetMsg::SP& msg, MSG_GUILD_WAR_ERROR_TYPE errcode, CWarCastle* castle);
+void GuildWarJoinDefenseCharMsg(CNetMsg::SP& msg, MSG_GUILD_WAR_ERROR_TYPE errcode, CWarCastle* castle);
+void GuildWarPointMsg(CNetMsg::SP& msg, CPC* pc, CWarCastle* castle);
+void GuildWarNoticeStartCastleMsg(CNetMsg::SP& msg, int zoneindex, int remainSec, int guildindex1, const char* guildname1, int guildindex2, const char* guildname2, int guildindex3, const char* guildname3);
+void GuildWarNoticeRemainFieldTimeMsg(CNetMsg::SP& msg, int zoneindex, int remainSec);
+void GuildWarCastleStateMsg(CNetMsg::SP& msg, int zoneindex, CPC* pc, CWarCastle* castle);
+void GuildWarGateStateMsg(CNetMsg::SP& msg, int oldstate, int newstate);
+void GuildWarEndMsg(CNetMsg::SP& msg, int zoneindex, char bWinDefense, int ownerindex, const char* ownername, int charindex, const char* charname, int nextMonth, int nextDay, int nextHour, int wDay);
+void GuildWarSetTimeRepMsg(CNetMsg::SP& msg, MSG_GUILD_WAR_ERROR_TYPE errcode, char month, char day, char hour, char min);
+void GuildWarInvalidCommandMsg(CNetMsg::SP& msg, MSG_GUILD_TYPE reqtype);
+void GuildStashHistoryRepMsg(CNetMsg::SP& msg, MSG_GUILD_STASH_ERROR_TYPE errcode, int month[7], int day[7], LONGLONG money[7]);
+void GuildStashViewRepMsg(CNetMsg::SP& msg, MSG_GUILD_STASH_ERROR_TYPE errcode, LONGLONG money);
+void GuildStashTakeRepMsg(CNetMsg::SP& msg, MSG_GUILD_STASH_ERROR_TYPE errcode);
 
+void GuildInclineEstablishMsg( CNetMsg::SP& msg, char guildincline );
+void GuildNewInfo( CNetMsg::SP& msg, CPC* ch, int avelevel, int guildpoint, int usepoint );
+void GuildMemberListRep( CNetMsg::SP& msg, int membercount, int* membercharindex, int* cumulatePoint, const char CharName[][MAX_CHAR_NAME_LENGTH  + 1], const char PositionName[][GUILD_POSITION_NAME+1], char* job, char* job2, int* level, int* position, CGuild* guild );
+#ifdef DEV_GUILD_STASH
+void GuildNewManageRep( CNetMsg::SP& msg, int membercount, int* membercharindex, int* contributeExp, int* contributeFame, const char CharName[][MAX_CHAR_NAME_LENGTH  + 1], const char PositionName[][GUILD_POSITION_NAME+1], int* level, int* position, char* stashAuth, CGuild* guild, char first );
+#else
+void GuildNewManageRep( CNetMsg::SP& msg, int membercount, int* membercharindex, int* contributeExp, int* contributeFame, const char CharName[][MAX_CHAR_NAME_LENGTH  + 1], const char PositionName[][GUILD_POSITION_NAME+1], int* level, int* position,  CGuild* guild, char first );
+#endif //DEV_GUILD_STASH
+void GuildNewNotify( CNetMsg::SP& msg,const char* title, const char* text );
+void GuildNewNotifyTrans( CNetMsg::SP& msg, const char* guildname, const char* title, const char* text );
+void GuildSkillListRepMsg(CNetMsg::SP& msg, int active_count, int active_skill_index[], int active_skill_level[], int active_skill_cooltime[], int passive_count, int passive_skill_index[],	int passive_skill_level[], int etc_count, int etc_skill_index[], int etc_skill_level[]);
 
-void HelperGuildInclineEstablishReqMsg( CNetMsg& msg, CPC* ch, char guildincline );
-void HelperGuildMemberAdjust( CNetMsg& msg, CPC* ch, int charindex, const char* strPositionName, int contributeExp, int contributFame );
-void HelperNewGuildInfo( CNetMsg& msg, CPC* ch );
-void HelperNewGuildMemberList( CNetMsg& msg, CPC* ch );
-void HelperNewGuildManage( CNetMsg& msg, CPC* ch );
-void HelperNewGuildNotice( CNetMsg& msg, CPC* ch );
-void HelperNewGuildNoticeUpdate( CNetMsg& msg, CPC* ch, const char* title, const char* text );
-void HelperNewGuildNoticeTrans( CNetMsg& msg, CPC* ch);
-void HelperNewGuildSkillList( CNetMsg& msg, CPC* ch );
-void HelperSaveGuildPointMsg(CNetMsg& msg, int guildindex, int guildpoint );
-void HelperSaveGuildMemberPointMsg( CNetMsg& msg, int guildindex, int charindex, int GuildMemberPoint );
-//void HelperSaveGuildSkillMsg( CNetMsg& msg, CGuild* guild );
-void HelperNewGuildPointUpdate( CNetMsg& msg, int charindex, int guildindex, int point );
-void HelperGuildLoadReq(CNetMsg& msg, int charindex );
+void GuildSkillLearnMsg(CNetMsg::SP& msg, CSkill* skill);
+void GuildPointInfo(CNetMsg::SP& msg, int guildpoint);
 
-void HelperGuildSkillLearnMsg( CNetMsg& msg, int gp, CGuild* guild  );
+void HelperGuildInclineEstablishReqMsg( CNetMsg::SP& msg, CPC* ch, char guildincline );
+void HelperGuildMemberAdjust( CNetMsg::SP& msg, CPC* ch, int charindex, const char* strPositionName, int contributeExp, int contributFame, int pos );
+void HelperNewGuildInfo( CNetMsg::SP& msg, CPC* ch );
+void HelperNewGuildMemberList( CNetMsg::SP& msg, CPC* ch );
+void HelperNewGuildManage( CNetMsg::SP& msg, CPC* ch );
+void HelperNewGuildNotice( CNetMsg::SP& msg, CPC* ch );
+void HelperNewGuildNoticeUpdate( CNetMsg::SP& msg, CPC* ch, const char* title, const char* text );
+void HelperNewGuildNoticeTrans( CNetMsg::SP& msg, CPC* ch);
+void HelperNewGuildSkillList( CNetMsg::SP& msg, CPC* ch );
+void HelperSaveGuildPointMsg(CNetMsg::SP& msg, int guildindex, int guildpoint );
+void HelperSaveGuildMemberPointMsg( CNetMsg::SP& msg, int guildindex, int charindex, int GuildMemberPoint );
+//void HelperSaveGuildSkillMsg( CNetMsg::SP& msg, CGuild* guild );
+void HelperNewGuildPointUpdate( CNetMsg::SP& msg, int charindex, int guildindex, int point );
+void HelperGuildLoadReq(CNetMsg::SP& msg, int charindex );
+//void HelperUseGuildPoint(CNetMsg::SP& msg, int gindex, int needGP);
+void HelperGuildSkillLearnMsg( CNetMsg::SP& msg, int gp, CGuild* guild, int skilltype );
+void HelperGuildSkillLearnSendMemberMsg( CNetMsg::SP& msg, int guild_index, int skill_type, int skill_index, int skill_level);
 
-#ifdef NEW_GUILD_POINT_RANKING_NOTICE
-void ConnGuildPointRankerReqMsg( CNetMsg& msg, int guildindex, int charindex );
-void GuildPointRankingMsg( CNetMsg& msg, int nCharindex, int nGuildindex, int nRanking );
-#endif //NEW_GUILD_POINT_RANKING_NOTICE
-
-#endif // NEW_GUILD
+void ConnGuildPointRankerReqMsg( CNetMsg::SP& msg, int guildindex, int charindex );
+void GuildPointRankingMsg( CNetMsg::SP& msg, int nCharindex, int nGuildindex, int nRanking );
 
 // 헬퍼 관련
-void HelperConnectMsg(CNetMsg& msg, int version, int server, int subno, int count, int* zones);
-void HelperShutdownMsg(CNetMsg& msg);
-void HelperRepWhisperNotFoundMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int sindex, const char* sname);
-void HelperRepWhisperRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int sindex, const char* sname, const char* rname, const char* chat);
+void HelperConnectMsg(CNetMsg::SP& msg, int version, int server, int subno, int count, int* zones);
+void HelperShutdownMsg(CNetMsg::SP& msg);
+void HelperRepWhisperNotFoundMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int sindex, const char* sname);
+void HelperRepWhisperRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int sindex, const char* sname, const char* rname, const char* chat);
 
-void HelperGuildCreateReqMsg(CNetMsg& msg, CPC* ch, const char* name);
-void HelperGuildOnline(CNetMsg& msg, CGuildMember* member);
-#ifdef NEW_GUILD
-void HelperGuildLoadReq(CNetMsg& msg, const char* idname, int charindex, int channel, int zoneindex );
-#else
-void HelperGuildLoadReq(CNetMsg& msg, const char* idname, int charindex);
-#endif // NEW_GUILD
-void HelperGuildLevelUpReqMsg(CNetMsg& msg, int guildindex, int charindex);
-void HelperGuildBreakUpReqMsg(CNetMsg& msg, CPC* boss);
-void HelperGuildMemberAddReqMsg(CNetMsg& msg, int guildindex, int targetindex, int requester, const char* name);
-void HelperGuildOutReqMsg(CNetMsg& msg, int guildindex, int charindex);
-void HelperGuildKickReqMsg(CNetMsg& msg, int guildindex, int bossindex, int charindex);
-void HelperGuildChangeBossReqMsg(CNetMsg& msg, int guildindex, int current, int change);
-void HelperGuildAppointOfficerReqMsg(CNetMsg& msg, int guildindex, int bossindex, int charindex);
-void HelperGuildChat(CNetMsg& msg, int guildindex, int charindex, const char* charname, const char* chat);
-void HelperGuildFireOfficerReqMsg(CNetMsg& msg, int guildindex, int bossindex, int charindex);
-void HelperCharDelMsg(CNetMsg& msg, int charindex);
+void HelperGuildCreateReqMsg(CNetMsg::SP& msg, CPC* ch, const char* name);
+void HelperGuildOnline(CNetMsg::SP& msg, CGuildMember* member);
+void HelperGuildLoadReq(CNetMsg::SP& msg, const char* idname, int charindex, int channel, int zoneindex );
+void HelperGuildLevelUpReqMsg(CNetMsg::SP& msg, int guildindex, int charindex);
+void HelperGuildBreakUpReqMsg(CNetMsg::SP& msg, CPC* boss);
+void HelperGuildMemberAddReqMsg(CNetMsg::SP& msg, int guildindex, int targetindex, int requester, const char* name);
+void HelperGuildOutReqMsg(CNetMsg::SP& msg, int guildindex, int charindex);
+void HelperGuildKickReqMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex);
+void HelperGuildChangeBossReqMsg(CNetMsg::SP& msg, int guildindex, int current, int change);
+void HelperGuildAppointOfficerReqMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex);
+void HelperGuildChat(CNetMsg::SP& msg, int guildindex, int charindex, const char* charname, const char* chat);
+void HelperGuildFireOfficerReqMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex);
+void HelperCharDelMsg(CNetMsg::SP& msg, int charindex);
 
-void HelperGuildBattleReqMsg(CNetMsg& msg, int guildindex1, int guildindex2, int prize, int zone, int time);
-void HelperGuildBattleStopReqMsg(CNetMsg& msg, int guildindex1, int guildindex2);
-void HelperGuildBattlePeaceReqMsg(CNetMsg& msg, CGuild* g);
-void HelperGuildBattleKillReqMsg(CNetMsg& msg, int of_guildindex, int df_guildindex);
-void HelperEventMoonStoneUpdateReqMsg(CNetMsg& msg);
-void HelperEventMoonStoneJackPotReqMsg(CNetMsg& msg, int chaindex);
+void HelperGuildBattleReqMsg(CNetMsg::SP& msg, int guildindex1, int guildindex2, int prize, int zone, int time);
+void HelperGuildBattleStopReqMsg(CNetMsg::SP& msg, int guildindex1, int guildindex2);
+void HelperGuildBattlePeaceReqMsg(CNetMsg::SP& msg, CGuild* g);
+void HelperGuildBattleKillReqMsg(CNetMsg::SP& msg, int of_guildindex, int df_guildindex);
+void HelperEventMoonStoneUpdateReqMsg(CNetMsg::SP& msg);
+void HelperEventMoonStoneJackPotReqMsg(CNetMsg::SP& msg, int chaindex);
 
-#ifdef ENABLE_WAR_CASTLE
-void HelperWarNoticeTimeMsg(CNetMsg& msg, int zoneindex, char month, char day, char hour, char min);
-void HelperWarNoticeRemainMsg(CNetMsg& msg, int zoneindex, char remain);
-void HelperWarNoticeStartMsg(CNetMsg& msg, int zoneindex, int remainSec);
-void HelperWarJoinAttackGuildMsg(CNetMsg& msg, int zoneindex, int guildindex);
-void HelperWarJoinDefenseGuildMsg(CNetMsg& msg, int zoneindex, int guildindex);
-void HelperWarNoticeStartAttackCastleMsg(CNetMsg& msg, int zoneindex, int remainSec, CGuild* g1, CGuild* g2, CGuild* g3);
-void HelperWarNoticeRemainFieldTimeMsg(CNetMsg& msg, int zoneindex, int remainSec);
-void HelperWarNoticeEndMsg(CNetMsg& msg, int zoneindex, char bWinDefense, int ownerindex, const char* ownername, int charindex, const char* charname, int nextMonth, int nextDay, int nextHour, int wDay);
-void HelperGuildStashHistoryReqMsg(CNetMsg& msg, int guildindex, int charindex);
-void HelperGuildStashViewReqMsg(CNetMsg& msg, int guildindex, int charindex);
-void HelperGuildStashTakeReqMsg(CNetMsg& msg, int guildindex, int charindex, LONGLONG money);
-void HelperGuildStashRollbackMsg(CNetMsg& msg, int guildindex, LONGLONG money);
-void HelperGuildStashSaveTaxReqMsg(CNetMsg& msg, int guildIndex, int zoneindex, LONGLONG taxItem, LONGLONG taxProduct);
-#endif // ENABLE_WAR_CASTLE
+void HelperWarNoticeTimeMsg(CNetMsg::SP& msg, int zoneindex, char month, char day, char hour, char min);
+void HelperWarNoticeRemainMsg(CNetMsg::SP& msg, int zoneindex, char remain);
+void HelperWarNoticeStartMsg(CNetMsg::SP& msg, int zoneindex, int remainSec);
+void HelperWarJoinAttackGuildMsg(CNetMsg::SP& msg, int zoneindex, int guildindex);
+void HelperWarJoinDefenseGuildMsg(CNetMsg::SP& msg, int zoneindex, int guildindex);
+void HelperWarNoticeStartAttackCastleMsg(CNetMsg::SP& msg, int zoneindex, int remainSec, CGuild* g1, CGuild* g2, CGuild* g3);
+void HelperWarNoticeRemainFieldTimeMsg(CNetMsg::SP& msg, int zoneindex, int remainSec);
+void HelperWarNoticeEndMsg(CNetMsg::SP& msg, int zoneindex, char bWinDefense, int ownerindex, const char* ownername, int charindex, const char* charname, int nextMonth, int nextDay, int nextHour, int wDay);
+void HelperGuildStashHistoryReqMsg(CNetMsg::SP& msg, int guildindex, int charindex);
+void HelperGuildStashViewReqMsg(CNetMsg::SP& msg, int guildindex, int charindex);
+void HelperGuildStashTakeReqMsg(CNetMsg::SP& msg, int guildindex, int charindex, LONGLONG money);
+void HelperGuildStashRollbackMsg(CNetMsg::SP& msg, int guildindex, LONGLONG money);
+void HelperGuildStashSaveTaxReqMsg(CNetMsg::SP& msg, int guildIndex, int zoneindex, LONGLONG taxItem, LONGLONG taxProduct);
 
-#ifdef ENABLE_PET
-void HelperPetCreateReqMsg(CNetMsg& msg, int owner, char typeGrade);
-// TODO : DELETE : 
-#ifdef NEW_UI
-void HelperPetDeleteReqMsg(CNetMsg& msg, int index, int owner);
-#endif // NEW_UI
-#endif // #ifdef ENABLE_PET
+void HelperPetCreateReqMsg(CNetMsg::SP& msg, int owner, char typeGrade);
+void HelperPetDeleteReqMsg(CNetMsg::SP& msg, int index, int owner);
 
-#ifdef FEEITEM
-void HelperNameChangeReqMsg(CNetMsg& msg, char bguild, int index, const char* reqname);
-#endif // FEEITEM
-void HelperMargadumPvpRankReqMsg(CNetMsg& msg, int subno, int rank[], LONGLONG rankDamage[]);
-void HelperTeachFameUpReqMsg(CNetMsg& msg, int teachidx, int studentidx, const char* studentname, int fame);
-void HelperTeachRegisterMsg(CNetMsg& msg, int teachidx, bool bteacher, int studentidx);
-void HelperTeacherGiveup(CNetMsg& msg, int teachidx, int studentidx);
-void HelperTeachMsg(CNetMsg& msg, int teachidx, char bTeacher);
-void HelperTeachTimeover(CNetMsg& msg, int flag, int teachidx, int studentidx);
-void HelperTeacherSuperstoneRecieve(CNetMsg& msg, int charindex);
-void HelperTeachLoadReq(CNetMsg& msg, const char* idname, int charindex);
+void HelperNameChangeReqMsg(CNetMsg::SP& msg, char bguild, int index, const char* reqname);
+void HelperTeachFameUpReqMsg(CNetMsg::SP& msg, int teachidx, int studentidx, const char* studentname, int fame);
+void HelperTeachRegisterMsg(CNetMsg::SP& msg, int teachidx, bool bteacher, int studentidx);
 
-#ifdef CASH_ITEM_GIFT
-void HelperGiftCharReq(CNetMsg& msg, int sendUserIdx, int sendCharIdx, const char* recvCharName, const char* sendMsg, int count, int idx[], int ctid[] );
-#endif
+void HelperTeacherGiveup(CNetMsg::SP& msg, int teachidx, int studentidx, int teachType, int giveupCnt);
+void HelperTeachMsg(CNetMsg::SP& msg, int teachidx, char bTeacher, unsigned char noticetime1=0, unsigned char noticetime2=0);
+void HelperTeachLimitTimeCheck(CNetMsg::SP& msg, int charindex);
+void HelperTeacherGiftAddReqMsg(CNetMsg::SP& msg, int teacherIdx, int count = -1);
+void HelperTeacherGiftReqMsg(CNetMsg::SP& msg, int charindex );
+void HelperTeachStudentSucMsg(CNetMsg::SP& msg, int studentIdx, int teacherIdx);
 
-// 클라이언트 인터페이스 UI 관련 
-void UIPlusEffectRep(CNetMsg& msg, CPC* ch);
+void HelperStuentListRefresh(CNetMsg::SP& msg, int teacherIndex );
+void HelperTeacherStudentListCyncReq(CNetMsg::SP& msg, CPC* pc);
 
+void HelperTeachTimeover(CNetMsg::SP& msg, int flag, int teachidx, int studentidx);
+void HelperTeacherSuperstoneRecieve(CNetMsg::SP& msg, int charindex);
+void HelperTeachLoadReq(CNetMsg::SP& msg, const char* idname, int charindex);
+
+void HelperGiftCharReq(CNetMsg::SP& msg, int sendUserIdx, int sendCharIdx, const char* recvCharName, const char* sendMsg, int count, int idx[], int ctid[] );
+
+// 클라이언트 인터페이스 UI 관련
+void UIPlusEffectRep(CNetMsg::SP& msg, CPC* ch);
 
 // 사제 시스템 관련
-void TeachTeacherListMsg(CNetMsg& msg, CPC* ch, MSG_TEACH_TEACHER_LIST_TYPE type, CPC** list);
-void TeachTeacherReqReqMsg(CNetMsg& msg, CPC* ch);
-void TeachTeacherReqRejectMsg(CNetMsg& msg, CPC* ch);
-void TeachTeacherReqAcceptMsg(CNetMsg& msg, CPC* teacher, CPC* student);
-void TeachEndMsg(CNetMsg& msg, int teacher_index, const char* teacher_name, int studetn_index, const char* student_name, MSG_TEACH_END_TYPE type);
-void TeachInfoMsg(CNetMsg& msg, CPC* ch);
-void TeachTeacherGiveUPMsg(CNetMsg& msg, CPC* teacher, CPC* student);
-void TeachStudentLevelUPMsg(CNetMsg& msg, CPC* ch);
-void TeachErrMsg(CNetMsg& msg, MSG_TEACH_ERR_TYPE type);
+void TeachTeacherListMsg(CNetMsg::SP& msg, CPC* ch, MSG_TEACH_TEACHER_LIST_TYPE type, CPC** list);
+void TeachTeacherReqReqMsg(CNetMsg::SP& msg, CPC* ch);
+void TeachTeacherReqRejectMsg(CNetMsg::SP& msg, CPC* ch);
+void TeachTeacherReqAcceptMsg(CNetMsg::SP& msg, CPC* teacher, CPC* student);
+void TeachEndMsg(CNetMsg::SP& msg, int teacher_index, const char* teacher_name, int studetn_index, const char* student_name, MSG_TEACH_END_TYPE type, int fame = 0);
+void TeachInfoMsg(CNetMsg::SP& msg, CPC* ch);
+void TeachTeacherGiveUPMsg(CNetMsg::SP& msg, CPC* teacher, CPC* student, int giveupCnt, int teacherFame = -1);
+void TeachTeacherGiftMsg(CNetMsg::SP& msg, MSG_TEACH_RENEWER_GIFT_ERROR_TYPE type, CPC* ch, int count = -1);
+void TeachLoginMsg(CNetMsg::SP& msg, CPC* ch);
+void TeachStudentLevelUPMsg(CNetMsg::SP& msg, CPC* ch);
+void TeachErrMsg(CNetMsg::SP& msg, MSG_TEACH_ERR_TYPE type);
 
-// 전직 관련
-#ifdef ENABLE_CHANGEJOB
-void ChangeJobErrorMsg(CNetMsg& msg, MSG_CHANGEJOB_ERROR_TYPE type);
-void ChangeJobRepMsg(CNetMsg& msg, int nIndex, char job1, char job2);
-void ChangeJobResetRepMsg(CNetMsg& msg, CPC* pc);
-#endif // ENABLE_CHANGEJOB
+void ChatMessengerMsg(CNetMsg::SP& msg, int sindex, const char* sname, const char* rname, const char* chat);
+void SysFriendNotFoundMsg(CNetMsg::SP& msg);
+void MsgrFriendChatReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int sindex, const char* sname, const char* rname, const char* chat);
+void MsgrRepMessengerChatRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int sindex, const char* sname, const char* rname, const char* chat);
+void MsgrRepMessengerNotFoundMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int sindex, const char* sname);
+void HelperFriendSetConditionMsg(CNetMsg::SP& msg, int chaindex, int condition, int bReply, CPC* pc);
+void FriendListMsg(CNetMsg::SP& msg, CDescriptor* d);
 
-#ifdef ENABLE_MESSENGER
-void ChatMessengerMsg(CNetMsg& msg, int sindex, const char* sname, const char* rname, const char* chat);
-void SysFriendNotFoundMsg(CNetMsg& msg);
-void MsgrFriendChatReqMsg(CNetMsg& msg, int seq, int server, int subno, int sindex, const char* sname, const char* rname, const char* chat);
-void MsgrRepMessengerChatRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int sindex, const char* sname, const char* rname, const char* chat);
-void MsgrRepMessengerNotFoundMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int sindex, const char* sname);
-void FriendErrorMsg(CNetMsg& msg, MSG_FRIEND_ERROR_TYPE errcode);
-void FriendRegistCancelMsg(CNetMsg& msg);
-void HelperFriendAddReqMsg(CNetMsg& msg, int approvalindex, const char* appname, int appjob, int requesterindex, const char* reqname, int reqjob);
-void HelperFriendDelReqMsg(CNetMsg& msg, int approvalindex, int requester, const char* name);
-void FriendSetConditionMsg(CNetMsg& msg, int requester, int condition);
-void HelperFriendSetConditionMsg(CNetMsg& msg, int chaindex, int condition, int bReply, CPC* pc);
-void MsgrMessengerChatReqMsg(CNetMsg& msg, int seq, int server, int subno, int sindex, const char* sname, const char* rname, const char* chat);
-void FriendListMsg(CNetMsg& msg, CDescriptor* d);
+void BlockPCListMsg(CNetMsg::SP& msg, CDescriptor* d);
 
-#ifdef MESSENGER_NEW
-void BlockPCListMsg(CNetMsg& msg, CDescriptor* d);
+void ChatOneMessengerMsg(CNetMsg::SP& msg, int sindex, const char* sname, int rindex, const char* rname, int chatcolor, const char* chat);
+void ChatOneOffLineMessengerMsg(CNetMsg::SP& msg, int sindex, int rindex);
 
-#ifdef MSG_VER2
-void ChatOneMessengerMsg(CNetMsg& msg, int sindex, const char* sname, int rindex, const char* rname, int chatcolor, const char* chat);
-void ChatOneOffLineMessengerMsg(CNetMsg & msg, int sindex, int rindex);
+void BlockPCRepMsg(CNetMsg::SP& msg, MSG_EX_MESSENGER_ERROR_TYPE errcode, int charIndex, const char* name);
+void do_ExMessenger(CPC* ch, CNetMsg::SP& msg);
 
-#endif // MSG_VER2
 
-#endif // MESSENGER_NEW
+void MsgrChatLordMsg(CNetMsg::SP& msg, int index, const char* name, const char* chatmsg);
 
-void FriendAddNotify(CNetMsg& msg, CPC* pc);
-void FriendDelNotify(CNetMsg& msg, int delindex);
-void HelperBlockPCReqMsg(CNetMsg& msg, int approvalindex, int requester, const char* name, char bBlock);
-void BlockPCRepMsg(CNetMsg& msg, MSG_EX_MESSENGER_ERROR_TYPE errcode, int charIndex, const char* name);
-void do_ExMessenger(CPC* ch, CNetMsg& msg);
-
-#endif // #ifdef ENABLE_MESSENGER
-
-#ifdef ENABLE_WAR_CASTLE
-void MsgrChatLordMsg(CNetMsg& msg, int index, const char* name, const char* chatmsg);
-#endif // #ifdef ENABLE_WAR_CASTLE
-
-#ifdef ENABLE_PET
 // 펫관련
-void ExPetStatusMsg(CNetMsg& msg, CPet* pet);
-void ExPetMountMsg(CNetMsg& msg, int charindex, char pettype);
-void ExPetLearnMsg(CNetMsg& msg, int skillindex, char level, MSG_EX_PET_LEARN_ERROR_TYPE errcode);
-void ExPetSkillListMsg(CNetMsg& msg, CPet* pet);
-void ExPetResetSkillMsg(CNetMsg& msg);
-void ExPetSellInfoMsg(CNetMsg& msg, CPet* pet);
-void ExPetChangeMountMsg(CNetMsg& msg, MSG_EX_PET_CHANGE_MOUNT_ERROR_TYPE errcode);
-void ExPetCommandMsg(CNetMsg& msg, int petindex, int commandindex, char targettype, int targetindex);
-void ExPetMixItemMsg(CNetMsg& msg, MSG_EX_PET_MIX_ITEM_ERROR_TYPE errcode);
-void ExPetLevelupMsg(CNetMsg& msg, CPet* pet);
-void ExPetRebirthMsg(CNetMsg& msg, int nPetIndex, MSG_EX_PET_REBIRTH_ERROR_TYPE errcode);
-#endif // #ifdef ENABLE_PET
+void ExPetStatusMsg(CNetMsg::SP& msg, CPet* pet);
+void ExPetMountMsg(CNetMsg::SP& msg, int charindex, char pettype);
+void ExPetLearnMsg(CNetMsg::SP& msg, int skillindex, char level, MSG_EX_PET_LEARN_ERROR_TYPE errcode);
+void ExPetSkillListMsg(CNetMsg::SP& msg, CPet* pet);
+void ExPetResetSkillMsg(CNetMsg::SP& msg);
+void ExPetSellInfoMsg(CNetMsg::SP& msg, CPet* pet);
+void ExPetChangeMountMsg(CNetMsg::SP& msg, MSG_EX_PET_CHANGE_MOUNT_ERROR_TYPE errcode);
+void ExPetCommandMsg(CNetMsg::SP& msg, int petindex, int commandindex, char targettype, int targetindex);
+void ExPetMixItemMsg(CNetMsg::SP& msg, MSG_EX_PET_MIX_ITEM_ERROR_TYPE errcode);
+void ExPetLevelupMsg(CNetMsg::SP& msg, CPet* pet);
+void ExPetRebirthMsg(CNetMsg::SP& msg, int nPetIndex, MSG_EX_PET_REBIRTH_ERROR_TYPE errcode);
 
-#ifdef ENABLE_WAR_CASTLE
-void ExCastleMapRecentMsg(CNetMsg& msg, CWarCastle* castle, CPC* pc);
-void ExCastleMapSignalMsg(CNetMsg& msg, MSG_GUILD_POSITION_TYPE flag, CPC* sender, float x, float z);
-#endif // #ifdef ENABLE_WAR_CASTLE
+void ExCastleMapRecentMsg(CNetMsg::SP& msg, CWarCastle* castle, CPC* pc);
+void ExCastleMapSignalMsg(CNetMsg::SP& msg, MSG_GUILD_POSITION_TYPE flag, CPC* sender, float x, float z);
 
-void EventXMas2005Msg(CNetMsg& msg, MSG_EVENT_XMAS_2005_ERROR_TYPE errcode);
-void EventNewYear2006CheckMsg(CNetMsg& msg, int timesec);
-void EventNewYear2006GoodsMsg(CNetMsg& msg, MSG_EVENT_NEWYEAR_2006_GOODS_ERROR_TYPE errcode);
 
-#ifdef EVENT_SEARCHFRIEND
-//휴면케릭 이벤트
-//휴면케릭을 npc를 통해 등록하는 부분(Helper이동)
-void EventHelperSearchFriendAddReqMsg(CNetMsg& msg, int approvalindex, const char* appnick, int appjob, int appuserindex, int appserverold, const char* reqnick);
-//휴면케릭을 등록한 케릭의 리스트 상태를 보내는 부분   /등록한 케릭의 리스트 수 / 자신 인덱스, /상대 인덱스
-void EventDormantSearchFriendSelectMsg(CNetMsg& msg, int listCount, int* requestindex, const char reqnick[][MAX_CHAR_NAME_LENGTH + 1], int startindex, int nTotal);
-//휴면케릭이 리스트에서 한명을 선택한 결과를 등록하는 부분(Helper이동)
-void EventHelperSearchFriendSelectAddReqMsg(CNetMsg& msg, int approvalindex, int requestindex);
-//휴면 케릭 사냥시간 체크
-void EventSearchFriendTimeCheckMsg(CNetMsg& msg, int timesec);
-//휴면 케릭 사냥시간 한시간 단위로 저장(Helper이동)
-void EventHelperSearchFriendOneTimeCheckReqMsg(CNetMsg& msg, int timesec, int appDormantindex);
-//휴면 케릭들에게 받을 수 있는 아이템 보상여부 리스트를 갱신하기 위해 (Helper이동)
-void EventHelperSearchFriendListGoodReqMsg(CNetMsg& msg, int approvalindex);
-//휴면 케릭 아이템 보상여부 리스트 상태를 보내는 부분 
-void EventSearchFriendListGoodsMsg(CNetMsg& msg, int request_listmember, int* request_index, const char reqnick[][MAX_CHAR_NAME_LENGTH + 1], int* item_good, int startindex, int nTotal);
-//휴면 케릭 아이템 선택시 상태를 보내는 부분 
-void EventSearchFriendGoodsMsg(CNetMsg& msg, MSG_EVENT_SEARCHFRIEND_GOODS_ERROR_TYPE errcode);
-//휴면 케릭 아이템 보상후 결과 (Helper이동)
-void EventHelperSearchFriendGoodReqMsg(CNetMsg& msg, int approvalindex, int ndormantindex, int itemgood);
-//휴면케릭 등록 진행 후 성공 여부를 클라이언트로 보내는 부분
-void EventSearchFriendErrorMsg(CNetMsg& msg, MSG_EVENT_SEARCHFRIEND_ERROR_TYPE errcode);
-//휴면케릭이 리스트에서 한명을 선택한 결과 클라이언트로 보내는 부분
-void EventSearchFriendSelectAddErrorMsg(CNetMsg& msg, MSG_EVENT_SEARCHFRIEND_ERROR_TYPE errcode);
-//휴면 케릭 사냥시간 한시간 단위로 저장 결과를 클라이언트로 보내는 부분
-void EventSearchFriendOneTimeAddErrorMsg(CNetMsg& msg, int timesec, MSG_EVENT_SEARCHFRIEND_ERROR_TYPE errcode);
-#endif // #ifdef EVENT_SEARCHFRIEND
+void ExElementalStatusMsg(CNetMsg::SP& msg, CElemental* elemental);
+void ExElementalDeleteMsg(CNetMsg::SP& msg, CElemental* elemental);
 
-void ExElementalStatusMsg(CNetMsg& msg, CElemental* elemental);
-void ExElementalDeleteMsg(CNetMsg& msg, CElemental* elemental);
+void ExEvocationStartMsg(CNetMsg::SP& msg, CPC* ch);
+void ExEvocationStopMsg(CNetMsg::SP& msg, CPC* ch);
 
-void ExEvocationStartMsg(CNetMsg& msg, CPC* ch);
-void ExEvocationStopMsg(CNetMsg& msg, CPC* ch);
 
-void ExKeyChangeMsg(CNetMsg& msg, unsigned int nKey);
+void ExPetChangeItemMsg(CNetMsg::SP& msg, MSG_EX_PET_CHANGE_ITEM_ERROR_TYPE errcode);
+void SysCannotWearDeadPetMsg(CNetMsg::SP& msg, int nPetIndex, int nRemainRebirth);
 
-void ExPetChangeItemMsg(CNetMsg& msg, MSG_EX_PET_CHANGE_ITEM_ERROR_TYPE errcode);
-void SysCannotWearDeadPetMsg(CNetMsg& msg, int nPetIndex, int nRemainRebirth);
-
-void ExPartyRecallNoticeMsg(CNetMsg& msg);
-void ExPartyRecallPromptMsg(CNetMsg& msg, int charindex, const char* charname);
-void ExPartyRecallCancelMsg(CNetMsg& msg, int requestcharindex, const char* requestcharname, int targetcharindex, const char* targetcharname);
-
-#ifdef NEW_SERIAL_PACKAGE_EVENT
-void ConnCouponConfirm_new( CNetMsg& msg, int charindex, const char* serialKey );
-void ConnCouponUse_new( CNetMsg& msg, int charindex, int promotionindex, int promotionType, int GiftItemCount, PromotionItem* pPromotionItem );
-#endif // NEW_SERIAL_PACKAGE_EVENT
+void ExPartyRecallNoticeMsg(CNetMsg::SP& msg);
+void ExPartyRecallPromptMsg(CNetMsg::SP& msg, int charindex, const char* charname);
+void ExPartyRecallCancelMsg(CNetMsg::SP& msg, int requestcharindex, const char* requestcharname, int targetcharindex, const char* targetcharname);
 
 #ifdef EVENT_PACKAGE_ITEM
-void ConnCouponConfirm(CNetMsg& msg, int charindex, const char* coupon);
+void ConnCouponConfirm(CNetMsg::SP& msg, int charindex, const char* coupon);
 #ifdef EVENT_PACKAGE_ITEM_DBLOG
 
-#ifdef LC_HBK
-void ConnCouponUse(CNetMsg& msg, int charindex, int cIndex, int type, CLCString idname, CLCString nick, int randidx1, int randcnt1, int randidx2, int randcnt2);
-#else // LC_HBK
-void ConnCouponUse(CNetMsg& msg, int charindex, int cIndex, int type, CLCString idname, CLCString nick);
-#endif // LC_HBK
+void ConnCouponUse(CNetMsg::SP& msg, int charindex, int cIndex, int type, CLCString idname, CLCString nick);
 
 #else // EVENT_PACKAGE_ITEM_DBLOG
 
-#ifdef LC_HBK
-void ConnCouponUse(CNetMsg& msg, int charindex, int cIndex, int type, int randidx1, int randcnt1, int randidx2, int randcnt2);
-#else
-void ConnCouponUse(CNetMsg& msg, int charindex, int cIndex, int type);
-#endif // LC_HBK
+void ConnCouponUse(CNetMsg::SP& msg, int charindex, int cIndex, int type);
 #endif // EVENT_PACKAGE_ITEM_DBLOG
 #endif // EVENT_PACKAGE_ITEM
 
-void HelperPartyMemberChangeJobMsg(CNetMsg& msg, int nBossIndex, int nCharIndex, char job1, char job2);
-void HelperPartyChatMsg(CNetMsg& msg, int nBossIndex, int nCharIndex, const char* strName, const char* strChat);
-void HelperPartyRecallPromptMsg(CNetMsg& msg, int nBossIndex, int nReqIndex, const char* strReqName, char cIsInCastle, int nGuildIndex);
-void HelperPartyRecallConfirmMsg(CNetMsg& msg, int nBossIndex, int nReqIndex, const char* strReqName, int nRepIndex, const char* strRepName, char yesno);
-void HelperPartyRecallProcMsg(CNetMsg& msg, int nBossIndex, int nCharIndex, int nZone, float x, float z, char nYlayer, char cIsInCastle, int nGuildIndex);
+void HelperPartyMemberChangeJobMsg(CNetMsg::SP& msg, int nBossIndex, int nCharIndex, char job1, char job2);
+void HelperPartyChatMsg(CNetMsg::SP& msg, int nBossIndex, int nCharIndex, const char* strName, const char* strChat);
+void HelperPartyRecallPromptMsg(CNetMsg::SP& msg, int nBossIndex, int nReqIndex, const char* strReqName, char cIsInCastle, int nGuildIndex, bool bUseContinent, int zoneID, CPos& pos);
+void HelperPartyRecallConfirmMsg(CNetMsg::SP& msg, int nBossIndex, int nReqIndex, const char* strReqName, int nRepIndex, const char* strRepName, char yesno);
+void HelperPartyRecallProcMsg(CNetMsg::SP& msg, int nBossIndex, int nCharIndex, int nZone, CPos* pos, char cIsInCastle, int nGuildIndex);
 
-void HelperPartyInviteReqMsg(CNetMsg& msg, int nBossIndex, const char* strBossName, int nBossLevel, int nTargetIndex, char partyType);
-void HelperPartyInviteRepMsg(CNetMsg& msg, int nBossIndex, const char* strBossName, int nTargetIndex, const char* strTargetName, char partyType, MSG_HELPER_PARTY_ERROR_TYPE errcode);
-void HelperPartyAllowReqMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex, const char* strTargetName);
-void HelperPartyRejectReqMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex);
-void HelperPartyQuitReqMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex);
-void HelperPartyKickReqMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex);
-void HelperPartyChangeBossReqMsg(CNetMsg& msg, int nBossIndex, const char* strTargetName);
+void HelperPartyInviteReqMsg(CNetMsg::SP& msg, int nBossIndex, const char* strBossName, int nBossLevel, int nTargetIndex, char partyType);
+void HelperPartyInviteRepMsg(CNetMsg::SP& msg, int nBossIndex, const char* strBossName, int nTargetIndex, const char* strTargetName, char partyType, MSG_HELPER_PARTY_ERROR_TYPE errcode, int nBossLevel );
+void HelperPartyAllowReqMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex, const char* strTargetName, int nTargetLevel );
+void HelperPartyRejectReqMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex);
+void HelperPartyQuitReqMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex);
+void HelperPartyKickReqMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex);
+void HelperPartyChangeBossReqMsg(CNetMsg::SP& msg, int nBossIndex, const char* strTargetName);
+void HelperPartyDataInitReqMsg(CNetMsg::SP& msg);
+void HelperPartyRecallConfirmFail(CNetMsg::SP& msg);
 
-void MsgrEventOXSetStartMsg(CNetMsg& msg, int nGMCharIndex, int yy, int mm, int dd, int hh, int min);
-void MsgrEventOXEndMsg(CNetMsg& msg, int nGMCharIndex);
-void MsgrEventOXQuizMsg(CNetMsg& msg, int nGMCharIndex, int nQuizNo, int nSec);
+void MsgrEventOXSetStartMsg(CNetMsg::SP& msg, int nGMCharIndex, int yy, int mm, int dd, int hh, int min);
+void MsgrEventOXEndMsg(CNetMsg::SP& msg, int nGMCharIndex);
+void MsgrEventOXQuizMsg(CNetMsg::SP& msg, int nGMCharIndex, int nQuizNo, int nSec);
 
-void EventOXQuizMsg(CNetMsg& msg, MSG_EVENT_OXQUIZ_TYPE subtype);
-void EventOXQuizQuizMsg(CNetMsg& msg, int nQuizNo, int nSec, const char* strQuiz);
-void EventOXQuizAnswerMsg(CNetMsg& msg, int nQuizNo, bool bAnswer);
+void EventOXQuizMsg(CNetMsg::SP& msg, MSG_EVENT_OXQUIZ_TYPE subtype);
+void EventOXQuizQuizMsg(CNetMsg::SP& msg, int nQuizNo, int nSec, const char* strQuiz);
+void EventOXQuizAnswerMsg(CNetMsg::SP& msg, int nQuizNo, bool bAnswer);
 
-#ifdef RECOMMEND_SERVER_SYSTEM
-void MsgrRecommendMsg(CNetMsg& msg, int nGMCharIndex, int nRecommendServer);
-void EventRecommendSetMsg(CNetMsg& msg);
-void EventRecommendPotionMsg(CNetMsg& msg);
-void MsgrRecommendMoonstoneMsg(CNetMsg& msg, int nCharIndex, const char* strCharName);
-void EventRecommendMoonstoneMsg(CNetMsg& msg, int nCharIndex, const char* strCharName);
-#endif // RECOMMEND_SERVER_SYSTEM
+void MsgrRecommendMsg(CNetMsg::SP& msg, int nGMCharIndex, int nRecommendServer);
+void EventRecommendSetMsg(CNetMsg::SP& msg);
+void EventRecommendPotionMsg(CNetMsg::SP& msg);
+void MsgrRecommendMoonstoneMsg(CNetMsg::SP& msg, int nCharIndex, const char* strCharName);
+void EventRecommendMoonstoneMsg(CNetMsg::SP& msg, int nCharIndex, const char* strCharName);
 
-#ifdef PARTY_MATCHING
-void ExPartyMatchRegMemberRepMsg(CNetMsg& msg, MSG_EX_PARTY_MATCH_ERROR_TYPE errcode);
-void ExPartyMatchRegPartyRepMsg(CNetMsg& msg, MSG_EX_PARTY_MATCH_ERROR_TYPE errcode);
-void ExPartyMatchMemberListRepMsg(CNetMsg& msg, int nPageNo, int nCharLevel, CLCList<CPartyMatchMember*>& list);
-void ExPartyMatchPartyListRepMsg(CNetMsg& msg, int nPageNo, int nCharLevel, CLCList<CPartyMatchParty*>& list);
-void HelperPartyMatchRegMemberReqMsg(CNetMsg& msg, int nCharIndex, const char* strCharName, int nLevel, int nZone, char nJob, char nPartyType);
-void HelperPartyMatchRegPartyReqMsg(CNetMsg& msg, int nBossIndex, const char* strBossName, int nBossLevel, int nZone, int nJobFlag, char cLimitLevel, const char* strComment);
-void HelperPartyMatchDelReqMsg(CNetMsg& msg, int nCharIndex);
-void ExPartyMatchDelRepMsg(CNetMsg& msg);
-void HelperPartyMatchInviteReqMsg(CNetMsg& msg, int nBossIndex, const char* strBossName, int nBossLevel, int nCharIndex);
-void HelperPartyMatchInviteRepMsg(CNetMsg& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, int nBossIndex, const char* strBossName, int nCharIndex, const char* strCharName, char cPartyType);
-void ExPartyMatchInviteRepMsg(CNetMsg& msg, MSG_EX_PARTY_MATCH_ERROR_TYPE nErrorCode, char cPartyType, int nBossIndex, const char* strBossName, int nCharIndex, const char* strCharName);
-void HelperPartyMatchJoinReqMsg(CNetMsg& msg, int nBossIndex, int nCharIndex, const char* strCharName, int nCharLevel, char cCharJob);
-void ExPartyMatchJoinRepMsg(CNetMsg& msg, MSG_EX_PARTY_MATCH_ERROR_TYPE nErrorCode, char cPartyType, int nBossIndex, const char* strBossName, int nReqCharIndex, const char* strReqCharName, char cReqCharJob);
-void HelperPartyMatchJoinAllowReqMsg(CNetMsg& msg, int nBossIndex, int nCharIndex);
-void HelperPartyMatchJoinRejectReqMsg(CNetMsg& msg, int nJoinCharIndex, int nRejectCharIndex);
-void HelperPartyMatchMemberChangeInfoMsg(CNetMsg& msg, int nCharIndex, MSG_HELPER_PARTY_MATCH_MEMBER_CHANGE_INFO_TYPE nType, const char* strCharName, int nLevel, int nZone);
-#endif // PARTY_MATCHING
-#ifdef LC_HBK
-void HelperLevelUpLogMsg(CNetMsg & msg, CPC * pPc);
-#endif // LC_HBK
+void ExPartyMatchRegMemberRepMsg(CNetMsg::SP& msg, MSG_EX_PARTY_MATCH_ERROR_TYPE errcode);
+void ExPartyMatchRegPartyRepMsg(CNetMsg::SP& msg, MSG_EX_PARTY_MATCH_ERROR_TYPE errcode);
+void ExPartyMatchMemberListRepMsg(CNetMsg::SP& msg, int nPageNo, int nCharLevel, std::vector<CPartyMatchMember*>& list);
+void ExPartyMatchPartyListRepMsg(CNetMsg::SP& msg, int nPageNo, int nCharLevel, std::vector<CPartyMatchParty*>& list);
+void HelperPartyMatchRegMemberReqMsg(CNetMsg::SP& msg, int nCharIndex, const char* strCharName, int nLevel, int nZone, char nJob, char nPartyType);
+void HelperPartyMatchRegPartyReqMsg(CNetMsg::SP& msg, int nBossIndex, const char* strBossName, int nBossLevel, int nZone, int nJobFlag, char cLimitLevel, const char* strComment);
+void HelperPartyMatchDelReqMsg(CNetMsg::SP& msg, int nCharIndex);
+void ExPartyMatchDelRepMsg(CNetMsg::SP& msg);
+void HelperPartyMatchInviteReqMsg(CNetMsg::SP& msg, int nBossIndex, const char* strBossName, int nBossLevel, int nCharIndex);
+void HelperPartyMatchInviteRepMsg(CNetMsg::SP& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, int nBossIndex, const char* strBossName, int nCharIndex, const char* strCharName, char cPartyType);
+void ExPartyMatchInviteRepMsg(CNetMsg::SP& msg, MSG_EX_PARTY_MATCH_ERROR_TYPE nErrorCode, char cPartyType, int nBossIndex, const char* strBossName, int nCharIndex, const char* strCharName);
+void HelperPartyMatchJoinReqMsg(CNetMsg::SP& msg, int nBossIndex, int nCharIndex, const char* strCharName, int nCharLevel, char cCharJob);
+void ExPartyMatchJoinRepMsg(CNetMsg::SP& msg, MSG_EX_PARTY_MATCH_ERROR_TYPE nErrorCode, char cPartyType, int nBossIndex, const char* strBossName, int nReqCharIndex, const char* strReqCharName, char cReqCharJob);
+void HelperPartyMatchJoinAllowReqMsg(CNetMsg::SP& msg, int nBossIndex, int nCharIndex, int nLevel, int reqCharLevel );
+void HelperPartyMatchJoinRejectReqMsg(CNetMsg::SP& msg, int nJoinCharIndex, int nRejectCharIndex);
+void HelperPartyMatchMemberChangeInfoMsg(CNetMsg::SP& msg, int nCharIndex, MSG_HELPER_PARTY_MATCH_MEMBER_CHANGE_INFO_TYPE nType, const char* strCharName, int nLevel, int nZone);
 
-void SysExpireItemcompositeMsg(CNetMsg& msg, int nItemDBIndex);
+void SysExpireItemcompositeMsg(CNetMsg::SP& msg, int nItemDBIndex);
 
-void EventWorldcupVoteMsg(CNetMsg& msg, int nCountry, MSG_EVENT_WORLDCUP_ERROR_TYPE nErrorCode);
-void EventWorldcupGiftMsg(CNetMsg& msg, int nRank, MSG_EVENT_WORLDCUP_ERROR_TYPE nErrorCode);
+void EventWorldcupVoteMsg(CNetMsg::SP& msg, int nCountry, MSG_EVENT_WORLDCUP_ERROR_TYPE nErrorCode);
+void EventWorldcupGiftMsg(CNetMsg::SP& msg, int nRank, MSG_EVENT_WORLDCUP_ERROR_TYPE nErrorCode);
 
-void MsgrEventGoldenballVoteMsg(CNetMsg& msg, int nGMCharIndex, const char* strTeam1, const char* strTeam2, int nYear, int nMonth, int nDay, int nHour, int nMinute);
-void MsgrEventGoldenballGiftMsg(CNetMsg& msg, int nGMCharIndex, const char* strTeam1, int nTeam1Score, const char* strTeam2, int nTeam2Score, int nYear, int nMonth, int nDay, int nHour, int nMinute, time_t timeEndVote);
-void MsgrEventGoldenballEndMsg(CNetMsg& msg, int nGMCharIndex);
-void EventGoldenballVoteStartMsg(CNetMsg& msg, const char* strTeam1, const char* strTeam2, int nYear, int nMonth, int nDay, int nHour, int nMin);
-void EventGoldenballVoteEndMsg(CNetMsg& msg, const char* strTeam1, const char* strTeam2);
-void EventGoldenballGiftStartMsg(CNetMsg& msg, const char* strTeam1, int nTeam1Score, const char* strTeam2, int nTeam2Score, int nYear, int nMonth, int nDay, int nHour, int nMin);
-void EventGoldenballGiftEndMsg(CNetMsg& msg, const char* strTeam1, const char* strTeam2);
-void EventGoldenballVoteMsg(CNetMsg& msg, int nTeam1Score, int nTeam2Score, MSG_EVENT_GOLDENBALL_ERROR_TYPE nErrorCode);
-void EventGoldenballGiftMsg(CNetMsg& msg, MSG_EVENT_GOLDENBALL_ERROR_TYPE nErrorCode);
+void MsgrEventGoldenballVoteMsg(CNetMsg::SP& msg, int nGMCharIndex, const char* strTeam1, const char* strTeam2, int nYear, int nMonth, int nDay, int nHour, int nMinute);
+void MsgrEventGoldenballGiftMsg(CNetMsg::SP& msg, int nGMCharIndex, const char* strTeam1, int nTeam1Score, const char* strTeam2, int nTeam2Score, int nYear, int nMonth, int nDay, int nHour, int nMinute, time_t timeEndVote);
+void MsgrEventGoldenballEndMsg(CNetMsg::SP& msg, int nGMCharIndex);
+void EventGoldenballVoteStartMsg(CNetMsg::SP& msg, const char* strTeam1, const char* strTeam2, int nYear, int nMonth, int nDay, int nHour, int nMin);
+void EventGoldenballVoteEndMsg(CNetMsg::SP& msg, const char* strTeam1, const char* strTeam2);
+void EventGoldenballGiftStartMsg(CNetMsg::SP& msg, const char* strTeam1, int nTeam1Score, const char* strTeam2, int nTeam2Score, int nYear, int nMonth, int nDay, int nHour, int nMin);
+void EventGoldenballGiftEndMsg(CNetMsg::SP& msg, const char* strTeam1, const char* strTeam2);
+void EventGoldenballVoteMsg(CNetMsg::SP& msg, int nTeam1Score, int nTeam2Score, MSG_EVENT_GOLDENBALL_ERROR_TYPE nErrorCode);
+void EventGoldenballGiftMsg(CNetMsg::SP& msg, MSG_EVENT_GOLDENBALL_ERROR_TYPE nErrorCode);
 
-#ifdef EVENT_RAIN_2006
-void EventRain2006Msg(CNetMsg& msg, MSG_EVENT_RAIN_2006_ERROR_TYPE nErrorCode);
-#endif // EVENT_RAIN_2006
+void EventRain2006Msg(CNetMsg::SP& msg, MSG_EVENT_RAIN_2006_ERROR_TYPE nErrorCode);
 
-void ItemLendWeaponMsg(CNetMsg& msg, int nItemDBIndex, MSG_ITEM_LEND_WEAPON_ERROR_TYPE nErrorCode);
-void SysSeparateItemMsg(CNetMsg& msg, int nItemDBIndex);
+void ItemLendWeaponMsg(CNetMsg::SP& msg, int nItemDBIndex, MSG_ITEM_LEND_WEAPON_ERROR_TYPE nErrorCode);
+void SysSeparateItemMsg(CNetMsg::SP& msg, int nItemDBIndex);
 
-#ifdef EVENT_TLD_BUDDHIST
-void EventTldBuddhistMsg(CNetMsg& msg, char cRequestType, MSG_EVENT_TLD_BUDDHIST_ERROR_TYPE nErrorCode);
-#endif // EVENT_TLD_BUDDHIST
+void EventCollectBugMsg(CNetMsg::SP& msg, MSG_EVENT_COLLECT_BUG_TYPE nType, int nData);
 
-#ifdef EVENT_COLLECT_BUG
-void EventCollectBugMsg(CNetMsg& msg, MSG_EVENT_COLLECT_BUG_TYPE nType, int nData);
-#endif // EVENT_COLLECT_BUG
+void QuestCollectMsg(CNetMsg::SP& msg, int nNPCIndex, int nCharIndex, int nItemIndex);
 
-void QuestCollectMsg(CNetMsg& msg, int nNPCIndex, int nCharIndex, int nItemIndex);
+void EventChuseok2006Msg(CNetMsg::SP& msg, MSG_EVENT_CHUSEOK_2006_TYPE nErrorcode);
 
-#ifdef GUILD_RANKING
-void HelperSaveExpGuildMsg(CNetMsg& msg, int nGuildIndex, double dExpGuild);
-#endif // GUILD_RANKING
+void MsgrLoginServerMsg(CNetMsg::SP& msg, int nCode);
 
-#ifdef EVENT_CHUSEOK_2006_GIFT
-void EventChuseok2006Msg(CNetMsg& msg, MSG_EVENT_CHUSEOK_2006_TYPE nErrorcode);
-#endif // EVENT_CHUSEOK_2006_GIFT
+void SysRaidmobRegenMsg(CNetMsg::SP& msg, int nNPCIndex, float x, float z);
 
-void MsgrLoginServerMsg(CNetMsg& msg, int nCode);
+void ExHairChangeMsg(CNetMsg::SP& msg, CPC* pPC );
 
-#ifdef MONSTER_RAID_SYSTEM
-void SysRaidmobRegenMsg(CNetMsg& msg, int nNPCIndex, float x, float z);
-#endif // MONSTER_RAID_SYSTEM
+void ExPlayerStateChangeMsg(CNetMsg::SP& msg, CPC* pPC);
 
-void ExHairChangeMsg(CNetMsg& msg, CPC* pPC );
-
-void ExPlayerStateChangeMsg(CNetMsg& msg, CPC* pPC);
-
-#ifdef EVENT_XMAS_2006
-void EventXmas2006Msg(CNetMsg& msg, int nCakeCount, MSG_EVENT_XMAS_2006_ERROR_TYPE nErrorcode);
-#endif // EVENT_XMAS_2006
-
-#ifdef EVENT_WHITEDAY_2007
-void EventWhiteday2007Msg(CNetMsg& msg, MSG_EVENT_WHITEDAY_2007_TYPE nMsg);
-#endif
-
-#ifdef EVENT_TLD_2007_SONGKRAN
-void EventSongkran2007Msg( CNetMsg& msg, MSG_EVENT_SONGKRAN_2007_TYPE nMsg, int type );
-#endif //EVENT_TLD_2007_SONGKRAN
-
-#ifdef EVENT_CHILDRENSDAY_2007
-void EventChildrensDay2007Msg(CNetMsg& msg, unsigned char nErrorCode);
-void HelperChildrensDay2007Msg( CNetMsg& msg, MSG_HELPER_CHILDRENSDAY_2007_TYPE subtype , int nCharIndex, int nItemIndex );
-#endif //EVENT_CHILDRENSDAY_2007
-
-#ifdef EVENT_FLOWERTREE_2007
-void EventFlowerTree2007Msg(CNetMsg& msg, MSG_EVENT_FLOWERTREE_2007_TYPE subtype );
-void HelperFlowerTree2007Msg( CNetMsg& msg, MSG_HELPER_FLOWERTREE_2007_TYPE subtype, int nCharIndex );
-#endif //EVENT_FLOWERTREE_2007
-
-void SysTimeoutLuckyAccessoryMsg(CNetMsg& msg, int nItemDBIndex);
-void SysChangeLuckyBoxMsg(CNetMsg& msg, int nItemDBIndex, int nUseDBIndex);
+void EventWhiteday2007Msg(CNetMsg::SP& msg, MSG_EVENT_WHITEDAY_2007_TYPE nMsg);
 
 
+void SysChangeLuckyBoxMsg(CNetMsg::SP& msg, int nItemDBIndex, int nUseDBIndex);
 
-#if defined (EVENT_VALENTINE_2007) || defined (EVENT_VALENTINE_2007_GIFT) 
-void EventValentine2007ErrorMsg(CNetMsg& msg, MSG_EVENT_VALENTINE_TYPE nErrorcode);
-void EventValentine2007Msg(CNetMsg& msg, MSG_EVENT_VALENTINE_TYPE nErrorcode, int extra);
-#endif	// #if defined (EVENT_VALENTINE_2007) || defined (EVENT_VALENTINE_2007_GIFT) 
+void SysChangeRaidBoxMsg(CNetMsg::SP& msg, int nItemDBIndex, int nUseDBIndex);
 
-void ConnGparaPromotionMsg(CNetMsg& msg, MSG_CONN_GPARA_PROMOTION_TYPE subtype, int nUserIndex, int nCharIndex);
-void ConnOCN_GooPromotionMsg(CNetMsg& msg, MSG_CONN_OCN_GOO_PROMOTION_TYPE subtype, int nUserIndex, int nCharIndex);
-void ConnMSNPromotionMsg(CNetMsg& msg, MSG_CONN_MSN_PROMOTION_TYPE subtype, int nUserIndex, int nCharIndex);
-
-#ifdef CREATE_EVENT
-void ConnCreateEventMsg(CNetMsg & msg, MSG_CONN_CREATEEVENT_TYPE subtype, int nUserIndex, int nCharIndex);
-#endif // CREATE_EVENT
-
-#ifdef EVENT_EGGS_HUNT_2007
-void EventEggsHunt2007ErrorMsg(CNetMsg& msg, MSG_EVENT_EGGS_HUNT_2007_TYPE nMsg);
-void EventEggsHunt2007GiftMsg(CNetMsg& msg, int nGiftIndex, int nGiftCount);
-#endif // EVENT_EGGS_HUNT_2007
-
-#ifdef EVENT_TEACH_2007
-void EventTeach2007Msg(CNetMsg & msg, int value);
-void HelperTeachFameUp2007ReqMsg( CNetMsg & msg, int charidx, int fame );
-void HelperTeachAddFlowerMsg(CNetMsg & msg, int charidx);
-void HelperReciveFlowerMsg(CNetMsg & msg, int charidx);
-#endif // EVENT_TEACH_2007
-
-#ifdef EVENT_GOMDORI_2007
-void EventGomdori2007Msg(CNetMsg& msg, MSG_EVENT_GOMDORI_2007_TYPE nType);
-void EventGomdori2007ResultMsg(CNetMsg& msg, MSG_EVENT_GOMDORI_2007_TYPE nResult, char cWinCount, char cUserSel, char cNPCSel);
-void EventGomdori2007EndMsg(CNetMsg& msg, char cWinCount, char cPromptType, int nExtra1, int nExtra2);
-void EventGomdori2007SelectGiftMsg(CNetMsg& msg, int nItemDBIndex);
-void EventGomdori2007ViewStatusMsg(CNetMsg& msg, int nCount, int* nStatus);
-void ConnEventGomdori2007CountMsg(CNetMsg& msg);
-void ConnEventGomdori2007StatusMsg(CNetMsg& msg, int nCharIndex);
-#endif // EVENT_GOMDORI_2007
-
-#ifdef EVENT_FLOWERTREE_2007
-void ConnEventFlowerTree2007Msg(CNetMsg& msg, MSG_CONN_EVENT_FLOWERTREE_2007_TYPE subtype, int nCharIndex );
-#endif //EVENT_FLOWERTREE_2007
+void EventValentine2007ErrorMsg(CNetMsg::SP& msg, MSG_EVENT_VALENTINE_TYPE nErrorcode);
+void EventValentine2007Msg(CNetMsg::SP& msg, MSG_EVENT_VALENTINE_TYPE nErrorcode, int extra);
 
 
-#ifdef EVENTSETTING
-void MsgEventSetReqMsg(CNetMsg& msg, int server, int subno, int zone, int thisServer, int thisSubno, int charIndex, int flag, int success);
-void MsgEventCurrentRepMsg(CNetMsg& msg, int server, int subno, int zone, int thisServer, int thisSubno, int charIndex);
-#endif // EVENTSETTING
+void EventEggsHunt2007ErrorMsg(CNetMsg::SP& msg, MSG_EVENT_EGGS_HUNT_2007_TYPE nMsg);
 
-#ifdef EVENT_2007_PARENTSDAY
-void EventParentsdayAccumulateList( CNetMsg& msg, MSG_PARENTSDAY_2007_ERROR_TYPE err, int count, int* ranking, int* point, const char guildname[][MAX_CHAR_NAME_LENGTH+1] );
-void EventParentsdayAddPoint( CNetMsg& msg, MSG_PARENTSDAY_2007_ERROR_TYPE err, int CarnationCaount, int entirePoint );
-void EventParentsdayExchangeTicket( CNetMsg& msg, MSG_PARENTSDAY_2007_ERROR_TYPE err, int TicketCount);
-void EventParentsdayExchangeItem( CNetMsg& msg, MSG_PARENTSDAY_2007_ERROR_TYPE err );
-void EventParentsdayItemNotice( CNetMsg& msg, const char* guildName, CLCString& itemName );
-
-void HelperEventParentsdayAccumulateList( CNetMsg& msg, int charIndex);
-void HelperEventParentsdayAddPoint( CNetMsg& msg, int charIndex, int guildIndex, int CarnationCount);
-void HelperEventParentsdayExchangeTicket( CNetMsg& msg, int charIndex , int guildIndex );
-void HelperEventParentsdayExchangeItem( CNetMsg& msg, int charIndex , int guildIndex  );
-void HelperEventParentsdayExchangeItemInsert( CNetMsg& msg, int charindex, int GiftItemIndex, int GiftItemCount );
-#endif // EVENT_2007_PARENTSDAY
-
+void EventGomdori2007Msg(CNetMsg::SP& msg, MSG_EVENT_GOMDORI_2007_TYPE nType);
+void EventGomdori2007ResultMsg(CNetMsg::SP& msg, MSG_EVENT_GOMDORI_2007_TYPE nResult, char cWinCount, char cUserSel, char cNPCSel);
+void EventGomdori2007EndMsg(CNetMsg::SP& msg, char cWinCount, char cPromptType, int nExtra1, int nExtra2);
+void EventGomdori2007SelectGiftMsg(CNetMsg::SP& msg, int nItemDBIndex);
+void EventGomdori2007ViewStatusMsg(CNetMsg::SP& msg, int nCount, int* nStatus);
+void ConnEventGomdori2007CountMsg(CNetMsg::SP& msg);
+void ConnEventGomdori2007StatusMsg(CNetMsg::SP& msg, int nCharIndex);
 
 #ifdef GMTOOL
-void MsgGmKickIDCommandReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int thisServer, int thisSubno, int charindex, const char* id);
-void MsgGmKickIDCommandRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, char success, int charindex, const char* id);
-void MsgrGmToolChatMonitorReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int gmcharindex, const char* name, const char* onoff);
-void MsgrGmToolChatMonitorRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, char success, int gmcharindex, const char* id);
-void MsgrNoticeGmChatMonitorMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int thisServer, int thisSub, int thisZone, const char* chat, int charindex, const char* name, unsigned char chattype);
-void MsgrGmToolChatMonitorOffMsg(CNetMsg& rmsg, int seq, int server, int subno, int zone, int charindex);
-void MsgrGmToolChatMonitorPartyOffMsg(CNetMsg& rmsg, int seq, int server, int subno, int zone, int bossindex);
-void MsgrGmToolChatMonitorGuildOffMsg(CNetMsg& rmsg, int seq, int server, int subno, int zone, int guildindex);
-void MsgrNoticeGmChatMonitorGuildMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int thisServer, int thisSub, int thisZone, const char* chat, int guildindex, const char* name, int charindex, const char* charname);
-void MsgrNoticeGmChatMonitorPartyMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int thisServer, int thisSub, int thisZone, const char* chat, int bossindex, const char* name, int charindex, const char* charname);
-void MsgrRepGMWhisperNotFoundMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int sindex);
-void MsgrGMWhisperReqMsg(CNetMsg& msg, int seq, int server, int subno, int sindex, const char* sname, const char* rname, const char* chat);
-void MsgrGMWhisperReqMsg(CNetMsg& msg, int seq, int server, int sub, const char* chat, int charindex, const char* name, int serverno, int subno, const char* receiver);
-void MsgrNoticeGmChatMonitorWhisperMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int thisServer, int thisSub, int thisZone, const char* chat, int charindex, const char* name, unsigned char chattype, const char* sender);
-void MsgLoopCountRep(CNetMsg& msg, int serverno, int subno, int thisServer, int thisSub, const char* loopbuf);
-void MsgExtraGMCommandReq(CNetMsg& msg, int serverno, int subno, MSG_MSGR_TYPE msgtype);
-void MsgGMSilenceReq(CNetMsg& msg, int seq, int serverno, int subno, int gmcharindex, const char* charname, int sec);
-void MsgGMSilenceRep(CNetMsg& msg, int seq, int thisServer, int thisSub, int success, int gmcharindex, const char* name);
-void MsgrRepGMToolWhisperNotFoundMsg(CNetMsg& msg, int nSeq, int nServer, int nSubno, int nZone, int charindex, const char* name);
-void ChatGMWhisperMsg(CNetMsg& msg, int sindex, const char* sname, const char* rname, const char* chat);
-void MsgrRepGMWhisperRepMsg(CNetMsg& msg, int nSeq, int server, int subno, int zone, int index, const char*  name, const char* chat,  int thisServer, int thisSub, int sindex);
-void GMSayMsg(CNetMsg& msg, int server, int sub, int charindex, const char* name, const char* chat, unsigned char chattype);
-void MsgrRepGmToolWhisperRepMsg(CNetMsg& rmsg, int seq, int server, int sub, int zone, int sindex, const char* sname, const char* rname, const char *chat);
-void ConnGMToolCommand(CNetMsg& msg, int gmindex, const char* gmname, const char* gmcommand);
-void ConnGMToolChatMonitor(CNetMsg& msg, int charindex, const char* name, unsigned char chattype, int server, int sub, const char* chat);
-void ConnGMToolChatting(CNetMsg& msg, int server, int sub, int gmindex, const char* gmname, const char* name, const char* chat);
-void MsgGmKickCommandReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int thisServer, int thisSubno, int charindex, const char* name);
-void MsgGmKickCommandRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, char success, int charindex, const char* name);
-void MsgrGMShutdownReqMsg(CNetMsg& msg, int server, int sub, int remain, const char* chat);
+void MsgGmKickIDCommandReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int thisServer, int thisSubno, int charindex, const char* id);
+void MsgGmKickIDCommandRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, char success, int charindex, const char* id);
+void MsgrGmToolChatMonitorReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int gmcharindex, const char* name, const char* onoff);
+void MsgrGmToolChatMonitorRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, char success, int gmcharindex, const char* id);
+void MsgrNoticeGmChatMonitorMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int thisServer, int thisSub, int thisZone, const char* chat, int charindex, const char* name, unsigned char chattype);
+void MsgrGmToolChatMonitorOffMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex);
+void MsgrGmToolChatMonitorPartyOffMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int bossindex);
+void MsgrGmToolChatMonitorGuildOffMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int guildindex);
+void MsgrNoticeGmChatMonitorGuildMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int thisServer, int thisSub, int thisZone, const char* chat, int guildindex, const char* name, int charindex, const char* charname);
+void MsgrNoticeGmChatMonitorPartyMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int thisServer, int thisSub, int thisZone, const char* chat, int bossindex, const char* name, int charindex, const char* charname);
+void MsgrRepGMWhisperNotFoundMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int sindex);
+void MsgrGMWhisperReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int sindex, const char* sname, const char* rname, const char* chat);
+void MsgrGMWhisperReqMsg(CNetMsg::SP& msg, int seq, int server, int sub, const char* chat, int charindex, const char* name, int serverno, int subno, const char* receiver);
+void MsgrNoticeGmChatMonitorWhisperMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int thisServer, int thisSub, int thisZone, const char* chat, int charindex, const char* name, unsigned char chattype, const char* sender);
+void MsgLoopCountRep(CNetMsg::SP& msg, int serverno, int subno, int thisServer, int thisSub, const char* loopbuf);
+void MsgExtraGMCommandReq(CNetMsg::SP& msg, int serverno, int subno, MSG_MSGR_TYPE msgtype);
+void MsgGMSilenceReq(CNetMsg::SP& msg, int seq, int serverno, int subno, int gmcharindex, const char* charname, int sec);
+void MsgGMSilenceRep(CNetMsg::SP& msg, int seq, int thisServer, int thisSub, int success, int gmcharindex, const char* name);
+void MsgrRepGMToolWhisperNotFoundMsg(CNetMsg::SP& msg, int nSeq, int nServer, int nSubno, int nZone, int charindex, const char* name);
+void ChatGMWhisperMsg(CNetMsg::SP& msg, int sindex, const char* sname, const char* rname, const char* chat);
+void MsgrRepGMWhisperRepMsg(CNetMsg::SP& msg, int nSeq, int server, int subno, int zone, int index, const char*  name, const char* chat,  int thisServer, int thisSub, int sindex);
+void GMSayMsg(CNetMsg::SP& msg, int server, int sub, int charindex, const char* name, const char* chat, unsigned char chattype);
+void MsgrRepGmToolWhisperRepMsg(CNetMsg::SP& msg, int seq, int server, int sub, int zone, int sindex, const char* sname, const char* rname, const char *chat);
+void ConnGMToolCommand(CNetMsg::SP& msg, int gmindex, const char* gmname, const char* gmcommand);
+void ConnGMToolChatMonitor(CNetMsg::SP& msg, int charindex, const char* name, unsigned char chattype, int server, int sub, const char* chat);
+void ConnGMToolChatting(CNetMsg::SP& msg, int server, int sub, int gmindex, const char* gmname, const char* name, const char* chat);
+void MsgGmKickCommandReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int thisServer, int thisSubno, int charindex, const char* name);
+void MsgGmKickCommandRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, char success, int charindex, const char* name);
+void MsgrGMShutdownReqMsg(CNetMsg::SP& msg, int server, int sub, int remain, const char* chat);
 #endif // GMTOOL
 
-#ifdef DRATAN_CASTLE
-void HelperInsertGuardMsg(CNetMsg & msg, CPC * ch, CItem * item);
-void InsertGuardMsg(CNetMsg & msg, CPC * ch, CItem * item);
-void CastleCristalRespondStartMsg(CNetMsg & msg, CPC * ch);
-void CastleCristalRespondEndMsg(CNetMsg & msg, CPC * ch);
-void CastleCristalRespondFailMsg(CNetMsg & msg, CPC * ch);
-void CastleTowerListMsg(CNetMsg & msg, CDratanCastle * pCastle);
-void CastleTowerAddMsg(CNetMsg & msg, CDratanCastle * pCastle);
-void HelperCastleTowerAddMsg(CNetMsg & msg, int zoneidx, CDratanCastle * pCastle);
-void CastleTowerReinforceListMsg(CNetMsg & msg, char type, CDratanCastle * pCastle);
-void CastleTowerReinforceMsg(CNetMsg & msg, char type, CDratanCastle * pCastle);
-void HelperCastleReinforceMsg(CNetMsg & msg, char type, char step, int zoneidx);
-void CastleTowerWarpListMsg(CNetMsg & rmsg, int * aliveindex, char total);
-void CastleTowerRepaireListMsg(CNetMsg & msg, int idx, LONGLONG money);
-void CastleTowerRepaireMsg(CNetMsg & msg, int idx, LONGLONG money);
-void CastleTowerRebrithInstallMsg(CNetMsg & msg, int qindex, int gindex, const char * gname, int list_index);
-void HeplerCastleRebrithInstallMsg(CNetMsg & msg, int qindex, int gindex, const char * ganme);
-void CastleTowerQuartersCrushMsg(CNetMsg & msg, int index);
-void CastletowerQuartersListMsg(CNetMsg & msg, CDratanCastle * pCastle);
-void WaitTimeMsg(CNetMsg & msg, int wait_time);
-void CastleErrorMsg(CNetMsg & msg, MSG_EX_CASTLE_ERROR_TYPE error);
-void CastleErrorMsg(CNetMsg & msg, unsigned char error);
-#endif // DRATAN_CASTLE
+void MsgrChannelChatReqMsg(CNetMsg::SP& msg, int server, int sender_index, const char*  name, const char* chat, unsigned char chatType);
 
-#ifdef EVENT_OPEN_ADULT_SERVER
-void HelerOpenAdultServerMsg(CNetMsg& msg, int charindex, MSG_HELPER_OPEN_ADULT_SERVER_ERROR_TYPE error);
-#endif // EVENT_OPEN_ADULT_SERVER
+void HelperInsertGuardMsg(CNetMsg::SP& msg, CPC * ch, CItem * item);
+void InsertGuardMsg(CNetMsg::SP& msg, CPC * ch, CItem * item);
+void CastleCristalRespondStartMsg(CNetMsg::SP& msg, CPC * ch);
+void CastleCristalRespondEndMsg(CNetMsg::SP& msg, CPC * ch);
+void CastleCristalRespondFailMsg(CNetMsg::SP& msg, CPC * ch);
+void CastleTowerListMsg(CNetMsg::SP& msg, CDratanCastle * pCastle);
+void CastleTowerAddMsg(CNetMsg::SP& msg, CDratanCastle * pCastle);
+void HelperCastleTowerAddMsg(CNetMsg::SP& msg, int zoneidx, CDratanCastle * pCastle);
+void CastleTowerReinforceListMsg(CNetMsg::SP& msg, char type, CDratanCastle * pCastle);
+void CastleTowerReinforceMsg(CNetMsg::SP& msg, char type, CDratanCastle * pCastle);
+void HelperCastleReinforceMsg(CNetMsg::SP& msg, char type, char step, int zoneidx);
+void CastleTowerWarpListMsg(CNetMsg::SP& rmsg, int * aliveindex, char total);
+void CastleTowerRepaireListMsg(CNetMsg::SP& msg, int idx, LONGLONG money);
+void CastleTowerRepaireMsg(CNetMsg::SP& msg, int idx, LONGLONG money);
+void CastleTowerRebrithInstallMsg(CNetMsg::SP& msg, int qindex, int gindex, const char * gname, int list_index);
+void HeplerCastleRebrithInstallMsg(CNetMsg::SP& msg, int qindex, int gindex, const char * ganme);
+void CastleTowerQuartersCrushMsg(CNetMsg::SP& msg, int index);
+void CastletowerQuartersListMsg(CNetMsg::SP& msg, CDratanCastle * pCastle);
+void WaitTimeMsg(CNetMsg::SP& msg, int wait_time);
+void CastleErrorMsg(CNetMsg::SP& msg, MSG_EX_CASTLE_ERROR_TYPE error);
+void CastleErrorMsg(CNetMsg::SP& msg, unsigned char error);
 
-#ifdef GIFT_EVENT_2007
-void ConnEventGift2007Msg(CNetMsg & msg, MSG_CONN_EVENT_GIFT_2007_TYPE subtype, CPC * pc);
-void GiftEvent2007Msg(CNetMsg & rmsg, MSG_CONN_EVENT_GIFT_2007_TYPE nError);
-#endif // GIFT_EVENT_2007
+void EventOpenAdultServerMsg(CNetMsg::SP& msg, MSG_EVENT_OPEN_ADULT_SERVER_TYPE type);
 
-#if defined(GIFT_EVENT_2007) || defined(EVENT_OPEN_ADULT_SERVER) || defined( EVENT_MAGIC_CARD )
-void EventOpenAdultServerMsg(CNetMsg& msg, MSG_EVENT_OPEN_ADULT_SERVER_TYPE type);
-#endif //  GIFT_EVENT_2007 || EVENT_OPEN_ADULT_SERVER || EVENT_MAGIC_CARD
+void PetNameChange( CNetMsg::SP& msg, MSG_EX_PET_CHANGE_NAME_ERROR_TYPE err, int petidx , const char* strPetName );
+void HelperPetNameChange( CNetMsg::SP& msg, int charindex, int petindex, const char* strPetName );
 
-#ifdef GIFT_EVENT_2007
-void ConnEventGift2007Msg(CNetMsg & msg, MSG_CONN_EVENT_GIFT_2007_TYPE subtype, CPC * pc);
-void GiftEvent2007Msg(CNetMsg & rmsg, MSG_CONN_EVENT_GIFT_2007_TYPE nError);
-#endif // GIFT_EVENT_2007
+void HelperPetColorChange( CNetMsg::SP& msg, int charindex, int petindex, char petCorlorType );
+void PetChangeColor( CNetMsg::SP& msg, int petindex, char petColorType, int ownerindex, char petMount );
 
-#ifdef PET_NAME_CHANGE
-void PetNameChange( CNetMsg& msg, MSG_EX_PET_CHANGE_NAME_ERROR_TYPE err, int petidx , const char* strPetName );
-void HelperPetNameChange( CNetMsg& msg, int charindex, int petindex, const char* strPetName );
-#endif // PET_NAME_CHANGE
-
-#ifdef PET_DIFFERENTIATION_ITEM
-void HelperPetColorChange( CNetMsg& msg, int charindex, int petindex, char petCorlorType );
-void PetChangeColor( CNetMsg& msg, int petindex, char petColorType, int ownerindex, char petMount );
-#endif // PET_DIFFERENTIATION_ITEM
-
-#ifdef CASH_EXCHANGE_EQUIP
-void ItemExchangeEquipRepMsg(CNetMsg& msg, int olddbindex, int newdbindex);
-#endif // CASH_EXCHANGE_EQUIP
-
-#ifdef BLOOD_SWEAT_FRUIT
-void ItemBloodSweatFruitAddRepMsg(CNetMsg& msg, CItem* item, MSG_ITEM_OPTION_ADD_RESULT result);
-#endif
 
 #ifdef DOUBLE_ITEM_DROP
-void MsgrDoubleItemEventReqMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int itemPercent);
-void MsgrDoubleItemEventRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int itemPercent);
+void MsgrDoubleItemEventReqMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int itemPercent);
+void MsgrDoubleItemEventRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int charindex, int cmd, int itemPercent);
 #endif // DOUBLE_ITEM_DROP
 
-#ifdef CREATE_EVENT
-void ConnCreateEventCreateTableMsg(CNetMsg & msg, int idx);
-#endif // CREATE_EVENT
+#if defined( EVENT_SUMMER_VACATION_2007_RESULT )
+void EventSummerVacationInchenMsg( CNetMsg::SP& msg, MSG_EVENT_SUMMER_VACATION_2007_TYPE vacationType, int itemindex );
+void EventSummerVacation2007FigureMsg( CNetMsg::SP& msg, MSG_EVENT_SUMMER_VACATION_2007_TYPE vacationType, int figuretype, int itemindex, int count );
+#endif// defined( EVENT_SUMMER_VACATION_2007_RESULT )
 
-#if defined( EVENT_SUMMER_VACATION_2007_RESULT ) || defined (EVENT_SUMMER_VACATION_2007 )
-void EventSummerVacationInchenMsg( CNetMsg & msg, MSG_EVENT_SUMMER_VACATION_2007_TYPE vacationType, int itemindex );
-void EventSummerVacation2007FigureMsg( CNetMsg & msg, MSG_EVENT_SUMMER_VACATION_2007_TYPE vacationType, int figuretype, int itemindex, int count );
-#endif// defined( EVENT_SUMMER_VACATION_2007_RESULT ) || defined (EVENT_SUMMER_VACATION_2007 )
+void EventHalloween2007Msg( CNetMsg::SP& msg, MSG_EVENT_HALLOWEEN_2007_TYPE type, unsigned char error );
+void EventHalloween2007Msg( CNetMsg::SP& msg, MSG_EVENT_HALLOWEEN_2007_TYPE type );
+void HelperHalloween2007Msg( CNetMsg::SP& msg, int char_index );
 
-#ifdef EVENT_TLD_MOTHERDAY_2007
-void EventTldMotherday2007tMsg(CNetMsg& msg, MSG_EVENT_TLD_MOTHERDAY_2007_ERROR_TYPE nErrorCode);
-#endif // EVENT_TLD_MOTHERDAY_2007
+void EventNewMoonStoneMsg( CNetMsg::SP& msg, MSG_EVENT_NEW_MOONSTONE_TYPE type);
 
-#ifdef EVENT_BJMONO_2007
-void EventBjMono2007Msg(CNetMsg & msg, MSG_EVENT_BJMONO_2007_TYPE subtype);
-void ConnEventBjMono2007Msg(CNetMsg& msg, MSG_CONN_EVENT_BJMONO_2007_TYPE subtype,  CPC* pc );
-#endif // EVENT_BJMONO_2007
+void CastleOwnerInfoMsg(CNetMsg::SP& msg);
 
-#ifdef EVENT_SSHOT_2007
-void EventSshot2007Msg(CNetMsg & msg, MSG_EVENT_SSHOT_2007_TYPE subtype);
-void ConnEventSshot2007Msg(CNetMsg& msg, MSG_CONN_EVENT_SSHOT_2007_TYPE subtype, CPC* pc );
-#endif //EVENT_SSHOT_2007
+void DVDInfoMsg(CPC * pPC, CNetMsg::SP& msg, int nMobRate, int nEnvRate );
+void GuildNameColorStateMsg( CNetMsg::SP& msg, CPC* ch );
+void DVDManagementMsg( CNetMsg::SP& msg, MSG_DVD_INFO_SUBTYPE subtype );
+void DVDDungeonEnterMsg( CNetMsg::SP& msg, MSG_DVD_INFO_SUBTYPE subtype );
+void HelperDVDRateChangeMsg(CNetMsg::SP& msg, MSG_DVD_INFO_SUBTYPE subtype, int nRate, int mode);
+void HelperDVDNormalChangeNoticeMsg(CNetMsg::SP& msg);
+void HelperDVDNormalChangeTimeMsg(CNetMsg::SP& msg, int time);
+void DVDDungeonNormalChangeNoticeMsg(CNetMsg::SP& msg);
+void DVDDungeonChangeToOwnerMsg( CNetMsg::SP& msg );
 
-#ifdef EVENT_LC_1000DAY
-void EventLC1000DayMsg( CNetMsg & msg, MSG_EVENT_LC_1000DAY_TYPE type );
-#endif // EVENT_LC_1000DAY
+void ConnEventXmas2007Msg( CNetMsg::SP& msg, MSG_CONN_EVENT_XMAS_2007_TYPE subtype );
+void EventXmas2007Msg( CNetMsg::SP& msg, MSG_EVENT_XMAS_2007_TYPE subtype );
+void EventXmasPuzzleMsg( CNetMsg::SP& msg, MSG_EVENT_XMAS_2007_TYPE subtype, int result = -1);
+void EventXmasPuzzleRes( CNetMsg::SP& msg, unsigned char result, unsigned char winCount, unsigned char userChoice, unsigned char serverChoice);
+void EventXmasPuzzleEnd( CNetMsg::SP& msg, unsigned char winCount, int giftIndex = -1, LONGLONG giftCount = -1 );
 
-#ifdef EVENT_RICHYEAR_2007
-void EventRichYearMsg(CNetMsg& msg, MSG_EVENT_RICHYEAR_TYPE type);
-#endif // EVENT_RICHYEAR_2007
+void HelperPetTurnToNPCMsg( CNetMsg::SP& msg, int charindex, int petindex, int toNpc, int size );
+void PetTurnToNPCMsg( CNetMsg::SP& msg, int petindex, int toNpc, int ownerindex , int size);
 
-#ifdef REWARD_IDC2007
-void HelerRewardIDC2007Msg(CNetMsg& msg, int userindex);
-#endif // REWARD_IDC2007
+#ifdef GM_EXP_LIMIT_AUTO
+void MsgrSetExpLimitMsg( CNetMsg::SP& msg, int server,  int charindex, int nLimitStart, int nLimitEnd, int start[], int end[] );
+#else
+void MsgrSetExpLimitMsg( CNetMsg::SP& msg, int server,  int charindex, int nLimit );
+#endif // GM_EXP_LIMIT_AUTO
 
-//#ifdef EVENT_HALLOWEEN_2007
-void EventHalloween2007Msg( CNetMsg & msg, MSG_EVENT_HALLOWEEN_2007_TYPE type, unsigned char error );
-void EventHalloween2007Msg( CNetMsg & msg, MSG_EVENT_HALLOWEEN_2007_TYPE type );
-void HelperHalloween2007Msg( CNetMsg& msg, int char_index );
-//#endif // EVENT_HALLOWEEN_2007
+void HelperComboGotoWaitRoomPrompt(CNetMsg::SP& msg, int bossindex, const char* bossname);
+//void ComboRecallToWaitRoomPrompt(CNetMsg::SP& msg, int bossindex, int nas);
+void HelperRecallToWaitRoomPrompt(CNetMsg::SP& msg, int bossindex);
+void EffectFireReadyMsg(CNetMsg::SP& msg, int extra, int count, int* effectNPC, float* x, float* z, float* h);
+void HelperCreateComboMsg(CNetMsg::SP& msg, int subserver, int charindex, int areaindex, int comboindex);
 
-#ifdef EVENT_NEW_MOONSTONE
-void EventNewMoonStoneMsg( CNetMsg& msg, MSG_EVENT_NEW_MOONSTONE_TYPE type);
-#endif // EVENT_NEW_MOONSTONE
+#if defined (SAKURA_EVENT_2008_REWARD)
+void EventSakuraEvent2008Msg( CNetMsg::SP& msg, MSG_EVNET_SAKURA_2008_TYPE type );
+#endif // defined (SAKURA_EVENT_2008_REWARD)
 
-#ifdef ENABLE_WAR_CASTLE
-void CastleOwnerInfoMsg(CNetMsg & msg);
-#endif // ENABLE_WAR_CASTLE
-
-#ifdef DRATAN_CASTLE
-#ifdef DYNAMIC_DUNGEON
-void DVDInfoMsg(CPC * pPC, CNetMsg & msg, int nMobRate, int nEnvRate );
-void GuildNameColorStateMsg( CNetMsg & msg, CPC* ch );
-void DVDManagementMsg( CNetMsg& msg, MSG_DVD_INFO_SUBTYPE subtype );
-void DVDDungeonEnterMsg( CNetMsg& msg, MSG_DVD_INFO_SUBTYPE subtype );
-void HelperDVDRateChangeMsg(CNetMsg & msg, MSG_DVD_INFO_SUBTYPE subtype, int nRate);
-#endif //DYNAMIC_DUNGEON
-#endif // DRATAN_CASTLE
-
-
-#ifdef SAVE_MOONSTONE_MIX
-void HelperSaveMoonStoneMix(CNetMsg& msg, int charindex);
-#endif 
-
-#ifdef EVENT_XMAS_2007
-void ConnEventXmas2007Msg( CNetMsg& msg, MSG_CONN_EVENT_XMAS_2007_TYPE subtype );
-void EventXmas2007Msg( CNetMsg& msg, MSG_EVENT_XMAS_2007_TYPE subtype );
-#endif //EVENT_XMAS_2007
-
-
-#ifdef ALTERNATE_MERCHANT
-void AlternateMerchantErrorMsg(CNetMsg& msg, MSG_EX_ALTERNATE_MERCHANT_ERROR_TYPE errcode);
-void AlternateMerchantSellStartMsg(CNetMsg& msg, CPC* ch);
-void AlternateMerchantSellListMsg(CNetMsg& msg, CPC* ch);
-void AlternateMerchantChangeMsg(CNetMsg& msg, CPC* ch);
-void AlternateMerchantBuyMsg(CNetMsg& msg, CNetMsg& buymsg, CPC* tch);
-
-void HelperAlternateMerchantStartMsg( CNetMsg& msg, int charindex, char shoptype, CAlternateMerchant* pAlternateMerchant );
-void HelperAlternateMerchantBuyMsg( CNetMsg& msg, int charindex, char shoptype, CAlternateMerchant* pAlternateMerchant );
-void HelperAlternateMerchantProductRecoveryMsg( CNetMsg& msg, int charindex, char shoptype, CAlternateMerchant* pAlternateMerchant );
-void HelperAlternateMerchantNasRecoveryMsg( CNetMsg& msg, int charindex, char shoptype, CAlternateMerchant* pAlternateMerchant );
-void HelperAlternateMerchantEndMsg( CNetMsg& msg, int charindex, char shoptype, CAlternateMerchant* pAlternateMerchant );
-
-#endif // ALTERNATE_MERCHANT
-
-#ifdef PET_TURNTO_NPC
-void HelperPetTurnToNPCMsg( CNetMsg& msg, int charindex, int petindex, int toNpc, int size );
-void PetTurnToNPCMsg( CNetMsg& msg, int petindex, int toNpc, int ownerindex , int size);
-#endif //PET_TURNTO_NPC
-
-#ifdef NEWYEAR_EVENT_2008
-void NewYearSkillReqMsg(CNetMsg & msg, CPC * ch);
-#endif // NEWYEAR_EVENT_2008
-
-void MsgrSetExpLimitMsg( CNetMsg& msg, int server,  int charindex, int nLimit );
-
-#ifdef MONSTER_COMBO
-void MonsterComboErrorMsg(CNetMsg& msg, MSG_EX_MONSTERCOMBO_ERROR_TYPE subtype);
-void MonsterComboMsg(CNetMsg & msg, MSG_EX_MONSTERCOMBO_TYPE subtype);
-void HelperComboGotoWaitRoomPrompt(CNetMsg& msg, int bossindex, const char* bossname);
-void ComboGotoWaitRoomPrompt(CNetMsg& msg, int bossindex, int nas);
-//void ComboRecallToWaitRoomPrompt(CNetMsg& msg, int bossindex, int nas);
-void HelperRecallToWaitRoomPrompt(CNetMsg& msg, int bossindex);
-void EffectFireReadyMsg(CNetMsg& msg, int extra, int count, int* effectNPC, float* x, float* z, float* h);
-void HelperCreateComboMsg(CNetMsg& msg, int subserver, int charindex, int areaindex, int comboindex);
-#endif // MONSTER_COMBO
-
-#if defined (SAKURA_EVENT_2008) || defined (SAKURA_EVENT_2008_REWARD)
-void EventSakuraEvent2008Msg( CNetMsg & msg, MSG_EVNET_SAKURA_2008_TYPE type );
-#endif // defined (SAKURA_EVENT_2008) || defined (SAKURA_EVENT_2008_REWARD)
-
-#ifdef CLIENT_RESTART
-void ConnClientRestartMsg( CNetMsg& msg , const char* userid );
-#endif //CLIENT_RESTART
+void ConnClientRestartMsg( CNetMsg::SP& msg , const char* userid );
 
 #ifdef CHAOSBALL
-void ChaosBallMsg(CNetMsg & msg, MSG_EX_CHAOSBALL_ERRORTYPE error);
+void ChaosBallMsg(CNetMsg::SP& msg, MSG_EX_CHAOSBALL_ERRORTYPE error);
 #endif
 
-#ifdef NEW_CASHITEM_USA_2008
-void ItemWarpDoc(CNetMsg& msg, int zone, int npcidx);
-#endif // NEW_CASHITEM_USA_2008
 
-#ifdef ATTENDANCE_EVENT_REWARD
-void ConnEventAttendanceRewardMsg( CNetMsg& msg, MSG_CONN_EVENT_ATTENDANCE_EVENT_TYPE subtype, int userIndex, int charIndex );
-#endif //ATTENDANCE_EVENT_REWARD
-
-#ifdef IRIS_POINT
-void ConnIPointAddMsg( CNetMsg& msg, int userIndex, int charIndex, MSG_CONN_IPOINT_TYPE type, int nIpoint );
-#endif //IRIS_POINT
-
-#ifdef EVENT_NOM_MOVIE
-void ConnEventNomMsg(CNetMsg& msg, MSG_CONN_EVENT_NOM_TYPE eSubType, int nUserIdx, int nCharIdx);
-void EventNomMsg(CNetMsg & msg, MSG_EVENT_NOM_ERROR_TYPE eError);
-#endif
-
-#ifdef REQUITAL_EVENT	// 보상 이벤트 
-void ConnEventRequitalMsg(CNetMsg & msg, int nUserIdx, int nCharIdx, int nCheck_eventType, CLCString User_name, CLCString Char_Name);
-void EventRequitalMsg(CNetMsg & msg, MSG_EVENT_REQUITAL_ERROR_TYPE eError);
-#endif // REQUITAL_EVENT
-
-#ifdef EVENT_PHOENIX  // yhj   081105  피닉스
-void HelperEventPhoenixMsg(CNetMsg & msg, int nUserIdx, int nCharIdx );
-void EventPhoenixMsg(CNetMsg & msg, MSG_EVENT_PHOENIX_ERROR_TYPE eError);
-void EventPhoenix_SuccessMsg(CNetMsg & msg);
-#endif // EVENT_PHOENIX
+void HelperEventPhoenixMsg(CNetMsg::SP& msg, int nUserIdx, int nCharIdx );
+void EventPhoenixMsg(CNetMsg::SP& msg, MSG_EVENT_PHOENIX_ERROR_TYPE eError);
+void EventPhoenix_SuccessMsg(CNetMsg::SP& msg);
 
 #ifdef EXTREME_CUBE
-void HelperCubeStateReqMsg( CNetMsg& msg, int charindex);
-void HelperCubeStatePersonalReqMsg(CNetMsg& msg, int charindex);
-void HelperAddCubePointMsg(CNetMsg& msg, int ofguildindex, int ofcubepoint, long lastcubepoint);
-void HelperAddCubePointPersonalMsg(CNetMsg& msg, int ofcharidx ,int ofcubepoint, long lastCubePoint);
-void HelperGuildCubeNoticeMsg(CNetMsg& msg, int type);
-void ExtremeCubeErrorMsg(CNetMsg& msg, MSG_EX_EXTREME_CUBE_ERROR_TYPE errortype);
-void ExtremeCubeMsg(CNetMsg& msg, MSG_EX_EXTREME_CUBE_TYPE type);
-#endif 
+void HelperCubeStateReqMsg( CNetMsg::SP& msg, int charindex);
+void HelperCubeStatePersonalReqMsg(CNetMsg::SP& msg, int charindex);
+void HelperAddCubePointMsg(CNetMsg::SP& msg, int ofguildindex, int ofcubepoint, long lastcubepoint);
+void HelperAddCubePointPersonalMsg(CNetMsg::SP& msg, int ofcharidx ,int ofcubepoint, long lastCubePoint);
+void HelperGuildCubeNoticeMsg(CNetMsg::SP& msg, int type);
+void ExtremeCubeErrorMsg(CNetMsg::SP& msg, MSG_EX_EXTREME_CUBE_ERROR_TYPE errortype);
+void ExtremeCubeMsg(CNetMsg::SP& msg, MSG_EX_EXTREME_CUBE_TYPE type);
+#ifdef EXTREME_CUBE_VER2
+void HelperCubeRewardPersonalReqMsg( CNetMsg::SP& msg, int charindex);
+void HelperCubeRewardPersonalRollBackMsg(CNetMsg::SP& msg, int updatetime, int charindex);
+#endif // EXTREME_CUBE_VER2
+#endif
 
-//#ifdef INIT_SSKILL
-void InitSSkillMsg(CNetMsg& msg, MSG_EX_INIT_SSkill_ERROR_TYPE type);
-//#endif // INIT_SSKILL
+#if defined(EVENT_WORLDCUP_2010) || defined(EVENT_WORLDCUP_2010_TOTO)  || defined(EVENT_WORLDCUP_2010_TOTO_STATUS) || defined(EVENT_WORLDCUP_2010_TOTO_GIFT) || defined(EVENT_WORLDCUP_2010_ATTENDANCE) || defined(EVENT_WORLDCUP_2010_KOREA)
+void EventWorldcup2010TradeErrorMsg(CNetMsg::SP& msg, MSG_EVENT_WORLDCUP2010_ERROR_TYPE eError, int tradeType);
+void EventWorldcup2010ErrorMsg(CNetMsg::SP& msg, MSG_EVENT_WORLDCUP2010_TYPE repType, MSG_EVENT_WORLDCUP2010_ERROR_TYPE eError);
+void EventWorldcup2010TOTOStatusErrorMsg(CNetMsg::SP& msg, MSG_EVENT_WORLDCUP2010_ERROR_TYPE eError, int resultType, int itemindex=-1);
+void EventWorldcup2010KoreaErrorMsg(CNetMsg::SP& msg, MSG_EVENT_WORLDCUP2010_ERROR_TYPE eError);
+void HelperWorldcup2010TOTORepMsg(CNetMsg::SP& msg, int charindex, int CountryItemIndex1);
+void HelperWorldcup2010TOTOStatusRepMsg(CNetMsg::SP& msg, int charindex, int resultType);
+void HelperWorldcup2010TOTOGiftRepMsg(CNetMsg::SP& msg, int charindex, int restore=0);
+void HelperWorldcup2010AttendanceRepMsg(CNetMsg::SP& msg, int charindex);
+void HelperWorldcup2010KoreaRepMsg(CNetMsg::SP& msg, int charindex, int type);
+#endif
 
-#if defined (CHAR_LOG) && defined (LC_KOR)
-void ConnCharLogMsg(CNetMsg& msg, CPC* pc );
-#endif // #if defined (CHAR_LOG) && defined (LC_KOR)
-
-#ifdef TRADE_AGENT
+void InitSSkillMsg(CNetMsg::SP& msg, MSG_EX_INIT_SSkill_ERROR_TYPE type);
 
 typedef struct ItemOption
 {
@@ -1252,90 +848,302 @@ typedef struct ItemOption
 			m_Option_level[i] = 0;
 		}
 	}
-
-}S_ITEMOPTION;
-
-void HelperTradeAgentRegListReqMsg(CNetMsg& msg, int charindex,int page_no,int nAlignType);
-void HelperTradeAgentRegReqMsg(CNetMsg& msg, int charindex, CLCString sellchar_name, char tab, char row, char col, int item_serial,CLCString item_serial2,CItem * pitem, CLCString item_name,int item_level,int item_type,int item_subtype,int item_class,int Quantity,LONGLONG TotalMoney,LONGLONG Guaranty,LONGLONG llCurCharHaveNas);
-void HelperTradeAgentRegCancelReqMsg(CNetMsg& msg, int charindex,int nCancelindex);
-void HelperTradeAgentRegResultMsg(CNetMsg& msg, int charindex,int nDbIndex,int nResult);
-void HelperTradeAgentSearchReqMsg(CNetMsg& msg, int charindex,int nPageNo, int nitemType,int nitemSubType,int nJobClass,CLCString stSearchWord,int nAlignType);
-void HelperTradeAgentBuyReqMsg(CNetMsg& msg, int charindex, CLCString buychar_name,int nList_idx,LONGLONG llCharHaveNas);
-void HelperTradeAgentCalcListReqMsg(CNetMsg& msg, int charindex,int page_no,int nAlignType);
-void HelperTradeAgentCalculateReqMsg(CNetMsg& msg, int charindex,int PageNo);
-void HelperTradeAgentCalcResultMsg(CNetMsg& msg, int charindex,int nItemcount,int* pResultindex,int* pResult);
-void HelperTradeAgentCheckCalcReqMsg(CNetMsg& msg, int charindex);
-
-void TradeAgentRegListRepMsg(CNetMsg & msg,int nCharIndex, int nCharRegTotCount, int nMaxPageNo, int nPageNo, int nItemCount,int* pListindex, int* pItemSerial,int* pItemPlus,int* pItemFlag,S_ITEMOPTION* pItemOption, int* pQuantity,LONGLONG* ptotalmoney,int* pFinishDay,int* pFinishDayUnit);
-void TradeAgentRegRepMsg(CNetMsg & msg,int nCharIndex, CLCString item_name,int Quantity,LONGLONG TotalMoney,LONGLONG Guaranty);
-void TradeAgentRegCancelRepMsg(CNetMsg & msg, int nCharIndex);
-void TradeAgentSearchRepMsg(CNetMsg & msg,int nCharIndex, int nMaxPageNo, int nPageNo, int nItemCount, int* pListindex, int* pItemSerial,int* pItemPlus,int* pItemFlag,S_ITEMOPTION* pItemOption, int* pQuantity,LONGLONG* ptotalmoney,int* pLevel,CLCString *pSellCharname);
-void TradeAgentBuyRepMsg(CNetMsg & msg,int nCharIndex);
-void TradeAgentCalcListRepMsg(CNetMsg & msg,int nCharIndex, int nMaxPageNo, int nPageNo, int nItemCount,int* pItemSerial,int* pItemPlus,int* pItemFlag,S_ITEMOPTION* pItemOption,int* pQuantity,LONGLONG* ptotalmoney,int* pState, int* pPassDay,CLCString *pCharname);
-void TradeAgentCalculateRepMsg(CNetMsg & msg,int nCharIndex);
-void TradeAgentCheckCalcRepMsg(CNetMsg & msg,int nCharIndex,int nIsBeCalcdata);
-void TradeAgentNeedCalcMotifyMsg(CNetMsg & msg,int nCharIndex,unsigned char ucState,CLCString stItemname,int nItemCount);
-
-void TradeAgentErrorMsg(CNetMsg & msg, unsigned char errorType,char errorPart);
-#endif // TRADE_AGENT
+} S_ITEMOPTION;
 
 #ifdef DISCONNECT_HACK_CHARACTER  // 핵 프로그램 유저 방출
-void HelperDisconnectHackCharacter(CNetMsg & msg, int nUserIndex, const char* user_id, int nCharIndex, const char* char_id, int nHack_type, float delay);
-#endif // DISCONNECT_HACK_CHARACTER 
+void HelperDisconnectHackCharacter(CNetMsg::SP& msg, int nUserIndex, const char* user_id, int nCharIndex, const char* char_id, int nHack_type, float delay);
+#endif // DISCONNECT_HACK_CHARACTER
 
-#ifdef EX_GO_ZONE
-void ExGoZoneErrorMsg(CNetMsg& msg, MSG_EX_GO_ZONE_ERROR_TYPE errtype, int npcidx);
-void ExGoZoneMoveOKMsg(CNetMsg& msg, MSG_EX_GO_ZONE_ERROR_TYPE errtype, int zone, int extra, int npcIdx);
-void ExGoZoneFieldDungeonMsg(CNetMsg& msg, int zone, int extra, int tax);
-#endif 
+void ExpedErrorMsg(CNetMsg::SP& msg, unsigned char errorType);
+void HelperExpedCreateReqMsg(CNetMsg::SP& msg,int nBossIndex,CLCString BossName);
+void HelperExpedCreateResultMsg(CNetMsg::SP& msg, int nResult, int nBossIndex);
+void HelperExpedInviteReqMsg(CNetMsg::SP& msg, int nBossIndex, CLCString strBossName, int nTargetIndex,CLCString strTargetName);
+void HelperExpedAllowReqMsg(CNetMsg::SP& msg, int nBossIndex, int nAllowIndex, CLCString strAllowCharName, int nAllowLevel );
+void HelperExpedRejectReqMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex);
+void HelperExpedKickReqMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex);
+void HelperExpedQuitReqMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex,int nQuitMode);
+void HelperExpedChangeBossReqMsg(CNetMsg::SP& msg, int nBossIndex, int nChangeMode, int nNewBossIndex);
+void HelperExpedChangeTypeReqMsg(CNetMsg::SP& msg, int nBossIndex, char cExpedType,char cDiviType);
+void HelperExpedEndExpedMsg(CNetMsg::SP& msg, int nBossIndex);
+void HelperExpedSetMBossReqMsg(CNetMsg::SP& msg, int nBossIndex, int nNewMBossIndex);
+void HelperExpedResetMBossReqMsg(CNetMsg::SP& msg, int nBossIndex, int nNewMBossIndex);
+void HelperExpedMoveGroupReqMsg(CNetMsg::SP& msg, int nBossIndex, int nSourceGroup, int nMoveCharIndex, int nTargetGroup, int nTargetListindex);
+void HelperExpendOfflineMsg( CNetMsg::SP& msg, int nBossIndex, int nTargetIndex );
+void HelperExpendOnlineMsg( CNetMsg::SP& msg, int nBossIndex, int nTargetIndex, int nTargetLevel );
+void ExpendOfflineMsg(CNetMsg::SP& msg);
 
-#ifdef EXPEDITION_RAID
-void ExpedErrorMsg(CNetMsg & msg, unsigned char errorType);
-void HelperExpedCreateReqMsg(CNetMsg& msg,int nBossIndex,CLCString BossName);
-void HelperExpedInviteReqMsg(CNetMsg& msg, int nBossIndex, CLCString strBossName, int nTargetIndex,CLCString strTargetName);
-void HelperExpedAllowReqMsg(CNetMsg& msg, int nBossIndex, int nAllowIndex, CLCString strAllowCharName);
-void HelperExpedRejectReqMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex);
-void HelperExpedKickReqMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex);
-void HelperExpedQuitReqMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex,int nQuitMode);
-void HelperExpedChangeBossReqMsg(CNetMsg& msg, int nBossIndex, int nChangeMode, int nNewBossIndex);
-void HelperExpedChangeTypeReqMsg(CNetMsg& msg, int nBossIndex, char cDiviType, char ExpedType);
-void HelperExpedEndExpedMsg(CNetMsg& msg, int nBossIndex);
-void HelperExpedSetMBossReqMsg(CNetMsg& msg, int nBossIndex, int nNewMBossIndex);
-void HelperExpedResetMBossReqMsg(CNetMsg& msg, int nBossIndex, int nNewMBossIndex);
-void HelperExpedMoveGroupReqMsg(CNetMsg& msg, int nBossIndex, int nSourceGroup, int nMoveCharIndex, int nTargetGroup, int nTargetListindex);
-void HelperExpedSetLabelReqMsg(CNetMsg& msg, int nBossIndex, int nType, int nMode, int nLabel, int nDestIndex);
-void HelperExpedRejoinReqMsg(CNetMsg& msg, int nBossIndex, int nJoinIndex);
-void HelperExpedChatReqMsg(CNetMsg& msg, int nBossIndex, int nCharIdex, CLCString strCharName,int nGroupTyp, CLCString strChat);
+void ExpedCreateRepMsg(CNetMsg::SP& msg, char cExpedType1, char cExpedType2, char cExpedType3, int nBossIndex,CLCString BossCharName,int nMemberCount,int *pCharIdex,CLCString* pCharName,int* pGroupType,int* pMemberType, int* pSetLabelType,int* pQuitType);
+void ExpedInviteRepMsg(CNetMsg::SP& msg, char cExpedType1, char cExpedType2, char cExpedType3, int nBossIndex, CLCString strBossName);
+void ExpedAddMsg(CNetMsg::SP& msg, int nCharIndex, const char* strCharName,int nCharGroup,int nCharMember, int nCharListIndex, CPC* tch);
+void ExpedInfoMsg(CNetMsg::SP& msg, CPC* ch, int nGroup, bool isOnline);
+void ExpedQuitRepMsg(CNetMsg::SP& msg, int nTargetIndex, int nQuitMode);
+void ExpedQuitReqMsg(CNetMsg::SP& msg, int nQuitMode);
+void ExpedKickMsg(CNetMsg::SP& msg, int nTargetIndex);
+void ExpedMsg(CNetMsg::SP& msg, int nSubtype);
+void ExpedRejectReqMsg(CNetMsg::SP& msg);
+void ExpedEndExpedStartMsg(CNetMsg::SP& msg);
+void ExpedChangeBoss(CNetMsg::SP& msg, int nBossIndex,  int nNewBossIndex, int nChangeMode);
+void ExpedTypeinfo(CNetMsg::SP& msg, char cType1, char cType2, char cType3);
+void ExpedChangeType(CNetMsg::SP& msg, char cExpedType, char cDiviType);
+void ExpedSetMbossMsg(CNetMsg::SP& msg, int nNewMBossIndex);
+void ExpedResetMbossMsg(CNetMsg::SP& msg, int nNewMBossIndex);
+void ExpedMoveGroupRepMsg(CNetMsg::SP& msg,int nSourceGroup, int nMoveCharIndex, int nTargetGroup, int nTargetListindex);
+void ExpedSetLabelRepMsg(CNetMsg::SP& msg,int nType, int nMode, int nLabel,int nDestIndex);
+bool ExpedViewDail_InvenMsg(CNetMsg::SP& msg, CPC* ch);
+void ExpedViewDail_ExPetMsg(CNetMsg::SP& msg, CPet* pet);
+void ExpedViewDail_ExAPetMsg(CNetMsg::SP& msg, CAPet* pet);
+void ExpedSearchTriggerItemMsg(CNetMsg::SP& msg, int nSubtype);
+void ExpedAddSysMsg(CNetMsg::SP& msg, const char* strCharName);
 
-void ExpedCreateRepMsg(CNetMsg & msg, char cExpedType1, char cExpedType2, char cExpedType3, int nBossIndex,CLCString BossCharName,int nMemberCount,int *pCharIdex,CLCString* pCharName,int* pGroupType,int* pMemberType, int* pSetLabelType,int* pQuitType);
-void ExpedInviteRepMsg(CNetMsg & msg, char cExpedType1, char cExpedType2, char cExpedType3, int nBossIndex, CLCString strBossName);
-void ExpedAddMsg(CNetMsg& msg, int nCharIndex, const char* strCharName,int nCharGroup,int nCharMember, int nCharListIndex, CPC* tch, char isboss);
-void ExpedInfoMsg(CNetMsg& msg, int nIndex, int nGroup, int nLevel, int nHP, int nMaxHP, int nMP, int nMaxMP, float x, float z, char nYlayer, int nZone);
-void ExpedQuitRepMsg(CNetMsg& msg, int nTargetIndex, int nQuitMode);
-void ExpedQuitReqMsg(CNetMsg& msg, int nQuitMode);
-void ExpedKickMsg(CNetMsg& msg, int nTargetIndex);
-void ExpedMsg(CNetMsg& msg, unsigned char subtype);
-void ExpedChangeBossReq(CNetMsg& msg, int nChangeMode, int nNewBossIndex);
-void ExpedChangeBoss(CNetMsg& msg, int nBossIndex,  int nNewBossIndex, int nChangeMode);
-void ExpedChangeType(CNetMsg& msg, char cDiviType, char cExpedType);
-void ExpedSetMbossMsg(CNetMsg& msg, int nNewMBossIndex);
-void ExpedResetMbossMsg(CNetMsg& msg, int nNewMBossIndex);
-void ExpedMoveGroupRepMsg(CNetMsg& msg,int nSourceGroup, int nMoveCharIndex, int nTargetGroup, int nTargetListindex);
-void ExpedSetLabelRepMsg(CNetMsg& msg,int nType, int nMode, int nLabel,int nDestIndex);
-bool ExpedViewDail_InvenMsg(CNetMsg& msg, CPC* ch);
-void ExpedViewDail_ExPetMsg(CNetMsg& msg, CPet* pet);
-void ExpedViewDail_ExAPetMsg(CNetMsg& msg, CAPet* pet);
-#endif //EXPEDITION_RAID
+void FactoryLearnMsg(CNetMsg::SP& msg, CFactoryProto * pFactory);
+void FactoryListMsg(CNetMsg::SP& msg, CPC* ch, int nSkillIdx = -1);
+void FactoryErrorMsg(CNetMsg::SP& msg, MSG_FACTORY_ERROR_TYPE errorcode);
+void FactoryMakeMsg(CNetMsg::SP& msg, CPC* ch, CFactoryProto * pFactory);
 
-#ifdef FACTORY_SYSTEM
-void FactoryLearnMsg(CNetMsg& msg, CFactoryProto * pFactory);
-void FactoryListMsg(CNetMsg& msg, CPC* ch, int nSealType = -1);
-void FactoryErrorMsg(CNetMsg& msg, MSG_FACTORY_ERROR_TYPE errorcode);
-void FactoryMakeMsg(CNetMsg& msg, CPC* ch, CFactoryProto * pFactory);
+void TriggerEvnetMsg(CNetMsg::SP& msg, MSG_EX_TRIGGER_EVENT_TYPE type, int touch_ID, int Play_ID, int bContinue);
+void HelperTriggerEvnetMsg(CNetMsg::SP& msg, int nZoneIdx, int nAreaIdx, int nSaveInfo);
+void RaidInfoMsg(CNetMsg::SP& msg, int nRaidCount, int* nZoneNum, int* nRoomNum);
+void HelperDeleteRaidCharacterMsg(CNetMsg::SP& msg, int nCharIndex);
+void HelperRaidInfoMsg(CNetMsg::SP& msg, int nCharIndex);
+
+void RaidErrorMsg(CNetMsg::SP& msg, unsigned char errorType,int nErrData1=-1, int nErrData2=-1);
+void RaidInzoneQuitReq(CNetMsg::SP& msg, int nGoZone,int nRebirth);
+void HelperRaidInzoneGetRoomNoReqMsg(CNetMsg::SP& msg, int nCharindex, int nZoneNo, int nBossIndex,int nJoinType);
+void HelperRaidInzoneGameDataClearReqMsg(CNetMsg::SP& msg, int nZone);
+void HelperRaidInzoneSetNo(CNetMsg::SP& msg, int nNewBosIndex, int nOldBossIndex, int nZoneNum, int nJoinType, int difficulty = -1 );
+
+void AffinityMsg(CNetMsg::SP& msg, MSG_EX_AFFINITY_TYPE type);
+void AffinityErrorMsg(CNetMsg::SP& msg, MSG_EX_AFFINITY_ERROR_TYPE errortype);
+void AffinityUpdatePointMsg(CNetMsg::SP& msg, int affinityidx, int point, bool bBoostered, int bonus = 0);
+
+void AffinityAddInfoMsg(CNetMsg::SP& msg, int affinityidx, int maxpoint);
+void AffinityListInfoMsg(CNetMsg::SP& msg, CPC* ch);
+
+void AffinityRewardNoticeMsg(CNetMsg::SP& msg, int noticeCount, int* npcidx);
+
+void SubHelperConnectMsg(CNetMsg::SP& msg, int version, int server, int subno, int count, int* zones);
+void SubHelperShutdownMsg(CNetMsg::SP& msg);
+
+void NpcPortalLoadingEndUseMsg(CNetMsg::SP& msg);
+void NpcPortalListMsg(CNetMsg::SP& msg, int zoneNum);
+void NpcPortalListErrorMsg(CNetMsg::SP& msg, int ErrorType);
+
+void NewTutorialMsg(CNetMsg::SP& msg);
+
+void LuckyDrawBoxErrorMsg(CNetMsg::SP& msg, int ErrorType);
+
+void DBNSCreateMsg(CNetMsg::SP& msg);
+void HelperNSCreateCardUse(CNetMsg::SP& msg, MSG_HELPER_NS_CARD_TYPE subtype, int userindex, int charindex);
+
+void PartyRecallErrorMsg(CNetMsg::SP& msg, MSG_EX_PARTY_RECALL_TYPE type);
+
+void SubHelperTitleSystemInsertReq(CNetMsg::SP& msg, int char_index, int title_index, int endtime, int tab, int invenIndex, CLCString serial, int custom_title_index);
+void SubHelperTitleSystemCheckTimeReq(CNetMsg::SP& msg, int char_index, CTitleNode* temp);
+void SubHelperTitleSystemDeleteReq(CNetMsg::SP& msg, int char_index, int title_index);
+void SubHelperTitleSystemTitleDelReq(CNetMsg::SP& msg, int char_index, int title_index);
+// [selo: 101105] 종료 시간 강제 변경
+
+void TakeAgainQuestItemMsg(CNetMsg::SP& msg, MSG_EX_TAKE_AGAIN_QUEST_ITEM_TYPE type);
+
+#ifdef LACARETTE_SYSTEM
+void ConnLacaretteTokenReadyMsg(CNetMsg::SP& msg, int userIndex, int charIndex);
+void ConnLacaretteTokenMsg(CNetMsg::SP& msg, int userIndex, int charIndex);
+void ConnLacaretteTokenAddMag(CNetMsg::SP& msg, int userIndex, int charIndex, int bAdd=1);
+void ConnLacaretteRepeatMsg(CNetMsg::SP& msg, int userIndex, int charIndex, int cosArrNum, int cosIndex, int tokenIndex);
+void ConnLacaretteRepeatAddMsg(CNetMsg::SP& msg, int userIndex, int charIndex, int giveItemIdx, int bAdd=1);
+void ConnLacaretteUIMsg(CNetMsg::SP& msg, int userIndex, int charIndex, int cosArrNum, int cosIndex, int tokenIndex);
+
+void lacaretteTokenReadyErrorMSg(CNetMsg::SP& msg, MSG_EX_LACARETTE_TOKEN_ERROR_TYPE type );
+void lacaretteTokenErrorMSg(CNetMsg::SP& msg, MSG_EX_LACARETTE_TOKEN_ERROR_TYPE type );
+void lacaretteRetteErrorMSg(CNetMsg::SP& msg, MSG_EX_LACARETTE_RETTE_ERROR_TYPE type );
+void lacaretteRetteErrorSucMSg(CNetMsg::SP& msg, int giveitemArrNum, int giveitemIndex); //, int courseArrNum, int courseIndex);
+void lacaretteResultErrorMSg(CNetMsg::SP& msg, MSG_EX_LACARETTE_RESULT_ERROR_TYPE type );
+void lacaretteResultErrorSucMSg(CNetMsg::SP& msg, int repeat);
+void lacaretteUIrepMsg(CNetMsg::SP& msg, int repeat);
+void lacaretteJackpotMsg(CNetMsg::SP& msg, int itemIndex, const char* chName );
+#endif
+void SysExpireCostumeItem(CNetMsg::SP& msg, int index);
+void DungeonTimeNoticeMsg(CNetMsg::SP& msg, MSG_EX_DUNGEONTIME_TYPE type, int start, int end, int exp);	// 던전타임.
+
+void SocketMsg(CNetMsg::SP& msg, MSG_EX_SOCKET_TYPE type);
+void SocketErrorMsg(CNetMsg::SP& msg, MSG_EX_SOCKET_ERROR_TYPE type);
+void ItemSocketMsg(CNetMsg::SP& msg, const CItem *item);
+
+void tutorialrenewerMsg(CNetMsg::SP& msg, int index);
+
+void RaidSceneMsg(CNetMsg::SP& msg, int TodoOutput, int object_type, int object_index, int object_data);
+void SendOutputMsg(CNetMsg::SP& msg, int type, int index, int data);
+void SendRaidSceneObjectStateMsg(CNetMsg::SP& msg, CPC* ch);
+void SendRaidSceneObjectRefreshMsg(CNetMsg::SP& msg, CPC* ch, int object_type, int index, int state);
+void SendRaidScenePadoxSkillAction(CNetMsg::SP& msg);
+void SendRaidSceneCountDown(CNetMsg::SP& msg, int count);
+
+#ifdef ENABLE_SUBJOB
+void SubJobMsg( CNetMsg::SP& msg, MSG_EX_SUBJOB_TYPE type );
+void SubJobErrorMsg( CNetMsg::SP& msg, int error );
+#endif //ENABLE_SUBJOB
+
+void CastllanErrorMsg( CNetMsg::SP& rmsg, MSG_EX_CASTLLAN_ERROR_TYPE errorType );
+
+#ifdef DEV_EVENT_PROMOTION2
+void EventPromotion2RepErrorMsg(CNetMsg::SP& msg, int errorType);
+void ConnPromotion2CouponUseReqMsg(CNetMsg::SP& msg, int userIndex, int charIndex,const char* couponNum );
+void ConnPromotion2CouponItemReqMsg(CNetMsg::SP& msg, int userIndex, int charIndex, int keyIndex );
 #endif
 
-#ifdef TRIGER_SYSTEM
-void TrigerEvnetMsg(CNetMsg& msg, MSG_EX_TRIGER_EVENT_TYPE type, int touch_ID, int Play_ID);
-#endif // TRIGER_SYSTEM
+void MonsterMercenarySummonMsg(CNetMsg::SP& msg, int index, char enable );
+void MonsterMercenaryErrorMsg(CNetMsg::SP& msg, MSG_EX_MONSTER_MERCENARY_ERROR_TYPE errorType );
+
+void MsgCashshopTypeListRep(CNetMsg::SP& msg, int t_count, int type_list[], int st_count, int subtype_list[]);
+void MsgCashshopListRep(CNetMsg::SP& msg, int search_depth, int ct_count, int ctid[], int depth[], int remain_count[], int price[], int now_page, int total_page);
+void MsgCashshopRecommandRep(CNetMsg::SP& msg, int ct_count, int ctid[], int type[], int remain_count[], int price[]);
+void MsgCashshopWishlistRep(CNetMsg::SP& msg, int ct_count, int ctid[], int type[], int remain_count[], int price[]);
+void MsgCashshopWishlistSaveRep(CNetMsg::SP& msg, int errorcode, int ctid);
+void MsgCashshopWishlistDelRep(CNetMsg::SP& msg, int errorcode, int ctid);
+void ConnWishlistReq(CNetMsg::SP& msg, CPC* pc);
+void ConnWishlistSaveReq(CNetMsg::SP& msg, CPC* pc, int ctid);
+void ConnWishlistDelReq(CNetMsg::SP& msg, CPC* pc, int ctid);
+void MsgCashShopLock(CNetMsg::SP& msg, MSG_EX_CASHITEM_TYPE type);
+
+void MsgMessageBox(CNetMsg::SP& msg, MSG_EX_MSGBOX_TYPE type);
+
+void LCBallUseMsg(CNetMsg::SP& msg, char errorCode , int nItemIndex );
+void LCBallSuccessMsg(CNetMsg::SP& msg, CLCString& strName, int nItemIndex);
+void SubHelperLCBallinfoMsg( CNetMsg::SP& msg, int charIndex, int coinIndex, char courseIndex );
+void SubHelperLCBalluseMsg( CNetMsg::SP& msg, int charIndex, int coinIndex, char courseIndex );
+void SubHelperLCBalluse_successMsg( CNetMsg::SP& msg, char error, CLCString name, int coinIndex, char courseIndex , char cOrder, int itemIndex  );
+
+#ifdef EVENT_USER_COMEBACK
+void ConnUserComebackGiftReqMsg(CNetMsg::SP& msg, int userindex, int charindex);
+void EventUserComebackErrorMsg(CNetMsg::SP& msg, MSG_EVENT_USER_COMEBACK_ERROR_TYPE errortype );
+#endif
+
+#ifdef EVENT_CHAR_BIRTHDAY
+void HelperCharBirthdayReqMsg(CNetMsg::SP& msg, MSG_EVENT_CHAR_BIRTHDAY_TYPE subtype ,int charindex );
+void EventCharBirthdayErrorMsg(CNetMsg::SP& msg, MSG_EVENT_CHAR_BIRTHDAY_ERROR_TYPE errortype);
+#endif
+
+#ifdef EVENT_CHAR_BIRTHDAY
+
+#endif
+
+#ifdef EVENT_EUR2_PROMOTION
+void ConnEUR2PromotionMsg(CNetMsg::SP& msg, int CharIndex, int UserIndex, CLCString& Key, unsigned char bInvenSpace, unsigned char bWeight);
+void EventEUR2PromotionMsg(CNetMsg::SP& msg, MSG_EVENT_EUR2_PROMOTION_ERROR_TYPE type);
+#endif
+
+void NpcNoticeMsg(CNetMsg::SP& msg, MSG_CHAT_TYPE chatType, int npcIndex, const char* chat);
+#ifdef DEV_GUILD_MARK
+void HelperGuildMarkRegistReqMsg(CNetMsg::SP& msg, int GuildIndex, int CharIndex, char gm_row, char gm_col, char bg_row, char bg_col, unsigned short tab, unsigned short invenIndex, int markTime, const char* itemserial);
+void GuildMarkEditFinMsg(CNetMsg::SP& msg, char gm_row, char gm_col, char bg_row, char bg_col, int markTime);
+void GuildMarkExpireMsg(CNetMsg::SP& msg);
+#endif
+
+#ifdef DEV_GUILD_STASH
+void GuildStashListMsg( CNetMsg::SP& msg, CLCString& timeStamp, int capacity, GoldType_t money, int itemCount );
+void GuildStashErrorMsg( CNetMsg::SP& msg, unsigned char subtype, char error );
+void GuildStashLogMsg( CNetMsg::SP& msg , int logCount );
+void HelperGuildStashCreateMsg( CNetMsg::SP& msg , int guildIndex, int charIndex );
+void HelperGuildStashListMsg( CNetMsg::SP& msg , int guildIndex, int charIndex );
+void HelperGuildStashKeepMsg( CNetMsg::SP& msg , int guildIndex, int charIndex, LONGLONG keepMoney, int itemCount );
+void HelperGuildStashKeepErrorMsg( CNetMsg::SP& msg , int charIndex, int guildIndex, char error, LONGLONG money = 0 );
+void HelperGuildStashTakeMsg( CNetMsg::SP& msg , int guildIndex, int charIndex, LONGLONG takeMoney, int itemCount );
+void HelperGuildStashTakeErrorMsg(  CNetMsg::SP& msg , int charIndex, int guildIndex, char error, LONGLONG money = 0 );
+void HelperGuildStashLogMsg( CNetMsg::SP& msg , int charIndex, int guildIndex, int lastLogIdx );
+void HelperGuildStashKeepMoneyMsg( CNetMsg::SP& msg , int guildIndex, int charIndex, int itemCount );
+void HelperGuildStashTakeMoneyMsg( CNetMsg::SP& msg , int guildIndex, int charIndex, int itemCount );
+#endif // DEV_GUILD_STASH
+
+void SysRaidZoneRemain(CNetMsg::SP& msg, int remain);
+void HelperAutoResetRaid(CNetMsg::SP& msg, int index, int zone, int area[][2]);
+
+#ifdef WARCASTLE_STATE_CHANNEL_CYNC
+void HelperWarCastleStateCync(CNetMsg::SP& msg);
+#endif
+
+void MsgrRoyalRumbleStart(CNetMsg::SP& msg, int seq, int server, int subno, int zone, MSG_MSGR_TYPE type, int cmd);
+void MsgrRoyalRumbleWinner(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int leveltype, int charindex, CLCString nick);
+void RoyalRumbleNotice(CNetMsg::SP& msg, unsigned char command);
+void RoyalRumbleRegistMenu(CNetMsg::SP& msg, unsigned char command);
+void RoyalRumbleUnRegist(CNetMsg::SP& msg, unsigned char command);
+void RoyalRumbleRegist(CNetMsg::SP& msg, unsigned char command);
+void RoyalRumbleRegistResult(CNetMsg::SP& msg, unsigned char command);
+void RoyalRumbleGoZone(CNetMsg::SP& msg);
+void RoyalRumbleEnterNextPlayer(CNetMsg::SP& msg, int second);
+void RoyalRumbleHold(CNetMsg::SP& msg, unsigned char boolean);
+void RoyalRumbleWinner(CNetMsg::SP& msg, int leveltype, int charindex, CLCString nick);
+void RoyalRumbleReward(CNetMsg::SP& msg, unsigned char command);
+void RoyalRumbleWarPoint(CNetMsg::SP& msg, int warpoint, int waraccpoint);
+void RoyalRumbleTimeReq(CNetMsg::SP& msg, int time);
+void RoyalRumbleLeftCount(CNetMsg::SP& msg, int count);
+void RoyalRumbleNotfoundItem(CNetMsg::SP& msg);
+void RoyalRumbleKillPlayer(CNetMsg::SP& msg, CPC* opc, CPC* dpc);
+void RoyalRumbleTimeNotice(CNetMsg::SP& msg, unsigned char command, int remain);
+
+#ifdef SYSTEM_TREASURE_MAP
+void MsgrSetTreasureMap( CNetMsg::SP& msg, int server, int charindex, const char* arg);
+#ifdef SYSTEM_TREASURE_MAP_GAMIGO
+void MsgTreaserMapKeyExchangeError( CNetMsg::SP& msg, MSG_EX_TRS_MAP_KEY_EXCHANGE_ERROR_TYPE errorType );
+#endif // SYSTEM_TREASURE_MAP_GAMIGO
+#endif // SYSTEM_TREASURE_MAP
+
+#ifdef GM_COMMAND_NOTICE
+void MsgSetGMCommandNotice( CNetMsg::SP& msg, MSG_GM_COMMAND_NOTICE_TYPE Type, CLCString gm, CLCString user );
+#endif
+
+#ifdef GUILD_MEMBER_KICK_JOIN_DELAY
+void HelperGuildKickOutDateUpdateReqMsg(CNetMsg::SP& msg, int charindex, int outDate );
+#endif
+
+void SubHelperLevelup(CNetMsg::SP& msg, int char_index);
+void SubHelperRankingRefreshEx(CNetMsg::SP& msg, int char_index);
+void SubHelperRankingListReqEx(CNetMsg::SP& msg, unsigned char type, unsigned char subtype, int char_index);
+void SubHelperRankingSearchReqEx(CNetMsg::SP& msg, unsigned char type, unsigned char subtype, int char_index, CLCString name);
+void SubHelperRankingRewardReqEx(CNetMsg::SP& msg, int endTime);
+void RankingEXList(CNetMsg::SP& msg, int listType, unsigned char type, unsigned char subtype);
+void RankingEXRefresh(CNetMsg::SP& msg);
+void RankingEXError(CNetMsg::SP& msg, unsigned char type);
+
+#ifdef REFORM_PK_PENALTY_201108 // 2011-08 PK 패널티 리폼
+void MsgPKPenaltyRewardRep(CNetMsg::SP& msg, int rewardNum, int errorType);
+void MsgPKPenaltyRewardInfoRep(CNetMsg::SP& msg, int rewardFlag);
+void MsgSubHelperPKPenaltyRewardReq(CNetMsg::SP& msg, int charindex, int rewardNum, int titleIndex, int endtime );
+void MsgSubHelperPKPenaltyRewardInfoReq(CNetMsg::SP& msg, int charindex);
+#endif // REFORM_PK_PENALTY_201108 // 2011-08 PK 패널티 리폼
+
+#ifdef NOTICE_SYSTEM
+void SubHelperUserNoticeRegMsg(CNetMsg::SP& msg, int _characterIndex, CLCString _name, CLCString _contents);
+void UserNoticePrintMsg(CNetMsg::SP& msg, CLCString _name, CLCString _contents);
+void UserNoticeRegRepMsg(CNetMsg::SP& msg);
+void UserNoticeErrorMsg(CNetMsg::SP& msg, int _errorType);
+#endif // NOTICE_SYSTEM
+
+void HelperGuildMasterKickReq(CNetMsg::SP& msg, int _guildIndex, int _requstCharIndex);
+void HelperGuildMasterKickCancelReq(CNetMsg::SP& msg, int _guildIndex, int _requestCharIndex);
+void GuildMasterKickRep(CNetMsg::SP& msg, int _guildIndex, CLCString _currentBoss);
+void GuildMasterKickCancelRep(CNetMsg::SP& msg, int _guildIndex);
+void GuildMasterKickStatus(CNetMsg::SP& msg, int _guildIndex, int _status);
+void HelperGuildMasterKickReset(CNetMsg::SP& msg, int _charIndex, int _guildIndex);
+
+void EventActiveListMsg(CNetMsg::SP& msg, std::map<int, CEventInfo*> * _eventList);
+void EventActiveUpdateMsg(CNetMsg::SP& msg, unsigned char _subtype, int _eventIndex);
+void MsgrEventActiveUpdateMsg(CNetMsg::SP& msg, MSG_EX_EVENT_AUTOMATION_SYSTEM_TYPE _subtype, int _eventIndex, int _notice=0);
+
+void JumpingResultMsg(CNetMsg::SP& msg, MSG_EX_JUMPING_SYSTEM_TYPE _subtype, int _value = -1);
+
+void HelperGuildMasterChange(CNetMsg::SP& msg, int _newBossIndex, int _guildIndex);
+
+void SubHelperCharSlotExtUse(CNetMsg::SP& msg, int _userIndex, int _charIndex, int _tab, int _invenIndex, CLCString _serial, int _days);
+void SubHelperCharSlotExtUseResult(CNetMsg::SP& msg, int _userIndex);
+void ItemUseCharSlotExt(CNetMsg::SP& msg, unsigned char cmd);
+void DBCharSlotExtTime(CNetMsg::SP& msg, long time);
+
+void RecoverExpSp(CNetMsg::SP& msg, LONGLONG recoverEXP, LONGLONG recoverSP);
+void SysNpcPortalExpiredMsg(CNetMsg::SP& msg, int itemIndex);
+
+void ReformerSystemRep(CNetMsg::SP& msg, unsigned char cmdType_, CItem *pReformItem_ = NULL);
+void MsgrRoyalRumbleSettingReq(CNetMsg::SP& msg, const int min, const int max, const int startHour, const int charindex);
+void MsgrSendMsgToCharacterReq(CNetMsg::SP& msg, const int charindex, const char* message);
+void NoticeFortuneMsg(CNetMsg::SP& msg, int ret, const int item_index, int skill_index, int skill_level);
 
 #endif // #ifndef __ACMDMSG_H__

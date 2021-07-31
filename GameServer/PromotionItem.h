@@ -13,7 +13,7 @@ typedef struct _tagPromotionItem
 //	int m_itemOption2;
 //	int m_itemOption3;
 //	int m_itemOption4;
-}PromotionItem;
+} PromotionItem;
 
 //class PromotionItem
 //{
@@ -33,4 +33,6 @@ typedef struct _tagPromotionItem
 //};
 
 #endif // __PROMOTION_ITEM_H__
+
+//
 

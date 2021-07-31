@@ -1,42 +1,39 @@
 // NewEarthServer.cpp : Defines the entry point for the console application.
 //
 
+#include <boost/format.hpp>
 #include "stdhdrs.h"
+
+#include "../ShareLib/bnf.h"
+#include "../ShareLib/SignalProcess.h"
 #include "Log.h"
 #include "Server.h"
 
-FILE *game_log = NULL;
+#include "../ShareLib/PrintExcuteInfo.h"
 
-void at_exit_exec (void)
-{
-	mysql_close(&gserver.m_dbuser);
-	mysql_close(&gserver.m_dbauth);
-#if defined (EVENT_2PAN4PAN_GOODS) || defined (ATTENDANCE_EVENT) || defined ( ATTENDANCE_EVENT_REWARD ) || defined ( IRIS_POINT ) || defined (EVENT_NOM_MOVIE)
-	mysql_close(&gserver.m_dbevent);
-#endif // #if defined (EVENT_2PAN4PAN_GOODS) || defined (ATTENDANCE_EVENT) || defined ( ATTENDANCE_EVENT_REWARD ) || defined ( IRIS_POINT )
-#if defined ( CHAR_LOG ) && defined ( LC_KOR )
-	mysql_close(&gserver.m_dblog);
-#endif // #if defined ( CHAR_LOG ) && defined ( LC_KOR )
+#ifdef SERVER_AUTHENTICATION
+#include "../ShareLib/ServerAuthentication.h"
+#endif
 
-	if (game_log) fclose (game_log);
-}
+void process_after_signal(int signo);
 
 int main(int argc, char* argv[], char* envp[])
 {
-	int nRetCode = 1004;
-
-#ifdef SIGPIPE
-	signal (SIGPIPE, SIG_IGN);
-#endif
-
 	if (!gserver.LoadSettingFile())
 	{
-		GAMELOG << init("SYS_ERR") << "Load Setting File" << end;
+		puts("error load Setting File");
 		exit(0);
 	}
 
-	sprintf(g_buf, "CS%02d", gserver.m_serverno);
-	g_log.InitLogFile(false, &g_gamelogbuffer, g_buf);
+	// 로그 초기화
+	std::string tstr = boost::str(boost::format("Connector_%1%") % gserver.m_config.Find("Server", "Number"));
+	LogSystem::setSubstitutedValue("logfile", tstr.c_str());
+	LogSystem::configureXml("../log.xml");
+
+	PrintExcuteInfo::Instance()->PrintStart("Connector", LC_LOCAL_STRING);
+
+	if (InitSignal(process_after_signal) == false)
+		return 1;
 
 	if (!gserver.ConnectDB())
 	{
@@ -50,22 +47,51 @@ int main(int argc, char* argv[], char* envp[])
 		return 1;
 	}
 
-	strcpy (g_buf, "LastChaos Connector Running... (Language:");
-	strcat (g_buf, "Korean)");
-	puts (g_buf);
+	//////////////////////////////////////////////////////////////////////////
+	// GameServer용 listen
+	std::string bind_host = gserver.m_config.Find("Server", "IP");
+	if (bind_host == "ALL")
+		bind_host = "0.0.0.0";
+	int bind_port = atoi(gserver.m_config.Find("Server", "Port"));
+	if (bnf::instance()->CreateListen(bind_host, bind_port, 0, &gserver) == SessionBase::INVALID_SESSION_HANDLE)
+	{
+		puts("Connector : can't bind listen session");
+		return 1;
+	}
 
-	atexit (at_exit_exec);
+	// 빌링 서버에 연결
+	gserver.m_billing.connect();
 
-	gserver.Run();
+	// HeartBeat timer
+	bnf::instance()->CreateMSecTimer(1 * 1000, (void *)HeartBeatTimer::instance());
+
+	// alive timer to billing
+	bnf::instance()->CreateMSecTimer(2 * 60 * 1000, (void *)ServerAliveTimer::instance());
+
+#ifdef SERVER_AUTHENTICATION
+	if (ServerAuthentication::instance()->isValidCompileTime() == false)
+		return 1;
+#endif
+
+	puts("Connect server started...");
+	bnf::instance()->Run();
+	//////////////////////////////////////////////////////////////////////////
 	gserver.Close();
 
-	if (gserver.m_breboot)
+	if (gserver.m_bshutdown)
 	{
 		FILE *fp = fopen (".shutdown", "w");
 		fclose (fp);
 	}
 
-	GAMELOG << init("SYSTEM") << "End!" << end;
+	PrintExcuteInfo::Instance()->PrintEnd();
 
-	return nRetCode;
+	return 0;
+}
+
+void process_after_signal(int signo)
+{
+	bnf::instance()->Stop();
+
+	PrintExcuteInfo::Instance()->SetSignalNo(signo);
 }

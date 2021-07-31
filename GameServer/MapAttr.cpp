@@ -1,4 +1,7 @@
 #include "stdhdrs.h"
+
+#include <boost/shared_ptr.hpp>
+#include <boost/scoped_ptr.hpp>
 #include "Log.h"
 #include "Server.h"
 #include "MapAttr.h"
@@ -33,111 +36,73 @@ CMapAttr::~CMapAttr()
 
 bool CMapAttr::Load(int zone, int ylayer, int w, int h, const char* attrmap, const char* heightmap)
 {
-	GAMELOG << init("SYSTEM")
-			<< "Attribute File Reading "
-			<< ylayer
-			<< end;
-	
-	FILE* fpAttr;
-	FILE* fpHeight;
-	CLCString filename(1024);
-	filename.Format("%s%s", gserver.m_serverpath, attrmap);
-	fpAttr = fopen(attrmap, "rb");
-	if (!fpAttr)
+	LOG_INFO("SYSTEM > Attribute File Reading %d", ylayer);
+
+	FILE* fpAttr = fopen(attrmap, "rb");
+	if (fpAttr == NULL)
 		return false;
-	filename.Format("%s%s", gserver.m_serverpath, heightmap);
-	fpHeight = fopen(heightmap, "rb");
-	if (!fpHeight)
+	
+	boost::shared_ptr<FILE> _auto_close_attr(fpAttr, fclose);
+
+	FILE* fpHeight = fopen(heightmap, "rb");
+	if (fpHeight == NULL)
+		return false;
+
+	boost::shared_ptr<FILE> _auto_close_height(fpHeight, fclose);
+
+	// 파일 사이즈를 검사 및 데이터 로딩
+	fseek(fpAttr, 0, SEEK_END);
+	int fpAttr_filesize = ftell(fpAttr);
+	fseek(fpAttr, 0, SEEK_SET);
+	int req_attr_size = sizeof(unsigned short) * w * h;
+	if (req_attr_size != fpAttr_filesize)
 	{
-		fclose(fpAttr);
+		LOG_ERROR("%s file size error. request size[%d]. file size[%d]", attrmap, req_attr_size, fpAttr_filesize);
 		return false;
 	}
-	
-	int x, z;
 
-	unsigned char** tmp = new unsigned char*[w];
-	float** tmp2 = new float*[w];
-	for (x = 0; x < w; x++)
+	fseek(fpHeight, 0, SEEK_END);
+	int fpHeight_filesize = ftell(fpHeight);
+	fseek(fpHeight, 0, SEEK_SET);
+	int req_height_size = sizeof(unsigned short) * w * h;
+	if (req_height_size != fpHeight_filesize)
 	{
-		tmp[x] = new unsigned char[h];
+		LOG_ERROR("%s file size error. request size[%d]. file size[%d]", heightmap, req_height_size, fpHeight_filesize);
+		return false;
+	}
+
+	unsigned short* tAttr_buf = new unsigned short[req_attr_size];
+	fread(tAttr_buf, sizeof(unsigned short), req_attr_size, fpAttr);
+	boost::scoped_ptr<unsigned short> __auto_delete_attr(tAttr_buf);
+
+	unsigned short* tHeight_buf = new unsigned short[req_height_size];
+	fread(tHeight_buf, sizeof(unsigned short), req_height_size, fpHeight);
+	boost::scoped_ptr<unsigned short> __auto_delete_height(tHeight_buf);
+
+	unsigned short** tmp = new unsigned short*[w];
+	float** tmp2 = new float*[w];
+	for (int x = 0; x < w; x++)
+	{
+		tmp[x] = new unsigned short[h];
 		tmp2[x] = new float[h];
 	}
-	
-	unsigned char att;
+
+	unsigned short att;
 	unsigned short hm;
-	bool bFail = false;
-	
-	for (z = 0; !bFail && z < h; z++)
+	int index = 0;
+	for (int z = 0; z < h; ++z)
 	{
-		for (x = 0; !bFail && x < w; x++)
+		for (int x = 0; x < w; ++x)
 		{
-			if (fread(&att, sizeof(unsigned char), 1, fpAttr) <= 0
-				|| fread(&hm, sizeof(unsigned short), 1, fpHeight) <= 0)
-			{
-				bFail =  true;
-				break;
-			}
-			
-			switch (att)
-			{
-			case MAPATT_FIELD:
-				tmp[x][z] = MAPATT_FIELD;
-				break;
+			att = tAttr_buf[index];
+			hm = tHeight_buf[index];
+			++index;
 
-			case MAPATT_PEACEZONE:
-				tmp[x][z] = MAPATT_PEACEZONE;
-				break;
-
-			case MAPATT_PRODUCT_PUBLIC:
-				tmp[x][z] = MAPATT_PRODUCT_PUBLIC;
-				break;
-
-			case MAPATT_PRODUCT_PRIVATE:
-				tmp[x][z] = MAPATT_PRODUCT_PRIVATE;
-				break;
-				
-			case MAPATT_STAIR_UP:
-				tmp[x][z] = MAPATT_STAIR_UP;
-				break;
-				
-			case MAPATT_STAIR_DOWN:
-				tmp[x][z] = MAPATT_STAIR_DOWN;
-				break;
-
-			case MAPATT_WARZONE:
-				tmp[x][z] = MAPATT_WARZONE;
-				break;
-
-			case MAPATT_FREEPKZONE:
-				tmp[x][z] = MAPATT_FREEPKZONE;
-				break;
-		
-			default:
-				tmp[x][z] = MAPATT_BLOCK;
-				break;
-			}
-			
+			tmp[x][z] = att;
 			tmp2[x][z] = ntohs(hm) / MULTIPLE_HEIGHTMAP;
 		}
 	}
-	
-	fclose(fpAttr);
-	fclose(fpHeight);
-	
-	if (bFail)
-	{
-		for (x = 0; x < w; x++)
-		{
-			if (tmp[x])
-				delete[] tmp[x];
-			if (tmp2[x])
-				delete[] tmp2[x];
-		}
-		delete[] tmp;
-		delete[] tmp2;
-		return false;
-	}
-	
+
 	m_size[0] = w;
 	m_size[1] = h;
 	m_attr = tmp;

@@ -1,28 +1,34 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "Battle.h"
 #include "WarCastle.h"
 #include "CmdMsg.h"
 #include "Log.h"
+#include "doFunc.h"
 
 void ProcDead_PD2(CNPC* df);
+void ProcDead_RVR(CPC* op, CNPC* df);
+#ifdef PARTY_QUEST_ITEM_BUG_
+void ProcDeadQuestProc(CPC * opc,CNPC * df, int partyScale); //[2009/12/28 derek] 막타 친넘과 데미지 많이 준넘이 다른 넘일 경우 퀘스트 검색을 하지 않아서 퀘스트 처리부분을 함수로 뺐다.
+#endif
 
 void ProcDead(CNPC* df, CCharacter* of)
 {
 	CPC*		opc				= NULL;
 	CNPC*		onpc			= NULL;
-#ifdef ENABLE_PET
 	CPet*		opet			= NULL;
-#endif // #ifdef ENABLE_PET
 	CElemental*	oelemental		= NULL;
-#ifdef ATTACK_PET
 	CAPet*		oapet			= NULL;
-#endif // ATTACK_PET
+
+	bool bNPCKilledNPC = false; // npc가 npc를 죽인 경우 꼭 이것을 true로 해줘야한다.
 
 	switch (of->m_type)
 	{
 	case MSG_CHAR_PC:
 		opc = TO_PC(of);
+		if (opc == NULL)
+			goto END_PROC;
 		break;
 
 	case MSG_CHAR_NPC:
@@ -42,43 +48,170 @@ void ProcDead(CNPC* df, CCharacter* of)
 		if (opc == NULL)
 			goto END_PROC;
 		break;
-#ifdef ATTACK_PET
 	case MSG_CHAR_APET:
 		oapet	= TO_APET(of);
 		opc		= oapet->GetOwner();
 		if( opc == NULL )
 			goto END_PROC;
-#endif //ATTACK_PET 
 		break;
 
 	default:
 		goto END_PROC;
 	}
+#ifdef SYSTEM_TREASURE_MAP
+//	if( df->m_idNum == TREASURE_BOX_NPC_INDEX)	 // 보물상자 npc를 잡았다. 정보를 없애주자.
+//		df->m_pZone->RemoveTreasureBoxNpc(df );
+#endif
 
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
-	// 죽인 것이 테이밍 몬스터일 경우
-	if (onpc && onpc->Check_MobFlag( STATE_MONSTER_TAMING ) ) 
+	// 공주구출 퀘스트 (퍼스널 던전 2) 실패
+	ProcDead_PD2(df);
+
+	// 죽은 것이 테이밍 몬스터일 경우
+	if (df->Check_MobFlag( STATE_MONSTER_TAMING ) )
 	{
-		CPC* pOwnerCheck = NULL;
-		CPC* owner = NULL;				// 몬스터를 테이밍한 캐릭터 
-		owner = onpc->GetOwner();		// 몬스터가 테이밍 되었는지 확인
+		CPC* owner = NULL;			// 몬스터를 테이밍한 캐릭터
+		owner = df->GetOwner();		// 몬스터가 테이밍 되었는지 확인
 
-		// 주인을 찾는다.
+		// 주인이 공격하고 있는 타겟을 지워준다. 주인이 테이밍 중이 아닌걸로 바꿔준다.
 		if ( owner )
 		{
-			pOwnerCheck = gserver.m_playerList.Find(owner->m_index);
-		}
-
-		// 주인이 공격하고 있는 타겟을 지워준다.
-		if ( pOwnerCheck )
-		{
-			pOwnerCheck->SetOwners_target(NULL);
+			owner->DeleteSlave( df );
 		}
 		goto SKIP_DROP;
 	}
 
+	// 죽인 것이 테이밍 몬스터일 경우
+	if (onpc && onpc->Check_MobFlag( STATE_MONSTER_TAMING ) )
+	{
+		CPC* owner = NULL;				// 몬스터를 테이밍한 캐릭터
+		owner = onpc->GetOwner();		// 몬스터가 테이밍 되었는지 확인
+
+		// 주인이 공격하고 있는 타겟을 지워준다.
+		if ( owner )
+		{
+			owner->SetOwners_target(NULL);
+			// opc에 주인을 넣어준다.
+			opc = owner;
+			bNPCKilledNPC = true;
+		}
+		else
+			goto SKIP_DROP;
+	}
+	else if( onpc && onpc->GetOwner() ) // 공격한 NPC가 오너가 있다면
+	{
+		CNPC* sumNpc = onpc->GetOwner()->GetSummonNpc(onpc);
+		if( sumNpc )
+		{
+			if( sumNpc->Check_MobFlag((STATE_MONSTER_MERCENARY)) )
+			{
+				sumNpc->GetOwner()->SetSummonOwners_target(NULL);
+			}
+
+			opc = onpc->GetOwner();
+			bNPCKilledNPC = true;
+		}
+		else
+			goto SKIP_DROP;
+	}
+
+	if( df && df->GetOwner() ) // 죽은 넘이 owner 있다면
+	{
+		if( df->Check_MobFlag(STATE_MONSTER_PARASITE) ) // 패러사이트에 걸려있다면.
+		{
+			int parasiteCnt = GetRandom(0,3);
+			parasiteCnt -= df->GetOwner()->GetBombSummonCont();
+			if( parasiteCnt > 0 )
+			{
+				int parasiteIdx = df->m_assist.GetSummonNpcIndex();
+				if( parasiteIdx > 0 )
+				{
+					int i;
+					for(i=0; i<parasiteCnt; i++)
+					{
+						CNPC* pParasiteNPC;
+						pParasiteNPC = gserver->m_npcProtoList.Create(parasiteIdx, NULL );
+						if( pParasiteNPC == NULL )
+							continue;
+
+						GET_X(pParasiteNPC) = GET_X(df);
+						GET_Z(pParasiteNPC) = GET_Z(df);
+						GET_R(pParasiteNPC) = GET_R(df);
+						GET_YLAYER(pParasiteNPC) = GET_YLAYER(df);
+
+						float fRand = GetRandom(0,1) ? 1.0f : -1.0f ;
+						float x  = 2.0f + ( fRand * (float)(GetRandom( 0 , 200 ) / 100.0f) );
+						fRand = GetRandom(0,1) ? 1 : -1 ;
+						float z  = 2.0f + ( fRand * (float)(GetRandom( 0 , 200 ) / 100.0f) );
+
+						pParasiteNPC->m_regenX = GET_X(pParasiteNPC) += x;
+						pParasiteNPC->m_regenZ = GET_Z(pParasiteNPC) += z;
+						pParasiteNPC->m_regenY = GET_YLAYER(pParasiteNPC);
+
+						pParasiteNPC->CalcStatus(false);
+
+						CSkill * pSkill = gserver->m_skillProtoList.Create( 1133 ); // 자살 공격
+						if( pSkill == NULL )
+						{
+							delete pParasiteNPC ;
+							pParasiteNPC = NULL;
+							continue;
+						}
+
+						pParasiteNPC->SetOwner(df->GetOwner());
+
+						bool bApply;
+						if( 0 != ApplySkill((CCharacter*)df->GetOwner(), (CCharacter*)pParasiteNPC, pSkill, -1, bApply) )
+						{
+							delete pSkill;
+							pSkill = NULL;
+
+							delete pParasiteNPC;
+
+							continue;
+						}
+						delete pSkill;
+						pSkill = NULL;
+
+						if( bApply == false )
+						{
+							delete pParasiteNPC ;
+							pParasiteNPC = NULL;
+							continue;
+						}
+						df->GetOwner()->SetBombSummonNPC(pParasiteNPC);
+
+						int cx, cz;
+						df->m_pArea->AddNPC(pParasiteNPC);
+						df->m_pArea->PointToCellNum(GET_X(pParasiteNPC), GET_Z(pParasiteNPC), &cx, &cz);
+						df->m_pArea->CharToCell(pParasiteNPC, GET_YLAYER(pParasiteNPC), cx, cz);
+
+						{
+							CNetMsg::SP rmsg(new CNetMsg);
+							AppearMsg(rmsg, pParasiteNPC, true);
+							df->m_pArea->SendToCell(rmsg, GET_YLAYER(pParasiteNPC), cx, cz);
+						}
+					}
+				}
+			}
+		}
+
+		CNPC* sumNpc = df->GetOwner()->GetSummonNpc(df);
+		if( sumNpc )
+		{
+#ifdef BUGFIX_MERCNERAY_DELETE
+			sumNpc->GetOwner()->SummonNpcRemove(df, false);
+#else
+			sumNpc->GetOwner()->SummonNpcRemove(df);
+#endif
+			goto SKIP_DROP;
+		}
+	}
+	/*
+
+	*/
+
 	// 이곳으로 넘어오면 테이밍이 아니므로, 모든 몬스터는 몬스터에게 죽으면 패스
-	else if (onpc)
+	else if (onpc && !bNPCKilledNPC)
 	{
 		goto SKIP_DROP;
 	}
@@ -87,39 +220,39 @@ void ProcDead(CNPC* df, CCharacter* of)
 	if (opc)
 	{
 		opc->SetOwners_target(NULL);
+		opc->SetSummonOwners_target(NULL);
 	}
-#else
-	// 경비에게 죽으면 그냥 패수
-	if (onpc && ( onpc->m_proto->CheckFlag(NPC_GUARD) ) )
-		goto SKIP_DROP;
-#endif  // NIGHTSHADOW_SKILL
-
-	// 공주구출 퀘스트 (퍼스널 던전 2) 실패
-	ProcDead_PD2(df);
 
 	// 리더 사망시 처리
 	if (!df->m_proto->CheckFlag(NPC_RAID))
 		ProcFollowNPC(df);
 
-#ifdef ENABLE_WAR_CASTLE
 	// 공성 포인트 계산
 	if (opc)
 		CalcWarPoint(opc, df);
-#endif
 
 	// 죽은 NPC가 공성탑이나 수호병이 아닐 경우 처리
 	if (!df->m_proto->CheckFlag(NPC_CASTLE_TOWER | NPC_CASTLE_GUARD))
 	{
 		int level = -1;
-#ifdef NEW_DIVISION_EXPSP
 		LONGLONG nTotalDamage = 0;
 		// 우선권 PC, 평균 레벨 구하기
 		CPC* tpc = FindPreferencePC(df, &level, &nTotalDamage);
-#else // #ifdef NEW_DIVISION_EXPSP
-		// 우선권 PC, 평균 레벨 구하기
-		CPC* tpc = FindPreferencePC(df, &level);
-#endif // #ifdef NEW_DIVISION_EXPSP
-
+#ifdef GER_LOG
+		if( IS_PC( of ))
+		{
+			CPC *user = TO_PC( of );
+			GAMELOGGEM << init( 0, "CHAR_VICTORY" )
+					   << LOG_VAL("account-id", user->m_desc->m_idname ) << blank
+					   << LOG_VAL("character-id", user->m_desc->m_pChar->m_name ) << blank
+					   << LOG_VAL("zone-id", user->m_desc->m_pChar->m_pZone->m_index ) << blank
+					   << LOG_VAL("victim-id", df->m_index ) << blank
+					   /*<< LOG_VAL("opponent-id", kill) << blank*/
+					   << LOG_VAL("longitude", GET_X(user) ) << blank
+					   << LOG_VAL("latitude", GET_Z(user) ) << blank
+					   << endGer;
+		}
+#endif
 		// 보스몹
 		if (df->m_proto->CheckFlag(NPC_BOSS | NPC_MBOSS | NPC_RAID))
 		{
@@ -152,104 +285,188 @@ void ProcDead(CNPC* df, CCharacter* of)
 						<< of->m_level;
 			}
 			GAMELOG << end;
-#ifndef ADULT_SERVER			
+
 			if (df->m_proto->CheckFlag(NPC_BOSS | NPC_MBOSS))
 			{
 				// 카오 성향 회복 : 보스몹을 잡으면 회복 보너스
 				if (opc && opc->IsChaotic() && tpc == opc)
 				{
-#ifdef RESTRICT_PK
-					if (opc->m_lastPKTime == -1 || opc->m_lastPKTime + RESTRICT_PK <= gserver.m_gameTime)
-					{
-#endif // RESTRICT_PK
-#if defined ( NON_PK_SYSTEM )
-						if( !gserver.m_bNonPK )
-							opc->m_pkPenalty += df->m_level / 10;				
-#else
+					if( !gserver->m_bNonPK )
 						opc->m_pkPenalty += df->m_level / 10;
-#endif // NON_PK_SYSTEM
-						if (opc->m_pkPenalty > 0)
-							opc->m_pkPenalty = 0;
-#ifdef RESTRICT_PK
+
+					if (opc->m_pkPenalty > 0)
+						opc->m_pkPenalty = 0;
+
+					{
+						CNetMsg::SP rmsg(new CNetMsg);
+						CharStatusMsg(rmsg, opc, 0);
+						opc->m_pArea->SendToCell(rmsg, opc, false);
 					}
-#endif // RESTRICT_PK
-	
-					CNetMsg rmsg;
-					CharStatusMsg(rmsg, opc, 0);
-					opc->m_pArea->SendToCell(rmsg, opc, false);
+
 					opc->m_bChangeStatus = true;
 				}
 			}
-#endif //ifndef ADULT_SERVER
 		} // 보스몹
 
-#ifndef ADULT_SERVER
-#ifdef RESTRICT_PK
-#else // RESTRICT_PK
-		// 카오 성향 회복
+		if(opc && opc->m_pArea && df->m_proto->m_index == 1002 && df->m_pZone && df->m_pZone->m_index == ZONE_ALTER_OF_DARK)
+		{
+			// 네임드 몬스터 죽은 것으로 체크
+			opc->m_pArea->m_CTriggerList.Set_TriggerFlag(TRIGGER_FLAG_NAMEDNPC_DEATH1);
+			opc->m_pArea->m_CTriggerList.Set_TriggerFlag(TRIGGER_FLAG_NAMEDNPC_DEATH1002_BEFORE);
+			opc->m_pArea->m_CTriggerList.SaveTriggerInfo(TRIGGER_SAVE_ALTER_OF_DARK_1002, opc->m_nJoinInzone_RoomNo);	//트리거 정보 저장
+			opc->m_pArea->Change_NpcRegenRaid(TRIGGER_SAVE_ALTER_OF_DARK_1002, 1002);
+		}
+		else if(opc && opc->m_pArea && df->m_proto->m_index == 1003 && df->m_pZone && df->m_pZone->m_index == ZONE_ALTER_OF_DARK)
+		{
+			// 네임드 몬스터 죽은 것으로 체크
+			opc->m_pArea->m_CTriggerList.Set_TriggerFlag(TRIGGER_FLAG_NAMEDNPC_DEATH2);
+			opc->m_pArea->m_CTriggerList.Set_TriggerFlag(TRIGGER_FLAG_NAMEDNPC_DEATH1003_BEFORE);
+			opc->m_pArea->m_CTriggerList.SaveTriggerInfo(TRIGGER_SAVE_ALTER_OF_DARK_1003, opc->m_nJoinInzone_RoomNo);	//트리거 정보 저장
+			opc->m_pArea->Change_NpcRegenRaid(TRIGGER_SAVE_ALTER_OF_DARK_1003, 1003);
+		}
+		else if(opc && opc->m_pArea && df->m_proto->m_index == 1018 && df->m_pZone && df->m_pZone->m_index == ZONE_ALTER_OF_DARK)
+		{
+			// 네임드 몬스터 죽은 것으로 체크
+			opc->m_pArea->m_CTriggerList.Set_TriggerFlag(TRIGGER_FLAG_NAMEDNPC_DEATH1018_BEFORE);
+			opc->m_pArea->m_CTriggerList.SaveTriggerInfo(TRIGGER_SAVE_ALTER_OF_DARK_1018, opc->m_nJoinInzone_RoomNo);	//트리거 정보 저장
+			opc->m_pArea->Change_NpcRegenRaid(TRIGGER_SAVE_ALTER_OF_DARK_1018, 1018);
+		}
+		else if (opc && opc->m_pArea && df->m_proto->m_index == 963 && df->m_pZone && df->m_pZone->m_index == ZONE_CAPPELLA_1)
+		{
+			// 트리거를 사용하기 위한 npc963 죽은 count 세기
+			opc->m_pArea->m_CTriggerList.m_nNPC963_KilledCount += 1;
+		}
+
+		int nObjectData;
+		int nAkanNpcIdx = df->m_proto->m_index;
+
+		switch(nAkanNpcIdx)
+		{
+		case 1115:				// 파독스의 인형(Hard)
+		case 1170:				// 파독스의 인형(Normal)
+			{
+				nObjectData = 10;
+				if(opc && opc->m_pArea && df->m_pZone && df->m_pZone->m_index == ZONE_AKAN_TEMPLE)
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					RaidSceneMsg(rmsg, OBJECT_TYPE_TODO, KILL_NPC, nAkanNpcIdx, nObjectData);
+					do_ExRaidScene(opc, rmsg);
+				}
+			}
+			break;
+		case 1112:				// 툴만
+		case 1116:				// 파독스
+		case 1120:				// 쿤타
+		case 1124:				// 유작
+		case 1126:				// 고위 연금술사 제롬
+		case 1127:				// 고위 마법술사 미엘
+		case 1128:				// 제사장 미쿠
+		case 1167:				// 툴만
+		case 1171:				// 파독스
+		case 1175:				// 쿤타
+		case 1179:				// 유작
+		case 1180:				// 고위 연금술사 제롬
+		case 1181:				// 고위 마법술사 미엘
+		case 1182:				// 제사장 미쿠
+			{
+				nObjectData = 1;
+				if(opc && opc->m_pArea && df->m_pZone && df->m_pZone->m_index == ZONE_AKAN_TEMPLE)
+				{
+					{
+						CNetMsg::SP rmsg(new CNetMsg);
+						RaidSceneMsg(rmsg, OBJECT_TYPE_TODO, KILL_NPC, nAkanNpcIdx, nObjectData);
+						do_ExRaidScene(opc, rmsg);
+					}
+				}
+			}
+			break;
+		case 1259:	//망각의 신전
+			{
+				nObjectData = 1;
+				if(opc && opc->m_pArea && df->m_pZone && df->m_pZone->m_index == ZONE_DUNGEON4)
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					RaidSceneMsg(rmsg, OBJECT_TYPE_TODO, KILL_NPC, nAkanNpcIdx, nObjectData);
+					do_ExRaidScene(opc, rmsg);
+				}
+			}
+			break;
+		case 1364:
+			{
+				if(opc && opc->m_pArea && df->m_pZone && df->m_pZone->m_index == ZONE_TARIAN_DUNGEON)
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					RaidSceneMsg(rmsg, OBJECT_TYPE_TODO, KILL_NPC, nAkanNpcIdx, 1);
+					do_ExRaidScene(opc, rmsg);
+				}
+			}
+			break;
+		default:
+			break;
+		}
+
+#ifdef REFORM_PK_PENALTY_201108 // PK 패널티 리폼 :: npc를 잡으면 무조건 헌터 쪽으로 향상 시켜준다.
+		if( !gserver->m_bNonPK )
+		{
+			if(df && opc)
+			{
+				int nlevel = df->m_level - opc->m_level;
+				int pkPenalty = 0;
+				if( nlevel > 4 )
+					pkPenalty += 15;
+				else if( nlevel > -5 )
+					pkPenalty += 10;
+				else if( nlevel <= -5 && nlevel >= -10)
+					pkPenalty += 5;
+
+				// 성향 수치 상승 증폭제를 사용 중이라면
+				if( opc->m_assist.m_avRate.pkDispositionPointValue > 0 )
+				{
+					pkPenalty = pkPenalty * opc->m_assist.m_avRate.pkDispositionPointValue;
+					opc->m_assist.CureByItemIndex(7474);	// 성향 수치 상승 증폭제
+					opc->m_assist.CureByItemIndex(7475);	// 성향 수치 상승 증폭제
+					opc->m_assist.CureByItemIndex(7476);	// 성향 수치 상승 증폭제
+				}
+				opc->AddPkPenalty( pkPenalty );
+
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					CharStatusMsg(rmsg, opc, 0);
+					opc->m_pArea->SendToCell(rmsg, opc, false);
+				}
+
+				opc->m_bChangeStatus = true;
+			}
+		}
+#else // REFORM_PK_PENALTY_201108 // PK 패널티 리폼
 		if (opc && opc->IsChaotic() && df->m_level >= opc->m_level - 5)
 		{
 			opc->m_pkRecoverNPCCount++;
 			if (opc->m_pkRecoverNPCCount >= 25)
 			{
 				opc->m_pkRecoverNPCCount = 0;
-#if defined ( NON_PK_SYSTEM )
-				if( !gserver.m_bNonPK )
-					opc->m_pkPenalty++;
-#else
-				opc->m_pkPenalty++;
-#endif
 
-				CNetMsg rmsg;
-				CharStatusMsg(rmsg, opc, 0);
-				opc->m_pArea->SendToCell(rmsg, opc, false);
+				if( !gserver->m_bNonPK )
+					opc->m_pkPenalty++;
+
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					CharStatusMsg(rmsg, opc, 0);
+					opc->m_pArea->SendToCell(rmsg, opc, false);
+				}
+
 				opc->m_bChangeStatus = true;
 			}
 		} // 카오 성향 회복
-#endif // RESTRICT_PK
-#endif // ifndef ADULT_SERVER	
+#endif // REFORM_PK_PENALTY_201108 // PK 패널티 리폼
 		// Exp, SP 분배
 		// 이루틴중 레벨업을 하여 존이동을 하였을 경우 나머지 실행하지 않는다.
-#ifdef NEW_DIVISION_EXPSP
 		if( DivisionExpSP(df, tpc, nTotalDamage) )
-#else // #ifdef NEW_DIVISION_EXPSP
-		if( DivisionExpSP(df, tpc) )
-#endif // #ifdef NEW_DIVISION_EXPSP
 			goto END_PROC;
 
 		// 아이템 드롭
 		ProcDropItemAfterBattle(df, opc, tpc, level);
-#ifdef NEW_PET_EXP_SYSTEM
-		if (tpc && tpc->m_wearing[WEARING_PET] && tpc->GetPet())
-		{
-			CPet* pPet = tpc->GetPet();
-			pPet->AddExp(tpc->m_level, df->m_level, df->m_proto->GetFlag() );
-		}
-#endif // NEW_PET_EXP_SYSTEM
 
-#ifdef ADULT_SERVER
-		if( opc && opc->IsChaotic() && df->m_proto->m_level >= opc->m_level )	// 카오가 동렙이상몹을 잡으면 
-		{
-			if( opc->AddKillNpcCount() )
-			{
-				opc->m_pkPenalty += 1;		// 카오라면 기본 0보다 작다.
-
-				CNetMsg rmsg;
-				CharStatusMsg(rmsg, opc, 0);
-				opc->m_pArea->SendToCell(rmsg, opc, false);
-				opc->m_bChangeStatus = true;
-				
-				char cChangeKing = opc->IsUpdateKing();
-				if( cChangeKing )
-				{
-					CNetMsg KingChangeMsg;		// MSG_HELPER_UPDATE_CHAOKING  bChao : 1(Guardian),2(ChaoKing) , index , penalty
-					HelperUpdateKing( KingChangeMsg, cChangeKing, opc->m_index, opc->m_pkPenalty );
-					SEND_Q( KingChangeMsg, gserver.m_helper );
-				}
-			}
-		}
-#endif //ADULT_SERVER
-		
 		// 진행중인 Quest 중 죽은 npc로 진행중이면 UpdateData
 		if (opc && opc == tpc)
 		{
@@ -257,14 +474,34 @@ void ProcDead(CNPC* df, CCharacter* of)
 			{
 				opc->m_pArea->m_nMakeNPC++;
 
+#if defined ( LC_GAMIGO ) || defined ( LC_KOR ) || defined ( LC_USA )
+				if( df->m_proto->m_index == 5 )
+				{
+					if(opc->m_pArea->m_nMakeNPC < 103)
+						goto SKIP_DROP;
+					else
+					{
+						GAMELOG << init("QUEST COMPLETE PD1", opc)
+								<< opc->m_pArea->m_nMakeNPC
+								<< end;
+					}
+				}
+				else if(df->m_proto->m_index == 201 && opc->m_pArea->m_nMakeNPC < 50)
+				{
+					goto SKIP_DROP;
+				}
+#else
 				if( (df->m_proto->m_index == 5 || df->m_proto->m_index == 201 ) && opc->m_pArea->m_nMakeNPC < 50 )
 				{
 					goto SKIP_DROP;
 				}
+#endif // LC_GAMIGO || LC_KOR || LC_USA
 			}
 
-#ifdef QUEST_DATA_EXTEND
-			CQuest* pQuest;
+#ifdef PARTY_QUEST_ITEM_BUG_
+			ProcDeadQuestProc(opc, df, QTYPE_SCALE_PERSONAL); // 내가 어그로도 먹고 몬스터도 막타 쳤단다.
+#else
+			CQuest* pQuest = NULL;
 			CQuest* pQuestNext = opc->m_questList.GetNextQuest(NULL, QUEST_STATE_RUN);
 			while ((pQuest = pQuestNext))
 			{
@@ -276,123 +513,153 @@ void ProcDead(CNPC* df, CCharacter* of)
 				case QTYPE_KIND_COLLECTION:
 				case QTYPE_KIND_DEFEAT:
 				case QTYPE_KIND_SAVE:
-					pQuest->QuestUpdateData(opc, df);
+					pQuest->QuestUpdateDataForParty(opc, df);
 					break;
 
 				default:
 					break;
 				}
 			}
-#else // QUEST_DATA_EXTEND
-			int i;
-			for (i=0; i < QUEST_MAX_PC; i++)
+			if( pQuest == NULL && opc->IsParty() && opc->m_party )
 			{
-				// 퀘스트 있고 수행중이고 반복, 수집, 격파, 구출 퀘스트이면
-				if (opc->m_questList.m_list[i] && opc->m_questList.m_bQuest[i] &&
-					(opc->m_questList.m_list[i]->m_proto->m_type[0] == QTYPE_KIND_REPEAT ||
-					opc->m_questList.m_list[i]->m_proto->m_type[0] == QTYPE_KIND_COLLECTION ||
-					opc->m_questList.m_list[i]->m_proto->m_type[0] == QTYPE_KIND_DEFEAT ||
-					opc->m_questList.m_list[i]->m_proto->m_type[0] == QTYPE_KIND_SAVE))
+				int i;
+				const CPartyMember* pPartyMember;
+				CPC*	pPartyPC;
+
+				for(i=0; i<MAX_PARTY_MEMBER; ++i)
 				{
-					opc->m_questList.m_list[i]->QuestUpdateData(opc, df);
+					pPartyMember = opc->m_party->GetMemberByListIndex(i);
+					if(pPartyMember && pPartyMember->GetMemberPCPtr())
+					{
+						pPartyPC = pPartyMember->GetMemberPCPtr();
+
+						if(opc->m_pArea->FindCharInCell(opc, pPartyPC->m_index, MSG_CHAR_PC))
+						{
+							pQuest = pPartyPC->m_questList.FindQuestByMob( df->m_idNum);
+
+							if( pQuest == NULL)
+								continue;
+
+							if( pQuest->GetPartyScale() != QTYPE_SCALE_PARTY)
+								break;
+
+							switch (pQuest->GetQuestType0())
+							{
+							case QTYPE_KIND_REPEAT:
+							case QTYPE_KIND_COLLECTION:
+							case QTYPE_KIND_DEFEAT:
+							case QTYPE_KIND_SAVE:
+								pQuest->QuestUpdateData(pPartyPC, df);
+								break;
+
+							default:
+								break;
+							}
+						}
+					}
 				}
 			}
-#endif // QUEST_DATA_EXTEND
+#endif // PARTY_QUEST_ITEM_BUG_
 		}
+#ifdef PARTY_QUEST_ITEM_BUG_
+		else if(opc) // [2010/12/28 derek] opc == NULL 인데도 들어가져서 퀘스트 찾다가 서버 다운되어 추가함.
+		{
+#ifdef _BATTLEGROUP_QUEST_BUG_PIX
+			if( opc->IsExped() ) // 어글은 않먹었지만 막타로 잡았으면
+				ProcDeadQuestProc(opc, df, QTYPE_SCALE_BATTLEGROUP);
+			else
+#endif
+				ProcDeadQuestProc(opc, df, QTYPE_SCALE_PARTY);
+		}
+
+#endif //PARTY_QUEST_ITEM_BUG_
 	} // 죽은 NPC가 공성탑이나 수호병이 아닐 경우 처리
+	else
+	{
+		int level = -1;
+		LONGLONG nTotalDamage = 0;
+		// 우선권 PC, 평균 레벨 구하기
+		CPC* tpc = FindPreferencePC(df, &level, &nTotalDamage);
+		DropWarCastleToken(df, opc, tpc, level);
+	}
 
 SKIP_DROP:
 
-#ifdef ENABLE_WAR_CASTLE
 	// 수호탑은 DelNPC() 안하고 UpdateGateState() 후에 메시지로 알린다.
 	if (df->m_proto->CheckFlag(NPC_CASTLE_TOWER) != 0)
 	{
 		int gstate_old = 0, gstate_new = 0;
-		CNetMsg rmsg;
 
 		CWarCastle * castle = CWarCastle::GetCastleObject(ZONE_MERAC);
-#ifdef DRATAN_CASTLE
 		CDratanCastle * pCastle = CDratanCastle::CreateInstance();
-#endif // DRATAN_CASTLE
 
 		if (of->m_pZone->m_index == ZONE_MERAC)
-		{		
+		{
 			if (castle != NULL)
 			{
 				gstate_old = castle->GetGateState();
-#ifdef DRATAN_CASTLE
-				if (pCastle != NULL)
-				{
-					gstate_old |= pCastle->GetGateState();
-				}
-#endif // DRATAN_CASTLE
+				gstate_old |= pCastle->GetGateState();
 				castle->UpdateGateState(df);
 				gstate_new = castle->GetGateState();
-#ifdef DRATAN_CASTLE
-				if (pCastle != NULL)
-				{
-					gstate_new |= pCastle->GetGateState();
-				}
-#endif // DRATAN_CASTLE
+				gstate_new |= pCastle->GetGateState();
 			}
 		}
-#ifdef DRATAN_CASTLE
 		else if (of->m_pZone->m_index == ZONE_DRATAN)
-		{	
-			if (pCastle != NULL)
+		{
+			gstate_old = pCastle->GetGateState();
+
+			if (castle != NULL)
 			{
-				gstate_old = pCastle->GetGateState();
+				gstate_old |= castle->GetGateState();
+			}
 
-				if (castle != NULL)
-				{
-					gstate_old |= castle->GetGateState();
-				}
+			pCastle->UpdateGateState(df);
+			gstate_new = pCastle->GetGateState();
 
-				pCastle->UpdateGateState(df);
-				gstate_new = pCastle->GetGateState();
-
-				if (castle != NULL)
-				{
-					gstate_new |= castle->GetGateState();
-				}
+			if (castle != NULL)
+			{
+				gstate_new |= castle->GetGateState();
 			}
 
 			if (df->m_proto->CheckFlag(NPC_WARCASTLE) != 0)
-			{	// NPC_CASTLE_TOWER 에 NPC_WARCASTLE 면 
+			{
+				// NPC_CASTLE_TOWER 에 NPC_WARCASTLE 면
 				// 마스터 타워와 부활진지
 				int qindex = df->m_proto->m_index;
 				if (qindex >= 390 && qindex <= 396)
-				{	// 부활진지 파괴 알림
+				{
+					// 부활진지 파괴 알림
+					CNetMsg::SP rmsg(new CNetMsg);
 					CastleTowerQuartersCrushMsg(rmsg, qindex);
 					of->m_pArea->SendToAllClient(rmsg);
-					
+
 					// 부활진지 파괴 처리
-					pCastle->m_nRebrithGuild[df->m_proto->m_index - 390] =  -1;
-					memset((void *)pCastle->m_strRebrithGuild[df->m_proto->m_index - 390], 0, 51);
+					/*pCastle->m_nRebrithGuild[df->m_proto->m_index - 390] =  -1;
+					memset((void *)pCastle->m_strRebrithGuild[df->m_proto->m_index - 390], 0, 51);*/
 				}
 			}
 		}
-#endif // DRATAN_CASTLE
 
 		if (gstate_old != gstate_new)
 		{
-			GuildWarGateStateMsg(rmsg, gstate_old, gstate_new);		
+			CNetMsg::SP rmsg(new CNetMsg);
+			GuildWarGateStateMsg(rmsg, gstate_old, gstate_new);
 			of->m_pArea->SendToAllClient(rmsg);
 		}
-			
+
 		DelAttackList(df);
-		
-#ifdef DRATAN_CASTLE
+
 		if (of->m_pZone->m_index == ZONE_DRATAN)
 		{
 			if( df->m_proto->m_index == 351)
-			{	// 마스터 타워
+			{
+				// 마스터 타워
 				// 모든 타워 기능 정지
 				pCastle->StopCastleTower();
 			}
 			else if (df->m_proto->CheckFlag(NPC_CASTLE_TOWER) != 0)
 			{
-				// 공격 수호상 (결계의 눈 등..) 로그 
+				// 공격 수호상 (결계의 눈 등..) 로그
 				GAMELOG << init("DRATAN CASTLE NPC DEAD : ") << df->m_proto->m_name
 						<< " BROKEN BY : " << of->m_name << end;
 				// 마스터 타워가 아닌 모든 타워
@@ -405,7 +672,6 @@ SKIP_DROP:
 						pCastle->m_pRebrithNPC[i] = NULL;
 						pCastle->m_nRebrithGuild[i] = -1;
 						memset((void *)pCastle->m_strRebrithGuild[i], 0, 51);
-
 					}
 				}
 
@@ -419,44 +685,41 @@ SKIP_DROP:
 				}
 
 				// 결계의 눈 삭제
-				for (i=0; i<3; i++)
+				for (i=0; i<5; i++)
 				{
 					if (pCastle->m_gateNPC[i] == df)
 					{
 						pCastle->m_gateNPC[i] = NULL;
 					}
 				}
-				
+
 				// 알림
 				of->m_pArea->CharFromCell(df, true);
 				of->m_pArea->DelNPC(df);
 			}
 		}
-#endif // DRATAN_CASTLE
 		return ;
 	} // 수호탑은 DelNPC() 안하고 UpdateGateState() 후에 메시지로 알린다.
-#endif
+//#endif
 
 #ifdef EXTREME_CUBE
 	if(df->m_bCubeRegen)
 	{
-		CCubeSpace* cube = gserver.m_extremeCube.GetExtremeCube(df->m_pArea->m_index);
+		CCubeSpace* cube = gserver->m_extremeCube.GetExtremeCube(df->m_pArea->m_index);
 		if(cube)
 		{
-			cube->DelMob(df);  
-
-			if(gserver.m_extremeCube.IsGuildCubeTime() && opc && opc->m_guildInfo && opc->m_guildInfo->guild())
+			if(gserver->m_extremeCube.IsGuildCubeTime() && opc && opc->m_guildInfo && opc->m_guildInfo->guild())
 			{
 				CCubeMemList* CubeMemList;
-				CubeMemList = gserver.m_extremeCube.FindMemList(opc->m_guildInfo->guild());
+				CubeMemList = gserver->m_extremeCube.FindMemList(opc->m_guildInfo->guild());
 				if(CubeMemList)
 				{
-					CNetMsg msg;
-					long lastCubePoint;
+					time_t lastCubePoint;
 
 					time(&lastCubePoint);
-					HelperAddCubePointMsg(msg, opc->m_guildInfo->guild()->index(), df->m_level, lastCubePoint);
-					SEND_Q(msg, gserver.m_helper);
+					CNetMsg::SP rmsg(new CNetMsg);
+					HelperAddCubePointMsg(rmsg, opc->m_guildInfo->guild()->index(), df->m_level, lastCubePoint);
+					SEND_Q(rmsg, gserver->m_helper);
 				}
 			}
 		}
@@ -464,54 +727,142 @@ SKIP_DROP:
 
 	if(df->m_pZone != NULL && df->m_proto->m_index == 529 && df->m_pZone->IsExtremeCube())
 	{
-		CCubeSpace* cube = gserver.m_extremeCube.GetExtremeCube(df->m_pArea->m_index);
-		
+		CCubeSpace* cube = gserver->m_extremeCube.GetExtremeCube(df->m_pArea->m_index);
+
 		if(cube && (cube->m_crystal == df) )
 		{
 			// cube->m_crystal = NULL;
 
 			cube->DelCrystal(false);
-			cube->m_waitTime = gserver.m_pulse + PULSE_REAL_SEC * 10;
+			cube->m_waitTime = gserver->m_pulse + PULSE_REAL_SEC * 10;
 			return ;
 		}
 	}
 	else if(df->m_pZone != NULL && df->m_proto->m_index == 527 && df->m_pZone->IsExtremeCube())
 	{
-		CCubeSpace* cube = gserver.m_extremeCube.GetExtremeCube(df->m_pArea->m_index);
-		
+		CCubeSpace* cube = gserver->m_extremeCube.GetExtremeCube(df->m_pArea->m_index);
+
 		if(cube && (cube->m_crystal == df) )
 		{
 			// cube->m_crystal = NULL;
-			
+
 			cube->DelCrystal(false);
-			cube->m_waitTime = gserver.m_pulse + PULSE_REAL_SEC * 10;
+			cube->m_waitTime = gserver->m_pulse + PULSE_REAL_SEC * 10;
 			return ;
 		}
 	}
 #endif // EXTREME_CUBE
 
+	if(df && opc)
+	{
+		vec_affinityList_t::iterator it = df->m_proto->m_affinityList.begin();
+		vec_affinityList_t::iterator endit = df->m_proto->m_affinityList.end();
+		
+		int point = 0;
+
+		for(; it != endit; ++it)
+		{
+			CAffinityProto* proto = *(it);
+
+			CAffinity* affinity = opc->m_affinityList.FindAffinity(proto->m_index);
+			if(affinity)
+			{
+				point = proto->GetAffinityPointOfNPC(df->m_idNum);
+				int bonus = 0;
+				if(opc->m_avPassiveAddition.affinity_monster > 0)
+				{
+					bonus += opc->m_avPassiveAddition.affinity_monster;
+				}
+				if(opc->m_avPassiveRate.affinity_monster > 0)
+				{
+					bonus = point * (opc->m_avPassiveRate.affinity_monster - 100) / SKILL_RATE_UNIT;
+				}
+
+				affinity->AddPoint( point, opc, bonus);
+			}
+		}
+	}
+
+	if(df->m_ctCount > 0)
+	{
+		gserver->m_npc_ctTime.erase(df->m_index);
+	}
+
 END_PROC:
 
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
+	//rvr 존에서 공격시에 동작해야 되는 함수 (NPC 가 죽었을 경우)
+	if(opc != NULL && of->m_pZone->isRVRZone() && df->m_pZone->isRVRZone())
+	{
+		ProcDead_RVR(opc, df);
+	}
+
 	// 모든 몬스터는 몬스터에게 죽으면 패스
-	if ( onpc )
+	if ( onpc || bNPCKilledNPC )
 	{
 		// 해당 에어리어에 죽은 수를 표시한다.  여기서는 바로 안지우고 따로 처리..
+		// MobActivity.cpp::MobActivity() 타고 들어오면 꼭 여길 거쳐야한다.
 		onpc->m_pArea->m_nNPC_Killed_NPC++;
 	}
-
 	else
 	{
-#endif  // NIGHTSHADOW_SKILL
-
-	DelAttackList(df);		
-	of->m_pArea->CharFromCell(df, true);
-	of->m_pArea->DelNPC(df);
-
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
+		DelAttackList(df);
+		of->m_pArea->CharFromCell(df, true);
+		of->m_pArea->DelNPC(df);
 	}
-#endif  // NIGHTSHADOW_SKILL
+}
 
+void ProcDead_RVR(CPC* op, CNPC* df)
+{
+	//적 npc 를 죽였을 경우에는 등급과 각 결사대가 소유한 보석량에 따라서 기여도를 부여해준다.
+	int jewelKailuxPoint		= SyndicateInfoDataManager::instance()->getJewelPoint(SYNDICATE::eSYNDICATE_KAILUX);
+	int jewelDealerMoonPoint	= SyndicateInfoDataManager::instance()->getJewelPoint(SYNDICATE::eSYNDICATE_DEALERMOON);
+	int grade = df->m_proto->m_rvr_grade;
+
+	//공격자가 카이룩스 인 경우
+	if(op->getSyndicateType() == SYNDICATE::eSYNDICATE_KAILUX)
+	{
+		if (jewelKailuxPoint < jewelDealerMoonPoint)
+		{
+			switch(grade)
+			{
+			case 1:
+				op->m_syndicateManager.increaseSyndicatePoint(2);
+				break;
+			case 2:
+				op->m_syndicateManager.increaseSyndicatePoint(3);
+				break;
+			case 3:
+				op->m_syndicateManager.increaseSyndicatePoint(5);
+				break;
+			}
+		}
+		else
+		{
+			op->m_syndicateManager.increaseSyndicatePoint(1);
+		}
+	}
+	else if(op->getSyndicateType() == SYNDICATE::eSYNDICATE_DEALERMOON)
+	{
+		if (jewelKailuxPoint < jewelDealerMoonPoint)
+		{
+			op->m_syndicateManager.increaseSyndicatePoint(1);
+		}
+		else
+		{
+			switch(grade)
+			{
+			case 1:
+				op->m_syndicateManager.increaseSyndicatePoint(2);
+				break;
+			case 2:
+				op->m_syndicateManager.increaseSyndicatePoint(3);
+				break;
+			case 3:
+				op->m_syndicateManager.increaseSyndicatePoint(5);
+				break;
+			}
+		}
+	}
 }
 
 void ProcDead_PD2(CNPC* df)
@@ -543,8 +894,6 @@ void ProcDead_PD2(CNPC* df)
 			return ;
 
 		// 퀘스트 실패
-#ifdef QUEST_DATA_EXTEND
-
 		CQuest* pQuest = NULL;
 		CQuest* pQuestNext = NULL;
 		const CQuestProto* pQuestProto = NULL;
@@ -552,7 +901,7 @@ void ProcDead_PD2(CNPC* df)
 		while ((pQuest = pQuestNext))
 		{
 			pQuestNext = pc->m_questList.GetNextQuest(pQuestNext, QUEST_STATE_RUN);
-			// 구출형 퀘스트 이고 
+			// 구출형 퀘스트 이고
 			if (pQuest->GetQuestType0() == QTYPE_KIND_SAVE)
 			{
 				pQuestProto = pQuest->GetQuestProto();
@@ -561,7 +910,7 @@ void ProcDead_PD2(CNPC* df)
 				{
 					// 죽은 df가 구출할 공주 이면
 					if (pQuestProto->m_conditionType[j] == QCONDITION_NPC &&
-						pQuestProto->m_conditionIndex[j] == df->m_proto->m_index)
+							pQuestProto->m_conditionIndex[j] == df->m_proto->m_index)
 					{
 						// 아이템 삭제
 						pQuest->RemoeQuestItem(pc);
@@ -570,127 +919,166 @@ void ProcDead_PD2(CNPC* df)
 						GAMELOG << init("QUEST FAIL", pc)
 								<< pQuestProto->m_index
 								<< end;
-						
-						CNetMsg rMsg;
-						QuestFailMsg(rMsg, pQuest);
+
+						CNetMsg::SP rmsg(new CNetMsg);
+						QuestFailMsg(rmsg, pQuest);
 						pc->m_questList.DelQuest(pc, pQuest);
-						SEND_Q(rMsg, pc->m_desc);
+						SEND_Q(rmsg, pc->m_desc);
 						return ;
 					}
 				}
 			}
 		} // while (pQuest)
+	}
+}
 
-#else // QUEST_DATA_EXTEND
-
-		for (i=0; i < QUEST_MAX_PC; i++)
+#ifdef PARTY_QUEST_ITEM_BUG_
+void ProcDeadQuestProc(CPC * opc,CNPC * df, int partyScale)
+{
+#ifdef HUNT_QUEST_COMPLETE_FOR_OTHER_PARTYMEMBER
+	// 파티 스케일이 어떤것이 넘어오든 상관없다.
+	// 막타친사람이 원정대인지, 파티인지, 솔로인지만 체크한다.
+	// 원정대일 경우 원정대 퀘스트만 수행된다. 솔로퀘스트도 수행이 안된다.
+	// 솔로나 파티일경우 자기 퀘스트도 되고, 파티원 퀘스트도 같이 된다.
+	if(opc->IsExped())
+	{
+		// 원정대 퀘스트
+		int i, j;
+		CPC* pExpedPC = NULL;
+		if(opc->m_Exped)
 		{
-			if (pc->m_questList.m_list[i] && pc->m_questList.m_bQuest[i])
+			for(i = 0; i < MAX_EXPED_GROUP; i++)
 			{
-				// 구출형 퀘스트 이고 
-				if (pc->m_questList.m_list[i]->m_proto->m_type[0] == QTYPE_KIND_SAVE)
+				for(j = 0; j < MAX_EXPED_GMEMBER; j++)
 				{
-					int j;
-					for (j=0; j < QUEST_MAX_CONDITION; j++)
+					pExpedPC = opc->m_Exped->GetMemberPCPtr(i, j);
+					if(pExpedPC == NULL)
+						continue;
+
+					if(opc->m_pArea->FindCharInCell(opc, pExpedPC->m_index, MSG_CHAR_PC))
 					{
-						// 죽은 df가 구출할 공주 이면
-						if (pc->m_questList.m_list[i]->m_proto->m_conditionType[j] == QCONDITION_NPC &&
-							pc->m_questList.m_list[i]->m_proto->m_conditionIndex[j] == df->m_proto->m_index)
+						CQuest* pQuest = NULL;
+						CQuest* pQuestNext = pExpedPC->m_questList.GetNextQuest(NULL, QUEST_STATE_RUN);
+						while((pQuest = pQuestNext))
 						{
-							// 아이템 삭제
-							int k;
-							for (k=0; k < QUEST_MAX_CONDITION; k++)
+							pQuestNext = pExpedPC->m_questList.GetNextQuest(pQuestNext, QUEST_STATE_RUN);
+							switch(pQuest->GetQuestType0())
 							{
-								// 수행조건 아이템을 찾고
-								if (pc->m_questList.m_list[i]->m_proto->m_conditionType[k] == QCONDITION_ITEM)
+							case QTYPE_KIND_REPEAT:
+							case QTYPE_KIND_COLLECTION:
+							case QTYPE_KIND_DEFEAT:
+							case QTYPE_KIND_SAVE:
 								{
-									// 전달 퀘스트 아이템은 퀘스트 인벤에서만 !!!
-									int r, c;
-									if (!pc->m_invenQuest.FindItem(&r, &c, pc->m_questList.m_list[i]->m_proto->m_conditionIndex[k], 0, 0))
-									{
-										// Quest Fail Log
-										GAMELOG << init("QUEST FAIL", pc)
-												<< pc->m_questList.m_list[i]->m_proto->m_index
-												<< end;
-
-										// 없으면 바로 실패
-										CNetMsg rMsg;
-										QuestFailMsg(rMsg, pc->m_questList.m_list[i]);
-										pc->m_questList.DelQuest(pc, pc->m_questList.m_list[i]);
-										SEND_Q(rMsg, pc->m_desc);
-										return ;
-									}
-									
-									// 찾았으면 수량 확인 해서 줄이기
-									CItem* item = pc->m_invenQuest.GetItem(r, c);
-									
-									if (!item)
-									{
-										// Quest Fail Log
-										GAMELOG << init("QUEST FAIL", pc)
-												<< pc->m_questList.m_list[i]->m_proto->m_index
-												<< end;
-
-										// 없으면 바로 실패
-										CNetMsg rMsg;
-										QuestFailMsg(rMsg, pc->m_questList.m_list[i]);
-										pc->m_questList.DelQuest(pc, pc->m_questList.m_list[i]);
-										SEND_Q(rMsg, pc->m_desc);
-										return ;
-									}
-									
-									// 필요 숫자 만큼 없음
-									if (item->Count() < pc->m_questList.m_list[i]->m_proto->m_conditionNum[k])
-									{
-										// Quest Fail Log
-										GAMELOG << init("QUEST FAIL", pc)
-												<< pc->m_questList.m_list[i]->m_proto->m_index
-												<< end;
-
-										// 없으면 바로 실패
-										CNetMsg rMsg;
-										QuestFailMsg(rMsg, pc->m_questList.m_list[i]);
-										pc->m_questList.DelQuest(pc, pc->m_questList.m_list[i]);
-										SEND_Q(rMsg, pc->m_desc);
-										return ;
-									}
-									CNetMsg itemMsg;
-									
-									// Item 수량 변경
-									DecreaseFromInventory(pc, item, pc->m_questList.m_list[i]->m_proto->m_conditionNum[k]);
-									
-									if (item->Count() > 0)
-									{
-										ItemUpdateMsg(itemMsg, item, -pc->m_questList.m_list[i]->m_proto->m_conditionNum[k]);
-										SEND_Q(itemMsg, pc->m_desc);
-									}
-									else
-									{
-										ItemDeleteMsg(itemMsg, item);
-										SEND_Q(itemMsg, pc->m_desc);
-										pc->RemoveItemFromQuickSlot(item);
-										RemoveFromInventory(pc, item, true, true);
-									}
-
-									// Quest Fail Log
-									GAMELOG << init("QUEST FAIL", pc)
-											<< pc->m_questList.m_list[i]->m_proto->m_index
-											<< end;
-									
-									// 없으면 바로 실패
-									CNetMsg rMsg;
-									QuestFailMsg(rMsg, pc->m_questList.m_list[i]);
-									pc->m_questList.DelQuest(pc, pc->m_questList.m_list[i]);
-									SEND_Q(rMsg, pc->m_desc);
-									return ;
+									if(pQuest->GetPartyScale() == QTYPE_SCALE_BATTLEGROUP)
+										pQuest->QuestUpdateData(pExpedPC, df);
 								}
+								break;
+							default:
+								break;
 							}
 						}
 					}
 				}
 			}
 		}
-
-#endif // QUEST_DATA_EXTEND
+		return ;
 	}
+	else
+	{
+		if(!opc->IsParty()) // 파티가 없으면 나만 퀘스트 업데이트
+		{
+			CQuest* pQuest = NULL;
+			CQuest* pQuestNext = opc->m_questList.GetNextQuest(NULL, QUEST_STATE_RUN);
+			while((pQuest = pQuestNext))
+			{
+				pQuestNext = opc->m_questList.GetNextQuest(pQuestNext, QUEST_STATE_RUN);
+				switch(pQuest->GetQuestType0())
+				{
+				case QTYPE_KIND_REPEAT:
+				case QTYPE_KIND_COLLECTION:
+				case QTYPE_KIND_DEFEAT:
+				case QTYPE_KIND_SAVE:
+					{
+						if(pQuest->GetPartyScale() == QTYPE_SCALE_PERSONAL || pQuest->GetPartyScale() == QTYPE_SCALE_PARTY)
+							pQuest->QuestUpdateData(opc, df);
+					}
+					break;
+				default:
+					break;
+				}
+			}
+			return ;
+		}
+		else
+		{
+			int i;
+			CPartyMember* pPartyMember = NULL;
+			CPC* pMember = NULL;
+			for(i = 0; i < MAX_PARTY_MEMBER; i++)
+			{
+				pPartyMember = opc->m_party->GetMemberByListIndex(i);
+				if(pPartyMember && pPartyMember->GetMemberPCPtr())
+				{
+					pMember = pPartyMember->GetMemberPCPtr();
+					if(opc->m_pArea->FindCharInCell(opc, pMember->m_index, MSG_CHAR_PC))
+					{
+						CQuest* pQuest = NULL;
+						CQuest* pQuestNext = pMember->m_questList.GetNextQuest(NULL, QUEST_STATE_RUN);
+						while((pQuest = pQuestNext))
+						{
+							pQuestNext = pMember->m_questList.GetNextQuest(pQuestNext, QUEST_STATE_RUN);
+							switch(pQuest->GetQuestType0())
+							{
+							case QTYPE_KIND_REPEAT:
+							case QTYPE_KIND_COLLECTION:
+							case QTYPE_KIND_DEFEAT:
+							case QTYPE_KIND_SAVE:
+								{
+									if(pQuest->GetPartyScale() == QTYPE_SCALE_PERSONAL || pQuest->GetPartyScale() == QTYPE_SCALE_PARTY)
+										pQuest->QuestUpdateData(pMember, df);
+								}
+								break;
+							default:
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+#else // HUNT_QUEST_COMPLETE_FOR_OTHER_PARTYMEMBER
+	CQuest* pQuest = NULL;
+	CQuest* pQuestNext = opc->m_questList.GetNextQuest(NULL, QUEST_STATE_RUN);
+
+	while ((pQuest = pQuestNext))
+	{
+		pQuestNext = opc->m_questList.GetNextQuest(pQuestNext, QUEST_STATE_RUN);
+		// 퀘스트 있고 수행중이고 반복, 수집, 격파, 구출 퀘스트이면
+		if( (partyScale == QTYPE_SCALE_PARTY && pQuest->GetPartyScale() != QTYPE_SCALE_PARTY )
+#ifdef _BATTLEGROUP_QUEST_BUG_PIX
+				|| (partyScale == QTYPE_SCALE_BATTLEGROUP && pQuest->GetPartyScale() != QTYPE_SCALE_BATTLEGROUP )
+#endif // _BATTLEGROUP_QUEST_BUG_PIX
+		  )
+		{
+			return;
+		}
+
+		switch (pQuest->GetQuestType0() )
+		{
+		case QTYPE_KIND_REPEAT:
+		case QTYPE_KIND_COLLECTION:
+		case QTYPE_KIND_DEFEAT:
+		case QTYPE_KIND_SAVE:
+			pQuest->QuestUpdateDataForParty(opc, df);
+			break;
+
+		default:
+			break;
+		}
+	}
+#endif // HUNT_QUEST_COMPLETE_FOR_OTHER_PARTYMEMBER
 }
+#endif // PARTY_QUEST_ITEM_BUG_
+//

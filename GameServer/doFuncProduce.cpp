@@ -1,12 +1,13 @@
 #include "stdhdrs.h"
+
 #include "Log.h"
-#include "Cmd.h"
 #include "Character.h"
 #include "Server.h"
 #include "CmdMsg.h"
 #include "doFunc.h"
 #include "Battle.h"
 #include "WarCastle.h"
+#include "../ShareLib/packetType/ptype_old_do_item.h"
 
 int GetGradeProductItem(int itemdbindex)
 {
@@ -49,14 +50,8 @@ int GetGradeProductItem(int itemdbindex)
 
 //////////////////////////////
 // 선택 생산
-void do_SelectProduce(CPC* ch, CNetMsg& msg)
+void do_SelectProduce(CPC* ch, CNetMsg::SP& msg)
 {
-#ifdef FORBUG
-	GAMELOG << init("RECV : SelectProduce", ch)
-			<< end;
-#endif //FORBUG
-	CNetMsg rmsg;
-
 	if (DEAD(ch))
 		return ;
 
@@ -66,11 +61,10 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 	int npcindex;
 	int itemdbindex;
 
-	msg.MoveFirst();
+	msg->MoveFirst();
 
-	msg >> npcindex
-		>> itemdbindex;
-
+	RefMsg(msg) >> npcindex
+				>> itemdbindex;
 
 	// 근처의 NPC 찾기
 	CNPC* npc = TO_NPC(ch->m_pArea->FindCharInCell(ch, npcindex, MSG_CHAR_NPC, false));
@@ -84,34 +78,29 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 		if (npc->m_proto->m_product[i] == itemdbindex)
 			break;
 	}
+
 	if (i == MAX_PRODUCTS_FROM_NPC)
 		return ;
 
-
 	// 속도 검사
 	ch->m_hackProduceCount--;
-	ch->m_ProduceClientTime += gserver.m_pulse - ch->m_lastProducePulse + PULSE_HACK_ATTACK_THRESHOLD;
+	ch->m_ProduceClientTime += gserver->m_pulse - ch->m_lastProducePulse + PULSE_HACK_ATTACK_THRESHOLD;
 
 	if (ch->m_hackProduceCount < 1)
 	{
 		if( ch->m_ProduceClientTime < PULSE_PRODUCE_DELAY * PULSE_HACK_ATTACK_COUNT)
 		{
 			GAMELOG << init("HACK PRODUCE SPEED", ch)
-					<< (gserver.m_pulse - ch->m_lastProducePulse)
+					<< (gserver->m_pulse - ch->m_lastProducePulse)
 					<< end;
-#if defined (LC_TWN2) 
-			// 대만은 핵으로 팅기지 않는다
-#else
-			ch->m_desc->IncreaseHackCount(4);
-#endif
+			ch->m_desc->IncreaseHackCount(0);
 			return;
 		}
 		ch->m_hackProduceCount = PULSE_HACK_ATTACK_COUNT;	// 샌상메세지 온 수 저장
 		ch->m_ProduceClientTime = 0; // 클라이언트가 보낸 생산시간
 	}
 
-	ch->m_lastProducePulse = gserver.m_pulse;
-
+	ch->m_lastProducePulse = gserver->m_pulse;
 
 	// 거리 검사
 	if (GetDistance(ch, npc) > npc->m_proto->m_attackArea + 0.5)
@@ -122,7 +111,6 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 		// ch->m_desc->IncreaseHackCount(6);
 		return ;
 	}
-
 
 	// 아이템 DB 인덱스 검사
 	int npcflag = -1;			// NPC 종류
@@ -175,25 +163,24 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 	if (grade == -1)
 		return ;
 
-
 	// 도구 검사
-	if (!ch->m_wearing[WEARING_WEAPON])
+	if (!ch->m_wearInventory.wearItemInfo[WEARING_WEAPON])
 	{
 		// 아예 무기위치에 암것두 없음
+		CNetMsg::SP rmsg(new CNetMsg);
 		SysMsg(rmsg, MSG_SYS_PRODUCE_NOTOOL);
 		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
 
-	CItem* tool = ch->m_wearing[WEARING_WEAPON];
-
+	CItem* tool = ch->m_wearInventory.wearItemInfo[WEARING_WEAPON];
 
 	// 생산 도구 타입 검사
 	bool bProduceTool = false;
-	switch (tool->m_itemProto->m_typeIdx)
+	switch (tool->m_itemProto->getItemTypeIdx())
 	{
 	case ITYPE_WEAPON:
-		switch (tool->m_itemProto->m_subtypeIdx)
+		switch (tool->m_itemProto->getItemSubTypeIdx())
 		{
 		case IWEAPON_MINING:
 		case IWEAPON_GATHERING:
@@ -211,75 +198,73 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 	if (!bProduceTool)
 	{
 		// 생산 도구가 아님
+		CNetMsg::SP rmsg(new CNetMsg);
 		SysMsg(rmsg, MSG_SYS_PRODUCE_WEAR_TOOL);
 		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
-	if (tool->m_itemProto->m_subtypeIdx != needitemtype)
+	if (tool->m_itemProto->getItemSubTypeIdx() != needitemtype)
 	{
 		// 해당 생산 도구가 아님
+		CNetMsg::SP rmsg(new CNetMsg);
 		SysMsg(rmsg, MSG_SYS_PRODUCE_MATCH_TOOL);
 		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
 
-
 	// 부스터 옵션 체크
 	int bBoost  = 0;
-	if(tool->m_flag & FLAG_ITEM_BOOSTER_ADDED)
+	if(tool->getFlag() & FLAG_ITEM_BOOSTER_ADDED)
 		bBoost = 100;
-	else if(tool->m_flag & FLAG_ITEM_SILVERBOOSTER_ADDED)
+	else if(tool->getFlag() & FLAG_ITEM_SILVERBOOSTER_ADDED)
 		bBoost = 140;
-	else if(tool->m_flag & FLAG_ITEM_GOLDBOOSTER_ADDED)
+	else if(tool->getFlag() & FLAG_ITEM_GOLDBOOSTER_ADDED)
 		bBoost = 200;
-#ifdef PLATINUM
-	else if(tool->m_flag & FLAG_ITEM_PLATINUMBOOSTER_ADDED)
+	else if(tool->getFlag() & FLAG_ITEM_PLATINUMBOOSTER_ADDED)
 		bBoost = 300;
-#endif
 
-#ifdef ENABLE_WAR_CASTLE
 	const int produceTax = 30;		// 생산당 필요 나스
 
 	// 부스터는 금액 검사 안함, 사유지에서만
-	if (!bBoost && npc->GetMapAttr() == MAPATT_PRODUCT_PRIVATE)
+	if (!bBoost && npc->GetMapAttr() & MATT_PRODUCT_PRIVATE)
 	{
-		if (!ch->m_moneyItem || ch->m_moneyItem->Count() < produceTax)
+		if (ch->m_inventory.getMoney() < produceTax)
 		{
 			// 돈 없어서 불가능
+			CNetMsg::SP rmsg(new CNetMsg);
 			SysMsg(rmsg, MSG_SYS_PRODUCE_NO_MONEY);
 			SEND_Q(rmsg, ch->m_desc);
 			return;
 		}
 	}
-#endif // #ifdef ENABLE_WAR_CASTLE
 
-
-	// 부스터 도구는 내구도도 안 떨어진다
-	// 생산 도구 내구도 검사
-	if (!bBoost && tool->m_itemProto->m_maxUse != -1 &&  tool->m_used <= 0)
+// [101216: selo] 보상 아이템 드롭 수정
+	if( !ch->CheckInvenForProduceNoramlPrize(itemdbindex, grade, bBoost) )
 	{
-		// 내구 다 되었을 때
-		// 벗기기
-		ItemWearMsg(rmsg, WEARING_WEAPON, NULL, tool);
-		SEND_Q(rmsg, ch->m_desc);
-
-		// 남들한테 벗기기
-		WearingMsg(rmsg, ch, WEARING_WEAPON, -1, 0);
-		ch->m_pArea->SendToCell(rmsg, ch, false);
-
-		// 없애기
-		ItemDeleteMsg(rmsg, tool);
-		SEND_Q(rmsg, ch->m_desc);
-
-		// 메모리에서 삭제
-		RemoveFromInventory(ch, tool, true, true);
-		tool = NULL;
-
-		SysMsg(rmsg, MSG_SYS_PRODUCE_MAXUSE_TOOL);
-		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
 
+	// 부스터 도구는 내구도도 안 떨어진다
+	// 생산 도구 내구도 검사
+	if (!bBoost && tool->m_itemProto->getItemMaxUse() != -1 &&  tool->getUsed() <= 0)
+	{
+		// 내구 다 되었을 때
+		ch->m_wearInventory.RemoveItem((int)tool->getWearPos());
+
+		{
+			// 남들한테 벗기기
+			CNetMsg::SP rmsg(new CNetMsg);
+			WearingMsg(rmsg, ch, WEARING_WEAPON, -1, 0);
+			ch->m_pArea->SendToCell(rmsg, ch, false);
+		}
+
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			SysMsg(rmsg, MSG_SYS_PRODUCE_MAXUSE_TOOL);
+			SEND_Q(rmsg, ch->m_desc);
+		}
+		return;
+	}
 
 	// 생산 가능 인원 체크
 	int nTarget = 0;
@@ -302,14 +287,14 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 		// 생산 가능 인원 초과
 		if (nTarget >= MAX_ACCEPTABLE)
 		{
+			CNetMsg::SP rmsg(new CNetMsg);
 			SysMsg(rmsg, MSG_SYS_PRODUCE_MAX_ACCEPTABLE);
 			SEND_Q(rmsg, ch->m_desc);
 			return;
 		}
-	}	
-	
+	}
+
 	// 진행중인 Quest 중 죽은 npc로 진행중이면 UpdateData
-#ifdef QUEST_DATA_EXTEND
 	CQuest* pQuest;
 	CQuest* pQuestNext = ch->m_questList.GetNextQuest(NULL, QUEST_STATE_RUN);
 	while ((pQuest = pQuestNext))
@@ -328,31 +313,6 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 			break;
 		}
 	}
-#else // QUEST_DATA_EXTEND
-	for (i=0; i < QUEST_MAX_PC; i++)
-	{
-		// 퀘스트가 있고
-		if (!ch->m_questList.m_list[i])
-			continue ;
-
-		// 수행 중이고
-		if (!ch->m_questList.m_bQuest[i])
-			continue ;
-
-		// 수집 퀘스트
-		switch (ch->m_questList.m_list[i]->m_proto->m_type[0])
-		{
-		case QTYPE_KIND_COLLECTION:
-		case QTYPE_KIND_MINING_EXPERIENCE:
-		case QTYPE_KIND_GATHERING_EXPERIENCE:
-		case QTYPE_KIND_CHARGE_EXPERIENCE:
-			ch->m_questList.m_list[i]->QuestUpdateData(ch, npc);
-			break;
-		default:
-			break;
-		}
-	}
-#endif // QUEST_DATA_EXTEND
 
 	// 스킬 검사
 	// 인덱스 큰 것이 더 높은 등급으로 하여 상위 레벨을 선택
@@ -374,55 +334,52 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 		}
 		if (sskill == NULL || sskill->m_level < 0 || sskill->m_level >= SSKILL_MAX_LEVEL)
 		{
+			CNetMsg::SP rmsg(new CNetMsg);
 			SysMsg(rmsg, MSG_SYS_PRODUCE_NO_SSKILL);
 			SEND_Q(rmsg, ch->m_desc);
 			return;
 		}
 
 		// 아이템 이용 횟수 감소
-		if (tool->m_itemProto->m_maxUse > 0)
+		if (tool->m_itemProto->getItemMaxUse() > 0)
 		{
-			tool->m_used--;
-			ItemUpdateMsg(rmsg, tool, 0);
+			tool->setUsed(tool->getUsed() - 1);
+
+			CNetMsg::SP rmsg(new CNetMsg);
+			UpdateClient::makeUpdateWearItemUsed(rmsg, tool->getWearPos(), tool->getVIndex(), tool->getUsed());
 			SEND_Q(rmsg, ch->m_desc);
 		}
 		else
 		{
 			// 내구 다 되었을 때
 			// 벗기기
-			ItemWearMsg(rmsg, WEARING_WEAPON, NULL, tool);
-			SEND_Q(rmsg, ch->m_desc);
+			ch->m_wearInventory.RemoveItem((int)tool->getWearPos());
+			{
+				// 남들한테 벗기기
+				CNetMsg::SP rmsg(new CNetMsg);
+				WearingMsg(rmsg, ch, WEARING_WEAPON, -1, 0);
+				ch->m_pArea->SendToCell(rmsg, ch, false);
+			}
 
-			// 남들한테 벗기기
-			WearingMsg(rmsg, ch, WEARING_WEAPON, -1, 0);
-			ch->m_pArea->SendToCell(rmsg, ch, false);
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysMsg(rmsg, MSG_SYS_PRODUCE_MAXUSE_TOOL);
+				SEND_Q(rmsg, ch->m_desc);
+			}
 
-			// 없애기
-			ItemDeleteMsg(rmsg, tool);
-			SEND_Q(rmsg, ch->m_desc);
-
-			// 메모리에서 삭제
-			RemoveFromInventory(ch, tool, true, true);
-			tool = NULL;
-
-			SysMsg(rmsg, MSG_SYS_PRODUCE_MAXUSE_TOOL);
-			SEND_Q(rmsg, ch->m_desc);
 			return;
 		}
 	}
 
 	// npc 체력 감소
-	npc->m_hp -= tool->m_itemProto->m_num0;
-#ifndef NEW_DIVISION_EXPSP
-	npc->m_totalDamage += tool->m_itemProto->m_num0;
-#endif // #ifndef NEW_DIVISION_EXPSP
+	npc->m_hp -= tool->m_itemProto->getItemNum0();
 
 	if (npc->m_hp <= 0)
 		npc->m_hp = 0;
 
 	// 어택리스트에 추가
 	AddAttackList(ch, npc, 0);
-	
+
 	// 공격 리스트에서 데미지 갱신
 	target = npc->m_attackList;
 
@@ -430,9 +387,9 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 	{
 		if (target->ch == ch)
 		{
-			target->m_damage += tool->m_itemProto->m_num0;
+			target->m_damage += tool->m_itemProto->getItemNum0();
 			// 생산의 경우는 펄스값을 매번 셋팅해준다.
-			target->m_targetPulse = gserver.m_pulse;
+			target->m_targetPulse = gserver->m_pulse;
 			break;
 		}
 		target = target->m_next;
@@ -456,25 +413,19 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 			LONGLONG countOfGrade[5] = {150, 86, 55, 38, 30};
 
 			// TODO : 임시 조정
-			item = gserver.m_itemProtoList.CreateItem(itemdbindex, -1, 0, 0, countOfGrade[grade] / 2 * bBoost / 100 );
+			item = gserver->m_itemProtoList.CreateItem(itemdbindex, -1, 0, 0, countOfGrade[grade] / 2 * bBoost / 100 );
 			if (item)
 			{
 				// 내구 다 되었을 때
 				// 벗기기
-				ItemWearMsg(rmsg, WEARING_WEAPON, NULL, tool);
-				SEND_Q(rmsg, ch->m_desc);
+				ch->m_wearInventory.RemoveItem((int)tool->getWearPos());
+				{
+					// 남들한테 벗기기
+					CNetMsg::SP rmsg(new CNetMsg);
+					WearingMsg(rmsg, ch, WEARING_WEAPON, -1, 0);
+					ch->m_pArea->SendToCell(rmsg, ch, false);
+				}
 
-				// 남들한테 벗기기
-				WearingMsg(rmsg, ch, WEARING_WEAPON, -1, 0);
-				ch->m_pArea->SendToCell(rmsg, ch, false);
-
-				// 없애기
-				ItemDeleteMsg(rmsg, tool);
-				SEND_Q(rmsg, ch->m_desc);
-
-				// 메모리에서 삭제
-				RemoveFromInventory(ch, tool, true, true);
-				tool = NULL;
 			}
 
 			npc->m_hp = 0;
@@ -490,162 +441,146 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 			int prob = 0;
 			switch (grade)
 			{
-			case 0:		prob = sskill->m_proto->m_num0[sskill->m_level - 1];	break;	// E
-			case 1:		prob = sskill->m_proto->m_num1[sskill->m_level - 1];	break;	// D
-			case 2:		prob = sskill->m_proto->m_num2[sskill->m_level - 1];	break;	// C
-			case 3:		prob = sskill->m_proto->m_num3[sskill->m_level - 1];	break;	// B
-			case 4:		prob = sskill->m_proto->m_num4[sskill->m_level - 1];	break;	// A
+			case 0:
+				prob = sskill->m_proto->m_num0[sskill->m_level - 1];
+				break;	// E
+			case 1:
+				prob = sskill->m_proto->m_num1[sskill->m_level - 1];
+				break;	// D
+			case 2:
+				prob = sskill->m_proto->m_num2[sskill->m_level - 1];
+				break;	// C
+			case 3:
+				prob = sskill->m_proto->m_num3[sskill->m_level - 1];
+				break;	// B
+			case 4:
+				prob = sskill->m_proto->m_num4[sskill->m_level - 1];
+				break;	// A
 			}
 
 			// 무제한 생산 페널티
 			if (npc->m_proto->CheckFlag(NPC_ETERNAL))
 				prob = prob * ETERNAL_PENALTY_PROB / 100;
 
-			if (npc->GetMapAttr() == MAPATT_PRODUCT_PUBLIC)
+			if (npc->GetMapAttr() & MATT_PRODUCT_PUBLIC)
 			{
 				// 공유지 페널디
 				prob = prob * PUBLIC_PENALTY_PROB / 100;
 			}
-#ifdef NEW_DOUBLE_GM
-			prob = prob * gserver.m_bDoubleProducePercent / 100;
-#endif
 
-#ifdef CHANCE_EVENT
-			if (gserver.m_bChanceEvent == true
-				&& gserver.CheckChanceEventLevel(ch->m_level) == true)
-			{
-				prob *= gserver.m_bChanceProducePercent / 100;
-			}
-#endif // CHANCE_EVENT
+			prob = prob * gserver->m_bDoubleProducePercent / 100;
 
 			// 성공 결정
 			if (GetRandom(1, 10000) <= prob)
 			{
 				LONGLONG count = 1;
 				// 더블 이벤트
-				if (gserver.m_bDoubleEvent)
-#ifdef NEW_DOUBLE_GM
-					count = gserver.m_bDoubleProduceNum;
-#else
-					count *= 2;
-#endif
+				if (gserver->m_bDoubleEvent)
+					count = gserver->m_bDoubleProduceNum;
 
-#ifdef CHANCE_EVENT
-				if (gserver.m_bChanceEvent == true
-					&& gserver.CheckChanceEventLevel(ch->m_level) == true)
+				item = gserver->m_itemProtoList.CreateItem(itemdbindex, -1, 0, 0, count);
+
+				if (npc->GetMapAttr() & MATT_PRODUCT_PRIVATE)
 				{
-					count += gserver.m_bChanceProduceNum;
-				}
-#endif // CHANCE_EVENT
-
-				item = gserver.m_itemProtoList.CreateItem(itemdbindex, -1, 0, 0, count);
-
-#ifdef ENABLE_WAR_CASTLE
-				if (npc->GetMapAttr() == MAPATT_PRODUCT_PRIVATE)
-				{
-					if (ch->m_moneyItem->Count() > produceTax)
+					if (ch->m_inventory.getMoney() >= produceTax)
 					{
-						DecreaseFromInventory(ch, ch->m_moneyItem, produceTax);
-						ItemUpdateMsg(rmsg, ch->m_moneyItem, -produceTax);
-						SEND_Q(rmsg, ch->m_desc);
+						ch->m_inventory.decreaseMoney(produceTax);
 					}
-					else
-					{
-						ItemDeleteMsg(rmsg, ch->m_moneyItem);
-						SEND_Q(rmsg, ch->m_desc);
-						RemoveFromInventory(ch, ch->m_moneyItem, true, true);
-					}
-					gserver.AddTaxProduceCastle(produceTax / 3);
+					gserver->AddTaxProduceCastle(produceTax / 3);
 				}
-#endif // #ifdef ENABLE_WAR_CASTLE
 			}
 		}
-		
-		if (item && item->m_itemProto->m_typeIdx == ITYPE_ETC && item->m_itemProto->m_subtypeIdx == IETC_PRODUCT)
-		{
-			bool bCountable = false;
-			// 인벤에 넣기
-			if (AddToInventory(ch, item, true, true))
-			{
-				// 겹쳐졌는지 검사
-				if (item->tab() == -1)
-				{
-					bCountable = true;
-					
-					// 수량 변경 알림
-					CInventory* inven = GET_INVENTORY(ch, GET_TAB(ITYPE_ETC, IETC_PRODUCT));
-					int r, c;
-					if (inven->FindItem(&r, &c, itemdbindex, 0, 0))
-					{
-						CItem* p = inven->GetItem(r, c);
-						if (p)
-							ItemUpdateMsg(rmsg, p, item->Count());
-					}
-				}
-				else
-					ItemAddMsg(rmsg, item);
 
-				// 메시지 보내고
-				SEND_Q(rmsg, ch->m_desc);
-				
+		if (item && item->m_itemProto->getItemTypeIdx() == ITYPE_ETC && item->m_itemProto->getItemSubTypeIdx() == IETC_PRODUCT)
+		{
+			if (ch->m_inventory.addItem(item))
+			{
 				// Item LOG
 				GAMELOG << init("ITEM_PICK_PRODUCE_SEL", ch)
 						<< itemlog(item)
 						<< end;
 
-#ifdef ENABLE_STATISTICS
-				switch (item->m_itemProto->m_index)
+				switch (item->m_itemProto->getItemIndex())
 				{
-				case 152:	STATISTICS(152, item->Count());	break;
-				case 153:	STATISTICS(153, item->Count());	break;
-				case 154:	STATISTICS(154, item->Count());	break;
-				case 155:	STATISTICS(155, item->Count());	break;
-				case 156:	STATISTICS(156, item->Count());	break;
-				case 157:	STATISTICS(157, item->Count());	break;
-				case 158:	STATISTICS(158, item->Count());	break;
-				case 159:	STATISTICS(159, item->Count());	break;
-				case 160:	STATISTICS(160, item->Count());	break;
-				case 161:	STATISTICS(161, item->Count());	break;
-				case 162:	STATISTICS(162, item->Count());	break;
-				case 163:	STATISTICS(163, item->Count());	break;
-				case 197:	STATISTICS(197, item->Count());	break;
-				case 198:	STATISTICS(198, item->Count());	break;
-				case 199:	STATISTICS(199, item->Count());	break;
+				case 152:
+					STATISTICS(152, item->Count());
+					break;
+				case 153:
+					STATISTICS(153, item->Count());
+					break;
+				case 154:
+					STATISTICS(154, item->Count());
+					break;
+				case 155:
+					STATISTICS(155, item->Count());
+					break;
+				case 156:
+					STATISTICS(156, item->Count());
+					break;
+				case 157:
+					STATISTICS(157, item->Count());
+					break;
+				case 158:
+					STATISTICS(158, item->Count());
+					break;
+				case 159:
+					STATISTICS(159, item->Count());
+					break;
+				case 160:
+					STATISTICS(160, item->Count());
+					break;
+				case 161:
+					STATISTICS(161, item->Count());
+					break;
+				case 162:
+					STATISTICS(162, item->Count());
+					break;
+				case 163:
+					STATISTICS(163, item->Count());
+					break;
+				case 197:
+					STATISTICS(197, item->Count());
+					break;
+				case 198:
+					STATISTICS(198, item->Count());
+					break;
+				case 199:
+					STATISTICS(199, item->Count());
+					break;
 				}
-#endif
 			}
 			else
-			{				
+			{
 				// 인젠토리 꽉차서 못 받을 때 Drop
 				item = npc->m_pArea->DropItem(item, npc);
 				if (!item)
 					return;
 
 				item->m_preferenceIndex = ch->m_index;
-				ItemDropMsg(rmsg, npc, item);
-				npc->m_pArea->SendToCell(rmsg, npc, true);
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					ItemDropMsg(rmsg, npc, item);
+					npc->m_pArea->SendToCell(rmsg, npc, true);
+				}
 			}
 
-			if (bCountable)
 			{
-				delete item;
-				item = NULL;
+				// 생산 성공시 해당하는 종류에 따라 이펙트 메세지 전송
+				CNetMsg::SP rmsg(new CNetMsg);
+				switch (npcflag)
+				{
+				case NPC_MINERAL:
+					EffectEtcMsg(rmsg, ch, MSG_EFFECT_ETC_PRODUCE_MINING);
+					break;
+				case NPC_ENERGY:
+					EffectEtcMsg(rmsg, ch, MSG_EFFECT_ETC_PRODUCE_GATHERING);
+					break;
+				case NPC_CROPS:
+					EffectEtcMsg(rmsg, ch, MSG_EFFECT_ETC_PRODUCE_CHARGE);
+					break;
+				}
+				ch->m_pArea->SendToCell(rmsg, ch, true);
 			}
-
-			// 생산 성공시 해당하는 종류에 따라 이펙트 메세지 전송
-			switch (npcflag)
-			{
-			case NPC_MINERAL:
-				EffectEtcMsg(rmsg, ch, MSG_EFFECT_ETC_PRODUCE_MINING);
-				break;
-			case NPC_ENERGY:
-				EffectEtcMsg(rmsg, ch, MSG_EFFECT_ETC_PRODUCE_GATHERING);
-				break;
-			case NPC_CROPS:
-				EffectEtcMsg(rmsg, ch, MSG_EFFECT_ETC_PRODUCE_CHARGE);
-				break;
-			}
-			ch->m_pArea->SendToCell(rmsg, ch, true);
 		}
 	}
 
@@ -655,22 +590,25 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 		npc->m_hp = ch->m_maxHP;
 	}
 
-	// 이펙트 메시지 전송
-	switch (npcflag)
 	{
-	case NPC_MINERAL:
-		EffectProduceMsg(rmsg, ch, npc, MSG_PRODUCE_MINING);
-		break;
-	case NPC_ENERGY:
-		EffectProduceMsg(rmsg, ch, npc, MSG_PRODUCE_CHARGE);
-		break;
-	case NPC_CROPS:
-		EffectProduceMsg(rmsg, ch, npc, MSG_PRODUCE_GATHERING);
-		break;
+		// 이펙트 메시지 전송
+		CNetMsg::SP rmsg(new CNetMsg);
+		switch (npcflag)
+		{
+		case NPC_MINERAL:
+			EffectProduceMsg(rmsg, ch, npc, MSG_PRODUCE_MINING);
+			break;
+		case NPC_ENERGY:
+			EffectProduceMsg(rmsg, ch, npc, MSG_PRODUCE_CHARGE);
+			break;
+		case NPC_CROPS:
+			EffectProduceMsg(rmsg, ch, npc, MSG_PRODUCE_GATHERING);
+			break;
+		}
+		ch->m_pArea->SendToCell(rmsg, ch, true);
 	}
-	ch->m_pArea->SendToCell(rmsg, ch, true);
 
-	// 죽었을때 
+	// 죽었을때
 	if (DEAD(npc))
 	{
 		// 지속
@@ -692,14 +630,15 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 				{
 					CItem* dropItem = NULL;
 					int tableindex = GetRandom(0, MAX_NPC_DROPITEM - 1);
-					
+
 					if (npc->m_proto->m_item[tableindex] != -1 && GetRandom(1, 10000) <= npc->m_proto->m_itemPercent[tableindex])
 						dropItem = npc->m_pArea->DropItem(npc->m_proto->m_item[tableindex], npc, 0, 0, 1, true);
-					
+
 					if (dropItem)
 					{
 						// Drop Msg 보내기
 						dropItem->m_preferenceIndex = -1;
+						CNetMsg::SP rmsg(new CNetMsg);
 						ItemDropMsg(rmsg, npc, dropItem);
 						npc->m_pArea->SendToCell(rmsg, npc);
 					}
@@ -708,28 +647,19 @@ void do_SelectProduce(CPC* ch, CNetMsg& msg)
 
 			// 어택리스트에서 삭제
 			DelAttackList(npc);
-
+			
 			// npc 삭제
+			npc->SendDisappearAllInCell( false );
 			ch->m_pArea->CharFromCell(npc, true);
 			ch->m_pArea->DelNPC(npc);
 		}
 	}
 }
 
-
-
 //////////////
 // 무작위 생산
-void do_RandomProduce(CPC* ch, CNetMsg& msg)
+void do_RandomProduce(CPC* ch, CNetMsg::SP& msg)
 {
-
-#ifdef FORBUG
-	GAMELOG << init("RECV : RandomProduce", ch)
-			<< end;
-#endif //FORBUG
-	CNetMsg rmsg;
-	int i;
-
 	if (DEAD(ch))
 		return ;
 
@@ -738,41 +668,35 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 
 	int npcindex;
 
-	msg.MoveFirst();
+	msg->MoveFirst();
 
-	msg >> npcindex;
-
+	RefMsg(msg) >> npcindex;
 
 	// 근처의 NPC 찾기
 	CNPC* npc = TO_NPC(ch->m_pArea->FindCharInCell(ch, npcindex, MSG_CHAR_NPC, false));
 	if (!npc)
 		return ;
 
-
 	// 속도 검사
 	ch->m_hackProduceCount--;
-	ch->m_ProduceClientTime += gserver.m_pulse - ch->m_lastProducePulse + PULSE_HACK_ATTACK_THRESHOLD;
+	ch->m_ProduceClientTime += gserver->m_pulse - ch->m_lastProducePulse + PULSE_HACK_ATTACK_THRESHOLD;
 
 	if (ch->m_hackProduceCount < 1)
 	{
 		if( ch->m_ProduceClientTime < PULSE_PRODUCE_DELAY * PULSE_HACK_ATTACK_COUNT)
 		{
 			GAMELOG << init("HACK PRODUCE SPEED", ch)
-					<< (gserver.m_pulse - ch->m_lastProducePulse)
+					<< (gserver->m_pulse - ch->m_lastProducePulse)
 					<< end;
-#if defined (LC_TWN2) 
-			// 대만은 핵으로 팅기지 않는다
-#else
-			ch->m_desc->IncreaseHackCount(4);
-#endif
+
+			ch->m_desc->IncreaseHackCount(0);
 			return;
 		}
 		ch->m_hackProduceCount = PULSE_HACK_ATTACK_COUNT;	// 샌상메세지 온 수 저장
 		ch->m_ProduceClientTime = 0; // 클라이언트가 보낸 생산시간
 	}
 
-	ch->m_lastProducePulse = gserver.m_pulse;
-
+	ch->m_lastProducePulse = gserver->m_pulse;
 
 	// 거리 검사
 	if (GetDistance(ch, npc) > npc->m_proto->m_attackArea + 0.5)
@@ -783,7 +707,6 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 		// ch->m_desc->IncreaseHackCount(6);
 		return ;
 	}
-
 
 	// 아이템 DB 인덱스 검사
 	int npcflag = -1;			// NPC 종류
@@ -812,22 +735,23 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 		return ;
 
 	// 도구 검사
-	if (!ch->m_wearing[WEARING_WEAPON])
+	if (!ch->m_wearInventory.wearItemInfo[WEARING_WEAPON])
 	{
 		// 아예 무기위치에 암것두 없음
+		CNetMsg::SP rmsg(new CNetMsg);
 		SysMsg(rmsg, MSG_SYS_PRODUCE_NOTOOL);
 		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
 
-	CItem* tool = ch->m_wearing[WEARING_WEAPON];
+	CItem* tool = ch->m_wearInventory.wearItemInfo[WEARING_WEAPON];
 
 	// 생산 도구 타입 검사
 	bool bProduceTool = false;
-	switch (tool->m_itemProto->m_typeIdx)
+	switch (tool->m_itemProto->getItemTypeIdx())
 	{
 	case ITYPE_WEAPON:
-		switch (tool->m_itemProto->m_subtypeIdx)
+		switch (tool->m_itemProto->getItemSubTypeIdx())
 		{
 		case IWEAPON_MINING:
 		case IWEAPON_GATHERING:
@@ -845,74 +769,76 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 	if (!bProduceTool)
 	{
 		// 생산 도구가 아님
+		CNetMsg::SP rmsg(new CNetMsg);
 		SysMsg(rmsg, MSG_SYS_PRODUCE_WEAR_TOOL);
 		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
-	if (tool->m_itemProto->m_subtypeIdx != needitemtype)
+	if (tool->m_itemProto->getItemSubTypeIdx() != needitemtype)
 	{
 		// 해당 생산 도구가 아님
+		CNetMsg::SP rmsg(new CNetMsg);
 		SysMsg(rmsg, MSG_SYS_PRODUCE_MATCH_TOOL);
 		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
 
 	// 부스터 아이템 사용 불가
-	if (tool->m_flag & FLAG_ITEM_BOOSTER_ADDED
-		|| tool->m_flag & FLAG_ITEM_SILVERBOOSTER_ADDED 
-		|| tool->m_flag & FLAG_ITEM_GOLDBOOSTER_ADDED 
-#ifdef PLATINUM
-		|| tool->m_flag & FLAG_ITEM_PLATINUMBOOSTER_ADDED 
-#endif
-		)
+	if (tool->getFlag() & FLAG_ITEM_BOOSTER_ADDED
+			|| tool->getFlag() & FLAG_ITEM_SILVERBOOSTER_ADDED
+			|| tool->getFlag() & FLAG_ITEM_GOLDBOOSTER_ADDED
+			|| tool->getFlag() & FLAG_ITEM_PLATINUMBOOSTER_ADDED
+	   )
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		SysMsg(rmsg, MSG_SYS_PRODUCE_CANNT_BOOST);
 		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
 
-#ifdef ENABLE_WAR_CASTLE
 	const int produceTax = 30;		// 생산당 필요 나스
 
 	// 부스터는 금액 검사 안함, 사유지에서만
-	if (npc->GetMapAttr() == MAPATT_PRODUCT_PRIVATE)
+	if (npc->GetMapAttr() & MATT_PRODUCT_PRIVATE)
 	{
-		if (!ch->m_moneyItem || ch->m_moneyItem->Count() < produceTax)
+		if (ch->m_inventory.getMoney() < produceTax)
 		{
 			// 돈 없어서 불가능
+			CNetMsg::SP rmsg(new CNetMsg);
 			SysMsg(rmsg, MSG_SYS_PRODUCE_NO_MONEY);
 			SEND_Q(rmsg, ch->m_desc);
 			return;
 		}
 	}
-#endif // #ifdef ENABLE_WAR_CASTLE
 
-
-	// 생산 도구 내구도 검사
-	if (tool->m_itemProto->m_maxUse != -1 &&  tool->m_used <= 0)
+// [101216: selo] 보상 아이템 드롭 수정
+	if( !ch->CheckInvenForProduceRandomPrize() )
 	{
-		// 내구 다 되었을 때
-		// 벗기기
-		ItemWearMsg(rmsg, WEARING_WEAPON, NULL, tool);
-		SEND_Q(rmsg, ch->m_desc);
-
-		// 남들한테 벗기기
-		WearingMsg(rmsg, ch, WEARING_WEAPON, -1, 0);
-		ch->m_pArea->SendToCell(rmsg, ch, false);
-
-		// 없애기
-		ItemDeleteMsg(rmsg, tool);
-		SEND_Q(rmsg, ch->m_desc);
-
-		// 메모리에서 삭제
-		RemoveFromInventory(ch, tool, true, true);
-		tool = NULL;
-
-		SysMsg(rmsg, MSG_SYS_PRODUCE_MAXUSE_TOOL);
-		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
 
+	// 생산 도구 내구도 검사
+	if (tool->m_itemProto->getItemMaxUse() != -1 &&  tool->getUsed() <= 0)
+	{
+		// 내구 다 되었을 때
+		// 벗기기
+		ch->m_wearInventory.RemoveItem((int)tool->getWearPos());
+
+		{
+			// 남들한테 벗기기
+			CNetMsg::SP rmsg(new CNetMsg);
+			WearingMsg(rmsg, ch, WEARING_WEAPON, -1, 0);
+			ch->m_pArea->SendToCell(rmsg, ch, false);
+		}
+
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			SysMsg(rmsg, MSG_SYS_PRODUCE_MAXUSE_TOOL);
+			SEND_Q(rmsg, ch->m_desc);
+		}
+
+		return;
+	}
 
 	// 생산 가능 인원 체크
 	int nTarget = 0;
@@ -935,14 +861,14 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 		// 생산 가능 인원 초과
 		if (nTarget >= MAX_ACCEPTABLE)
 		{
+			CNetMsg::SP rmsg(new CNetMsg);
 			SysMsg(rmsg, MSG_SYS_PRODUCE_MAX_ACCEPTABLE);
 			SEND_Q(rmsg, ch->m_desc);
 			return;
 		}
 	}
-	
+
 	// 진행중인 Quest 중 죽은 npc로 진행중이면 UpdateData
-#ifdef QUEST_DATA_EXTEND
 	CQuest* pQuest;
 	CQuest* pQuestNext = ch->m_questList.GetNextQuest(NULL, QUEST_STATE_RUN);
 	while ((pQuest = pQuestNext))
@@ -961,31 +887,6 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 			break;
 		}
 	}
-#else // QUEST_DATA_EXTEND
-	for (i=0; i < QUEST_MAX_PC; i++)
-	{
-		// 퀘스트가 있고
-		if (!ch->m_questList.m_list[i])
-			continue ;
-
-		// 수행 중이고
-		if (!ch->m_questList.m_bQuest[i])
-			continue ;
-
-		// 수집 퀘스트
-		switch (ch->m_questList.m_list[i]->m_proto->m_type[0])
-		{
-		case QTYPE_KIND_COLLECTION:
-		case QTYPE_KIND_MINING_EXPERIENCE:
-		case QTYPE_KIND_GATHERING_EXPERIENCE:
-		case QTYPE_KIND_CHARGE_EXPERIENCE:
-			ch->m_questList.m_list[i]->QuestUpdateData(ch, npc);
-			break;
-		default:
-			break;
-		}
-	}
-#endif // QUEST_DATA_EXTEND
 
 	// 스킬 검사
 	// 인덱스 큰 것이 더 높은 등급으로 하여 상위 레벨을 선택
@@ -1003,54 +904,49 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 	}
 	if (sskill == NULL || sskill->m_level < 0 || sskill->m_level >= SSKILL_MAX_LEVEL)
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		SysMsg(rmsg, MSG_SYS_PRODUCE_NO_SSKILL);
 		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
 
 	// 아이템 이용 횟수 감소
-	if (tool->m_itemProto->m_maxUse > 0)
+	if (tool->m_itemProto->getItemMaxUse() > 0)
 	{
-		tool->m_used--;
-		ItemUpdateMsg(rmsg, tool, 0);
+		tool->setUsed(tool->getUsed() - 1);
+
+		CNetMsg::SP rmsg(new CNetMsg);
+		UpdateClient::makeUpdateWearItemUsed(rmsg, tool->getWearPos(), tool->getVIndex(), tool->getUsed());
 		SEND_Q(rmsg, ch->m_desc);
 	}
 	else
 	{
 		// 내구 다 되었을 때
-		// 벗기기
-		ItemWearMsg(rmsg, WEARING_WEAPON, NULL, tool);
-		SEND_Q(rmsg, ch->m_desc);
+		ch->m_wearInventory.RemoveItem((int)tool->getWearPos());
+		{
+			// 남들한테 벗기기
+			CNetMsg::SP rmsg(new CNetMsg);
+			WearingMsg(rmsg, ch, WEARING_WEAPON, -1, 0);
+			ch->m_pArea->SendToCell(rmsg, ch, false);
+		}
 
-		// 남들한테 벗기기
-		WearingMsg(rmsg, ch, WEARING_WEAPON, -1, 0);
-		ch->m_pArea->SendToCell(rmsg, ch, false);
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			SysMsg(rmsg, MSG_SYS_PRODUCE_MAXUSE_TOOL);
+			SEND_Q(rmsg, ch->m_desc);
+		}
 
-		// 없애기
-		ItemDeleteMsg(rmsg, tool);
-		SEND_Q(rmsg, ch->m_desc);
-
-		// 메모리에서 삭제
-		RemoveFromInventory(ch, tool, true, true);
-		tool = NULL;
-
-		SysMsg(rmsg, MSG_SYS_PRODUCE_MAXUSE_TOOL);
-		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
 
 	// npc 체력 감소
-	npc->m_hp -= tool->m_itemProto->m_num0;
-#ifndef NEW_DIVISION_EXPSP
-	npc->m_totalDamage += tool->m_itemProto->m_num0;
-#endif // #ifndef NEW_DIVISION_EXPSP
-
+	npc->m_hp -= tool->m_itemProto->getItemNum0();
 	if (npc->m_hp <= 0)
 		npc->m_hp = 0;
 
 	// 어택리스트에 추가
 	AddAttackList(ch, npc, 0);
-	
+
 	// 공격 리스트에서 데미지 갱신
 	target = npc->m_attackList;
 
@@ -1058,9 +954,9 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 	{
 		if (target->ch == ch)
 		{
-			target->m_damage += tool->m_itemProto->m_num0;
+			target->m_damage += tool->m_itemProto->getItemNum0();
 			// 생산의 경우는 펄스값을 매번 셋팅해준다.
-			target->m_targetPulse = gserver.m_pulse;
+			target->m_targetPulse = gserver->m_pulse;
 			break;
 		}
 		target = target->m_next;
@@ -1079,7 +975,7 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 		int itemIndexProduct[MAX_PRODUCTS_FROM_NPC];
 		memset(probProduct, 0, sizeof(int) * MAX_PRODUCTS_FROM_NPC);
 		memset(itemIndexProduct, 0, sizeof(int) * MAX_PRODUCTS_FROM_NPC);
-		for (i = 0; i < MAX_PRODUCTS_FROM_NPC; i++)
+		for (int i = 0; i < MAX_PRODUCTS_FROM_NPC; i++)
 		{
 			if (npc->m_proto->m_product[i] != -1)
 			{
@@ -1092,11 +988,21 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 					// 스킬에서 확률 구하기
 					switch (grade)
 					{
-					case 0:		probProduct[i] = sskill->m_proto->m_num5[sskill->m_level - 1];	break;	// E
-					case 1:		probProduct[i] = sskill->m_proto->m_num6[sskill->m_level - 1];	break;	// D
-					case 2:		probProduct[i] = sskill->m_proto->m_num7[sskill->m_level - 1];	break;	// C
-					case 3:		probProduct[i] = sskill->m_proto->m_num8[sskill->m_level - 1];	break;	// B
-					case 4:		probProduct[i] = sskill->m_proto->m_num9[sskill->m_level - 1];	break;	// A
+					case 0:
+						probProduct[i] = sskill->m_proto->m_num5[sskill->m_level - 1];
+						break;	// E
+					case 1:
+						probProduct[i] = sskill->m_proto->m_num6[sskill->m_level - 1];
+						break;	// D
+					case 2:
+						probProduct[i] = sskill->m_proto->m_num7[sskill->m_level - 1];
+						break;	// C
+					case 3:
+						probProduct[i] = sskill->m_proto->m_num8[sskill->m_level - 1];
+						break;	// B
+					case 4:
+						probProduct[i] = sskill->m_proto->m_num9[sskill->m_level - 1];
+						break;	// A
 					}
 
 					// 패널티 적용 : 무제한 생산
@@ -1104,167 +1010,143 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 						probProduct[i] = probProduct[i] * ETERNAL_PENALTY_PROB / 100;
 
 					// 패널티 적용 : 공유지
-					if (npc->GetMapAttr() == MAPATT_PRODUCT_PUBLIC)
+					if (npc->GetMapAttr() & MATT_PRODUCT_PUBLIC)
 						probProduct[i] = probProduct[i] * PUBLIC_PENALTY_PROB / 100;
 				}
 			}
 		}
 
 		// 누적 확률 구하기
-		for (i = 1; i < MAX_PRODUCTS_FROM_NPC; i++)
+		for (int i = 1; i < MAX_PRODUCTS_FROM_NPC; i++)
 		{
 			probProduct[i] += probProduct[i - 1];
 		}
 
 		// 성공 결정
 		int prob = GetRandom(1, 10000);
-#ifdef NEW_DOUBLE_GM
-		prob = prob * gserver.m_bDoubleProducePercent / 100;
-#endif
+		prob = prob * gserver->m_bDoubleProducePercent / 100;
 
-#ifdef CHANCE_EVENT
-		if (gserver.m_bChanceEvent == true
-			&& gserver.CheckChanceEventLevel(ch->m_level) == true)
-		{
-			prob *= gserver.m_bChanceProducePercent / 100;
-		}
-#endif // CHANCE_EVENT
-
-		for (i = 0; i < MAX_PRODUCTS_FROM_NPC; i++)
+		for (int i = 0; i < MAX_PRODUCTS_FROM_NPC; i++)
 		{
 			if (prob <= probProduct[i])
 			{
 				LONGLONG count = 1;
 
 				// 더블 이벤트
-				if (gserver.m_bDoubleEvent)
-#ifdef NEW_DOUBLE_GM
-					count = gserver.m_bDoubleProduceNum;
-#else
-					count *= 2;
-#endif
+				if (gserver->m_bDoubleEvent)
+					count = gserver->m_bDoubleProduceNum;
 
-#ifdef CHANCE_EVENT
-				if (gserver.m_bChanceEvent == true
-					&& gserver.CheckChanceEventLevel(ch->m_level) == true)
+				item = gserver->m_itemProtoList.CreateItem(itemIndexProduct[i], -1, 0, 0, count);
+
+				if (npc->GetMapAttr() & MATT_PRODUCT_PRIVATE)
 				{
-					count += gserver.m_bChanceProduceNum;
-				}
-#endif // CHANCE_EVENT
-
-
-				item = gserver.m_itemProtoList.CreateItem(itemIndexProduct[i], -1, 0, 0, count);
-
-#ifdef ENABLE_WAR_CASTLE
-				if (npc->GetMapAttr() == MAPATT_PRODUCT_PRIVATE)
-				{
-					if (ch->m_moneyItem->Count() > produceTax)
+					if (ch->m_inventory.getMoney() >= produceTax)
 					{
-						DecreaseFromInventory(ch, ch->m_moneyItem, produceTax);
-						ItemUpdateMsg(rmsg, ch->m_moneyItem, -produceTax);
-						SEND_Q(rmsg, ch->m_desc);
+						ch->m_inventory.decreaseMoney(produceTax);
 					}
-					else
-					{
-						ItemDeleteMsg(rmsg, ch->m_moneyItem);
-						SEND_Q(rmsg, ch->m_desc);
-						RemoveFromInventory(ch, ch->m_moneyItem, true, true);
-					}
-					gserver.AddTaxProduceCastle(produceTax / 3);
+					gserver->AddTaxProduceCastle(produceTax / 3);
 				}
-#endif // #ifdef ENABLE_WAR_CASTLE
 				break ;
 			}
 		}
-		
-		if (item && item->m_itemProto->m_typeIdx == ITYPE_ETC && item->m_itemProto->m_subtypeIdx == IETC_PRODUCT)
-		{
-			bool bCountable = false;
-			// 인벤에 넣기
-			if (AddToInventory(ch, item, true, true))
-			{
-				// 겹쳐졌는지 검사
-				if (item->tab() == -1)
-				{
-					bCountable = true;
-					
-					// 수량 변경 알림
-					CInventory* inven = GET_INVENTORY(ch, GET_TAB(ITYPE_ETC, IETC_PRODUCT));
-					int r, c;
-					if (inven->FindItem(&r, &c, item->m_itemProto->m_index, 0, 0))
-					{
-						CItem* p = inven->GetItem(r, c);
-						if (p)
-							ItemUpdateMsg(rmsg, p, item->Count());
-					}
-				}
-				else
-					ItemAddMsg(rmsg, item);
 
-				// 메시지 보내고
-				SEND_Q(rmsg, ch->m_desc);
-				
+		if (item && item->m_itemProto->getItemTypeIdx() == ITYPE_ETC && item->m_itemProto->getItemSubTypeIdx() == IETC_PRODUCT)
+		{
+			if (ch->m_inventory.addItem(item))
+			{
 				// Item LOG
 				GAMELOG << init("ITEM_PICK_PRODUCE_RANDOM", ch)
 						<< itemlog(item)
 						<< end;
 
-#ifdef ENABLE_STATISTICS
-				switch (item->m_itemProto->m_index)
+				switch (item->m_itemProto->getItemIndex())
 				{
-				case 152:	STATISTICS(152, item->Count());	break;
-				case 153:	STATISTICS(153, item->Count());	break;
-				case 154:	STATISTICS(154, item->Count());	break;
-				case 155:	STATISTICS(155, item->Count());	break;
-				case 156:	STATISTICS(156, item->Count());	break;
-				case 157:	STATISTICS(157, item->Count());	break;
-				case 158:	STATISTICS(158, item->Count());	break;
-				case 159:	STATISTICS(159, item->Count());	break;
-				case 160:	STATISTICS(160, item->Count());	break;
-				case 161:	STATISTICS(161, item->Count());	break;
-				case 162:	STATISTICS(162, item->Count());	break;
-				case 163:	STATISTICS(163, item->Count());	break;
-				case 197:	STATISTICS(197, item->Count());	break;
-				case 198:	STATISTICS(198, item->Count());	break;
-				case 199:	STATISTICS(199, item->Count());	break;
+				case 152:
+					STATISTICS(152, item->Count());
+					break;
+				case 153:
+					STATISTICS(153, item->Count());
+					break;
+				case 154:
+					STATISTICS(154, item->Count());
+					break;
+				case 155:
+					STATISTICS(155, item->Count());
+					break;
+				case 156:
+					STATISTICS(156, item->Count());
+					break;
+				case 157:
+					STATISTICS(157, item->Count());
+					break;
+				case 158:
+					STATISTICS(158, item->Count());
+					break;
+				case 159:
+					STATISTICS(159, item->Count());
+					break;
+				case 160:
+					STATISTICS(160, item->Count());
+					break;
+				case 161:
+					STATISTICS(161, item->Count());
+					break;
+				case 162:
+					STATISTICS(162, item->Count());
+					break;
+				case 163:
+					STATISTICS(163, item->Count());
+					break;
+				case 197:
+					STATISTICS(197, item->Count());
+					break;
+				case 198:
+					STATISTICS(198, item->Count());
+					break;
+				case 199:
+					STATISTICS(199, item->Count());
+					break;
 				}
-#endif
 			}
 			else
-			{				
+			{
 				// 인젠토리 꽉차서 못 받을 때 Drop
 				item = npc->m_pArea->DropItem(item, npc);
 				if (!item)
 					return;
 
 				item->m_preferenceIndex = ch->m_index;
-				ItemDropMsg(rmsg, npc, item);
-				npc->m_pArea->SendToCell(rmsg, npc, true);
+
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					ItemDropMsg(rmsg, npc, item);
+					npc->m_pArea->SendToCell(rmsg, npc, true);
+				}
 			}
 
-			if (bCountable)
 			{
-				delete item;
-				item = NULL;
+				// 생산 성공시 해당하는 종류에 따라 이펙트 메세지 전송
+				CNetMsg::SP rmsg(new CNetMsg);
+				switch (npcflag)
+				{
+				case NPC_MINERAL:
+					EffectEtcMsg(rmsg, ch, MSG_EFFECT_ETC_PRODUCE_MINING);
+					break;
+				case NPC_ENERGY:
+					EffectEtcMsg(rmsg, ch, MSG_EFFECT_ETC_PRODUCE_GATHERING);
+					break;
+				case NPC_CROPS:
+					EffectEtcMsg(rmsg, ch, MSG_EFFECT_ETC_PRODUCE_CHARGE);
+					break;
+				}
+				ch->m_pArea->SendToCell(rmsg, ch, true);
 			}
-
-			// 생산 성공시 해당하는 종류에 따라 이펙트 메세지 전송
-			switch (npcflag)
-			{
-			case NPC_MINERAL:
-				EffectEtcMsg(rmsg, ch, MSG_EFFECT_ETC_PRODUCE_MINING);
-				break;
-			case NPC_ENERGY:
-				EffectEtcMsg(rmsg, ch, MSG_EFFECT_ETC_PRODUCE_GATHERING);
-				break;
-			case NPC_CROPS:
-				EffectEtcMsg(rmsg, ch, MSG_EFFECT_ETC_PRODUCE_CHARGE);
-				break;
-			}
-			ch->m_pArea->SendToCell(rmsg, ch, true);
 		}
-		else if (item)
-			delete item;
+		else
+		{
+			if (item)
+				delete item;
+		}
 	}
 
 	// 지속
@@ -1273,32 +1155,32 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 		npc->m_hp = ch->m_maxHP;
 	}
 
-	// 이펙트 메시지 전송
-	switch (npcflag)
 	{
-	case NPC_MINERAL:
-		EffectProduceMsg(rmsg, ch, npc, MSG_PRODUCE_MINING);
-		break;
-	case NPC_ENERGY:
-		EffectProduceMsg(rmsg, ch, npc, MSG_PRODUCE_CHARGE);
-		break;
-	case NPC_CROPS:
-		EffectProduceMsg(rmsg, ch, npc, MSG_PRODUCE_GATHERING);
-		break;
+		// 이펙트 메시지 전송
+		CNetMsg::SP rmsg(new CNetMsg);
+		switch (npcflag)
+		{
+		case NPC_MINERAL:
+			EffectProduceMsg(rmsg, ch, npc, MSG_PRODUCE_MINING);
+			break;
+		case NPC_ENERGY:
+			EffectProduceMsg(rmsg, ch, npc, MSG_PRODUCE_CHARGE);
+			break;
+		case NPC_CROPS:
+			EffectProduceMsg(rmsg, ch, npc, MSG_PRODUCE_GATHERING);
+			break;
+		}
+		ch->m_pArea->SendToCell(rmsg, ch, true);
 	}
-	ch->m_pArea->SendToCell(rmsg, ch, true);
 
-	// 죽었을때 
+	// 죽었을때
 	if (DEAD(npc))
 	{
-		// 지속
-		if (npc->m_proto->CheckFlag(NPC_ETERNAL))
+		if (npc->m_proto->CheckFlag(NPC_ETERNAL)) // 지속
 		{
 			npc->m_hp = ch->m_maxHP;
 		}
-
-		// 비지속
-		else
+		else // 비지속
 		{
 			// 아이템 드롭
 			for (int loopcount = 0; loopcount < MAX_NPC_DROPITEM_LOOP; loopcount++)
@@ -1310,14 +1192,15 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 				{
 					CItem* dropItem = NULL;
 					int tableindex = GetRandom(0, MAX_NPC_DROPITEM - 1);
-					
+
 					if (npc->m_proto->m_item[tableindex] != -1 && GetRandom(1, 10000) <= npc->m_proto->m_itemPercent[tableindex])
 						dropItem = npc->m_pArea->DropItem(npc->m_proto->m_item[tableindex], npc, 0, 0, 1, true);
-					
+
 					if (dropItem)
 					{
 						// Drop Msg 보내기
 						dropItem->m_preferenceIndex = -1;
+						CNetMsg::SP rmsg(new CNetMsg);
 						ItemDropMsg(rmsg, npc, dropItem);
 						npc->m_pArea->SendToCell(rmsg, npc);
 					}
@@ -1333,3 +1216,4 @@ void do_RandomProduce(CPC* ch, CNetMsg& msg)
 		}
 	}
 }
+

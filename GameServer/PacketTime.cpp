@@ -81,7 +81,7 @@ bool CPacketTime::Del(int index)
 			return true;
 		}
 	}
-	
+
 	return false;
 }
 
@@ -111,7 +111,7 @@ bool CPacketTime::Set(int index,long Sec,long MSec)
 	{
 		if(m_PackTIme[i].index == index)
 		{
-			m_PackTIme[i].Sec	= Sec;	
+			m_PackTIme[i].Sec	= Sec;
 			m_PackTIme[i].MSec  = MSec;
 
 			return true;
@@ -127,8 +127,8 @@ bool CPacketTime::init(void)
 {
 	char logstr[128] = "";
 
-//	strcpy(logstr, "../LogFiles/Log/PacketTImeCheck.log");	
-	strcpy(logstr, "./PacketTImeCheck.log");	
+//	strcpy(logstr, "../LogFiles/Log/PacketTImeCheck.log");
+	strcpy(logstr, "./PacketTImeCheck.log");
 
 	m_fp = fopen(logstr, "at");
 
@@ -141,12 +141,13 @@ bool CPacketTime::init(void)
 void CPacketTime::AddPackTime(int index)
 {
 	struct timeval  time;
-    GetTimeofDay(&time, (struct timezone *) 0);	
+	GetTimeofDay(&time, (struct timezone *) 0);
 
 	if(IsSet(index))
 	{
 		Set(index,time.tv_sec,time.tv_usec);
-	}else
+	}
+	else
 	{
 		Add(index,time.tv_sec,time.tv_usec);
 	}
@@ -158,7 +159,7 @@ void CPacketTime::ChkPackTime(int index,char *pLogTitle)
 	struct timeval  endtime;
 	struct timeval  starttime;
 
-    GetTimeofDay(&endtime, (struct timezone *) 0);
+	GetTimeofDay(&endtime, (struct timezone *) 0);
 
 	long startSec,startMSec;
 	startSec = startMSec = 0;
@@ -167,14 +168,15 @@ void CPacketTime::ChkPackTime(int index,char *pLogTitle)
 	{
 		if(Get(index,startSec,startMSec))
 		{
-			starttime.tv_sec = startSec; starttime.tv_usec = startSec;
+			starttime.tv_sec = startSec;
+			starttime.tv_usec = startSec;
 
 			//시간 차이 계산(소요시간)
 			struct timeval  process_time;
 
 			TimeDiff(&process_time, &starttime, &endtime);
 
-			//로그 기록 
+			//로그 기록
 			LogFile(index,pLogTitle,&process_time);
 
 			//Del(index);
@@ -197,7 +199,7 @@ void CPacketTime::LogFile(int index,char* pLogTitle,struct timeval *Process_time
 
 	if (m_fp) fflush (m_fp);
 }
-  
+
 void CPacketTime::Close(void)
 {
 	if (m_fp != NULL)
@@ -208,3 +210,5 @@ void CPacketTime::Close(void)
 }
 
 #endif //PACKET_TIME_CHECK
+//
+

@@ -1,7 +1,6 @@
 #ifndef __RARE_OPTION_PROTO_H__
 #define __RARE_OPTION_PROTO_H__
 
-#ifdef MONSTER_RAID_SYSTEM
 
 typedef struct __tagRareOptionData
 {
@@ -19,27 +18,54 @@ class CRareOptionProto
 	int				m_nDefenseUp;
 	int				m_nMagicUp;
 	int				m_nResistUp;
+	int				m_nGrade;
 	RAREOPTIONDATA	m_rod[MAX_RARE_OPTION_SETTING];
 
 public:
 	CRareOptionProto();
 	~CRareOptionProto();
 
-	int GetIndex() const		{ return m_nIndex; }
-	void SetIndex(int nIndex)	{ m_nIndex = nIndex; }
+	int GetIndex() const
+	{
+		return m_nIndex;
+	}
+	void SetIndex(int nIndex)
+	{
+		m_nIndex = nIndex;
+	}
 
-	const RAREOPTIONDATA* GetData(int n) const	{ return (const RAREOPTIONDATA*)(m_rod + n); }
+	const RAREOPTIONDATA* GetData(int n) const
+	{
+		return (const RAREOPTIONDATA*)(m_rod + n);
+	}
 
-	int GetDamageUp() const		{ return m_nDamageUp; }
-	int GetDefenseUp() const	{ return m_nDefenseUp; }
-	int GetMagicUp() const		{ return m_nMagicUp; }
-	int GetResistUp() const		{ return m_nResistUp; }
+	int GetDamageUp() const
+	{
+		return m_nDamageUp;
+	}
+	int GetDefenseUp() const
+	{
+		return m_nDefenseUp;
+	}
+	int GetMagicUp() const
+	{
+		return m_nMagicUp;
+	}
+	int GetResistUp() const
+	{
+		return m_nResistUp;
+	}
+	int	GetGrade()	const
+	{
+		return m_nGrade;
+	}
 
 	void InitData(	int nIndex,
 					int nDamageUp,
 					int nDefenseUp,
 					int nMagicUp,
 					int nResistUp,
+					int nGrade,
 					int optiontype[MAX_RARE_OPTION_SETTING],
 					int optionlevel[MAX_RARE_OPTION_SETTING],
 					int optionval[MAX_RARE_OPTION_SETTING],
@@ -48,25 +74,22 @@ public:
 
 class CRareOptionProtoList
 {
-	CRareOptionProto*	m_listRareOption;
-	int					m_nCount;
-
 public:
+	typedef std::map<int, CRareOptionProto*> map_t;
+
 	CRareOptionProtoList();
 	~CRareOptionProtoList();
 
 	bool Load();
 
 	const CRareOptionProto* Find(int nIndex);
+
+private:
+	map_t				map_;
+	CRareOptionProto*	m_listRareOption;
+	int					m_nCount;
 };
 
-inline int CompRareOptionProto(const void* p1, const void* p2)
-{
-	CRareOptionProto* d1 = (CRareOptionProto*)p1;
-	CRareOptionProto* d2 = (CRareOptionProto*)p2;
-	return d1->GetIndex() - d2->GetIndex();
-}
-
-#endif // MONSTER_RAID_SYSTEM
 
 #endif // __RARE_OPTION_PROTO_H__
+//

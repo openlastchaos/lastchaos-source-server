@@ -1,91 +1,69 @@
 #include "stdhdrs.h"
+
 #include "Log.h"
-#include "Cmd.h"
 #include "Character.h"
 #include "Server.h"
-#include "CmdMsg.h"
-#include "doFunc.h"
 #include "WarCastle.h"
 #include "DratanCastle.h"
+#include "gameserver_config.h"
+#include "../ShareLib/packetType/ptype_old_mempos.h"
 
 /////////////////
 // 장소 기억 관련
 
-void do_MemPos(CPC* ch, CNetMsg& msg)
+void do_MemPos(CPC* ch, CNetMsg::SP& msg)
 {
-#ifdef DRATAN_CASTLE
 	CDratanCastle * pCastle = CDratanCastle::CreateInstance();
-	if (pCastle != NULL)
-	{
-		pCastle->CheckRespond(ch);
-	}
-#endif // DRATAN_CASTLE
+	pCastle->CheckRespond(ch);
 
 	if (DEAD(ch))
 		return ;
 
-	msg.MoveFirst();
-
-	unsigned char subtype;
-	msg >> subtype;
-
-	switch (subtype)
+	pTypeBase* pBase = reinterpret_cast<pTypeBase*>(msg->m_buf);
+	switch (pBase->subType)
 	{
 	case MSG_MEMPOS_WRITE:
 		{
-			unsigned char slot;
-			CLCString comment(150);
+			RequestClient::memposWrite* packet = reinterpret_cast<RequestClient::memposWrite*>(msg->m_buf);
+			packet->comment[MEMPOS_COMMENT_LENGTH] = '\0';
 
-			msg >> slot
-				>> comment;
+			if(findPercentChar(packet->comment) != NULL)
+				return;
 
 			// 아이템 검사
-			int r, c;
-			if (!ch->m_invenNormal.FindItem(&r, &c, 47, 0, 0))
+			if (ch->m_inventory.FindByDBIndex(47, 0, 0) == NULL)
 				return ;
 
 			// 기억 불가능 존이면 오류
 			if (!ch->m_pZone || !ch->m_pZone->m_bCanMemPos)
 			{
-				CNetMsg rmsg;
+				CNetMsg::SP rmsg(new CNetMsg);
 				SysMsg(rmsg, MSG_SYS_MEMPOS_CANT_WRITE);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
 			}
 
 			// BLOCK에는 불가
-			if (ch->m_pArea->GetAttr(GET_YLAYER(ch), GET_X(ch), GET_Z(ch)) == MAPATT_BLOCK)
+			if (ch->m_pArea->GetAttr(GET_YLAYER(ch), GET_X(ch), GET_Z(ch)) & MATT_UNWALKABLE)
 			{
-				CNetMsg rmsg;
+				CNetMsg::SP rmsg(new CNetMsg);
 				SysMsg(rmsg, MSG_SYS_MEMPOS_CANT_WRITE);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
 			}
 
-			// 잘못된 문자 찾기
-			if (strinc(g_buf2, "'") || strinc(g_buf2, "%"))
+			int valid_slot = (ch->m_memposTime < gserver->getNowSecond()) ? MAX_MEMPOS_NORMAL : MAX_MEMPOS;
+			if (packet->slot < 0 || packet->slot >= valid_slot)
 			{
-				CNetMsg rmsg;
-				SysMsg(rmsg, MSG_SYS_INVALID_CHAR);
-				SEND_Q(rmsg, ch->m_desc);
+				LOG_ERROR("HACKING : invalid slot[%d]. charIndex[%d]", packet->slot, ch->m_index);
+				ch->m_desc->Close("invalid slot");
 				return;
 			}
 
-			if ( ch->m_memposTime < gserver.m_gameTime )
+			if (ch->m_mempos.Write(packet->slot, ch->m_pZone->m_index, GET_X(ch), GET_Z(ch), GET_YLAYER(ch), packet->comment))
 			{
-				if( slot >= MAX_MEMPOS_NORMAL )
-					return;
-			}
-			else
-			{
-				if( slot >= MAX_MEMPOS )
-					return;
-			}
-
-			if (ch->m_mempos.Write(slot, ch->m_pZone->m_index, GET_X(ch), GET_Z(ch), GET_YLAYER(ch), comment))
-			{
-				CNetMsg rmsg;
-				MemPosWriteMsg(rmsg, ch, slot);
+				CNetMsg::SP rmsg(new CNetMsg);
+				ResponseClient::makeMemposWrite(rmsg, ch, packet->slot);
 				SEND_Q(rmsg, ch->m_desc);
 			}
 		}
@@ -93,99 +71,80 @@ void do_MemPos(CPC* ch, CNetMsg& msg)
 
 	case MSG_MEMPOS_MOVE:
 		{
-			char slot;
-			msg >> slot;
+			RequestClient::memposMove* packet = reinterpret_cast<RequestClient::memposMove*>(msg->m_buf);
+			int slot = packet->slot;
 
 			int canWarp = ch->CanWarp();
 			if (canWarp != 0)
 			{
-				CNetMsg rmsg;
+				CNetMsg::SP rmsg(new CNetMsg);
 				SysMsg(rmsg, (MSG_SYS_TYPE)canWarp);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
 			}
 
-			// 슬롯 검사
-			if (slot < 0)
-				return ;
-
-			if ( ch->m_memposTime < gserver.m_gameTime )
+			int valid_slot = (ch->m_memposTime < gserver->getNowSecond()) ? MAX_MEMPOS_NORMAL : MAX_MEMPOS;
+			if (slot < 0 || slot >= valid_slot)
 			{
-				if( slot >= MAX_MEMPOS_NORMAL )
-					return;
-			}
-			else
-			{
-				if( slot >= MAX_MEMPOS )
-					return;
+				LOG_ERROR("HACKING : invalid slot[%d]. charIndex[%d]", slot, ch->m_index);
+				ch->m_desc->Close("invalid slot");
+				return;
 			}
 
-			if (ch->m_mempos.m_data[(int)slot] == NULL)
+			if (ch->m_mempos.m_data[slot] == NULL)
+			{
+				LOG_ERROR("HACKING : slot[%d] index is empty. charIndex[%d]", slot, ch->m_index);
+				ch->m_desc->Close("slot index is empty");
 				return ;
+			}
 
 			// 존 검사 : 같은 존에서만
-			if (!ch->m_pZone || ch->m_pZone->m_index != ch->m_mempos.m_data[(int)slot]->m_zone)
+			if (!ch->m_pZone || ch->m_pZone->m_index != ch->m_mempos.m_data[slot]->m_zone)
 			{
-				CNetMsg rmsg;
+				CNetMsg::SP rmsg(new CNetMsg);
 				SysMsg(rmsg, MSG_SYS_MEMPOS_OTHERZONE);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
 			}
 
 			// BLOCK에는 불가
-			if (ch->m_pArea->GetAttr(GET_YLAYER(ch), GET_X(ch), GET_Z(ch)) == MAPATT_BLOCK)
+			if (ch->m_pArea->GetAttr(GET_YLAYER(ch), GET_X(ch), GET_Z(ch)) & MATT_UNWALKABLE)
 				return ;
 
-#ifdef ENABLE_WAR_CASTLE
 			CWarCastle* castle = CWarCastle::GetCastleObject(ch->m_pZone->m_index);
 			if (castle)
 			{
 				// 공성중이거나 시작 1분 전에는 공성지역으로 이동 불가
 				if (castle->GetState() != WCSF_NORMAL || castle->IsWarCastleReady())
 				{
-					if (ch->m_pArea->GetAttr(ch->m_mempos.m_data[(int)slot]->m_ylayer, ch->m_mempos.m_data[(int)slot]->m_x, ch->m_mempos.m_data[(int)slot]->m_z ) == MAPATT_WARZONE 
-						|| ch->m_pZone->IsWarZone(ch->m_mempos.m_data[(int)slot]->m_x, ch->m_mempos.m_data[(int)slot]->m_z) == true)
-					{						
-							CNetMsg rmsg;
-							SysMsg(rmsg, MSG_SYS_MEMPOS_CASTLE);
-							SEND_Q(rmsg, ch->m_desc);
-							return ;
+					if (ch->m_pArea->GetAttr(ch->m_mempos.m_data[slot]->m_ylayer, ch->m_mempos.m_data[slot]->m_x, ch->m_mempos.m_data[slot]->m_z ) & MATT_WAR
+							|| ch->m_pZone->IsWarZone((int)ch->m_mempos.m_data[slot]->m_x, (int)ch->m_mempos.m_data[slot]->m_z) == true)
+					{
+						CNetMsg::SP rmsg(new CNetMsg);
+						SysMsg(rmsg, MSG_SYS_MEMPOS_CASTLE);
+						SEND_Q(rmsg, ch->m_desc);
+						return;
 					}
 
 					//공성시간에 매모리 스클롤 사용로그
 					GAMELOG << init(" MEMORY SCROLL IN WARTIME " , ch )
-						<< "CUR : " << ch->m_pos.m_yLayer << "," << ch->m_pos.m_x << "," << ch->m_pos.m_z << delim
-						<< "MOV : " << ch->m_mempos.m_data[(int)slot]->m_ylayer << "," << ch->m_mempos.m_data[(int)slot]->m_x << ","
-						<< ch->m_mempos.m_data[(int)slot]->m_z << end;
-
+							<< "CUR : " << ch->m_pos.m_yLayer << "," << ch->m_pos.m_x << "," << ch->m_pos.m_z << delim
+							<< "MOV : " << ch->m_mempos.m_data[slot]->m_ylayer << "," << ch->m_mempos.m_data[slot]->m_x << ","
+							<< ch->m_mempos.m_data[slot]->m_z << end;
 				}
 			}
-#endif
 
 			// 아이템 검사
-			int r, c;
-			if (!ch->m_invenNormal.FindItem(&r, &c, 47, 0, 0))
-				return ;
+			CItem* item = ch->m_inventory.FindByDBIndex(47, 0, 0);
+			if (item == NULL)
+			{
+				LOG_ERROR("HACKING : not found item. charIndex[%d]", ch->m_index);
+				ch->m_desc->Close("not found item");
+				return;
+			}
 
 			// 카운트 줄이기
-			CItem* item = ch->m_invenNormal.GetItem(r, c);
-			CNetMsg rmsg;
-
-			ItemUseMsg(rmsg, ch, item->tab(), item->row(), item->col(), item->m_index, 0);
-			SEND_Q(rmsg, ch->m_desc);
-
-			DecreaseFromInventory(ch, item, 1);
-			if (item->Count() == 0)
-			{
-				ItemDeleteMsg(rmsg, item);
-				SEND_Q(rmsg, ch->m_desc);
-				RemoveFromInventory(ch, item, true, true);
-			}
-			else
-			{
-				ItemUpdateMsg(rmsg, item, -1);
-				SEND_Q(rmsg, ch->m_desc);
-			}
+			ch->m_inventory.decreaseItemCount(item, 1);
 
 			// 10초후 이동하게 하기
 			ch->m_reqWarpType = IONCE_WARP_MEMPOS;
@@ -193,147 +152,13 @@ void do_MemPos(CPC* ch, CNetMsg& msg)
 			ch->m_reqWarpTime = PULSE_WARPDELAY;
 			ch->SetPlayerState(PLAYER_STATE_WARP);
 
-			// 사용했음을 알리기
-			WarpStartMsg(rmsg, ch);
-			ch->m_pArea->SendToCell(rmsg, ch, true);
+			{
+				// 사용했음을 알리기
+				CNetMsg::SP rmsg(new CNetMsg);
+				WarpStartMsg(rmsg, ch);
+				ch->m_pArea->SendToCell(rmsg, ch, true);
+			}
 		}
 		break;
 	}
 }
-
-#ifdef PRIMIUM_MEMORYBOOK
-void do_MemPosPlus(CPC* ch, CNetMsg& msg)
-{
-	if (DEAD(ch))
-		return ;
-
-	unsigned char subtype;
-	msg >> subtype;
-
-	// 아이템 확인
-	int row = 0, col = 0;
-	if (ch->m_invenNormal.FindItem(&row, &col, PRIMIUM_MEMORYBOOK, -1, -1) == false)
-	{
-		return;
-	}
-
-	// 아이템 가져 오기
-	CItem * pItem = ch->m_invenNormal.GetItem(row, col);
-	if (!pItem)
-	{
-		return;
-	}
-	
-	CNetMsg rmsg;
-	switch (subtype)
-	{	
-	case MSG_EX_MEMPOSPLUS_WRITE:
-		{
-			unsigned char slot;
-			CLCString comment(150);
-
-			msg >> slot
-				>> comment;
-
-			// 기억 불가능 존이면 오류
-			if (!ch->m_pZone || !ch->m_pZone->m_bCanMemPos)	
-			{				
-				SysMsg(rmsg, MSG_SYS_MEMPOS_CANT_WRITE);
-				SEND_Q(rmsg, ch->m_desc);
-				return ;
-			}
-
-			// BLOCK에는 불가
-			if (ch->m_pArea->GetAttr(GET_YLAYER(ch), GET_X(ch), GET_Z(ch)) == MAPATT_BLOCK)
-			{
-				SysMsg(rmsg, MSG_SYS_MEMPOS_CANT_WRITE);
-				SEND_Q(rmsg, ch->m_desc);
-				return ;
-			}
-
-			// 잘못된 문자 찾기
-			if (strinc(g_buf2, "'") || strinc(g_buf2, "%"))
-			{
-				SysMsg(rmsg, MSG_SYS_INVALID_CHAR);
-				SEND_Q(rmsg, ch->m_desc);
-				return;
-			}
-
-			if( slot >= MAX_MEMPOS_PRIMIUM )
-				return;
-			
-			if (ch->m_memposplus.Write(slot, ch->m_pZone->m_index, GET_X(ch), GET_Z(ch), GET_YLAYER(ch), comment))
-			{
-				MemPosPlusWriteMsg(rmsg, ch, slot);
-				SEND_Q(rmsg, ch->m_desc);
-			}
-		}
-		break;
-
-	case MSG_EX_MEMPOSPLUS_MOVE:
-		{
-			char slot;
-			msg >> slot;
-
-			int canWarp = ch->CanWarp();
-			if (canWarp != 0)
-			{
-				SysMsg(rmsg, (MSG_SYS_TYPE)canWarp);
-				SEND_Q(rmsg, ch->m_desc);
-				return ;
-			}
-			
-			// 슬롯 검사
-			if (slot < 0)
-				return ;
-
-			if( slot >= MAX_MEMPOS_PRIMIUM )
-				return;
-
-			if (ch->m_memposplus.m_data[(int)slot] == NULL)
-				return ;
-
-			// BLOCK에는 불가
-			if (ch->m_pArea->GetAttr(GET_YLAYER(ch), GET_X(ch), GET_Z(ch)) == MAPATT_BLOCK)
-				return ;
-
-#ifdef ENABLE_WAR_CASTLE
-			// 공성중에 공성 지역(MAPATT_WARZONE) 으로 이동 불가
-			CWarCastle* castle = CWarCastle::GetCastleObject(ch->m_pZone->m_index);
-			if (castle)
-			{
-				if (castle->GetState() != WCSF_NORMAL || castle->IsWarCastleReady())
-				{
-					if (ch->m_pArea->GetAttr(ch->m_memposplus.m_data[slot]->m_ylayer, ch->m_memposplus.m_data[slot]->m_x, ch->m_memposplus.m_data[slot]->m_z) == MAPATT_WARZONE
-						|| ch->m_pZone->IsWarZone(ch->m_mempos.m_data[(int)slot]->m_x, ch->m_mempos.m_data[(int)slot]->m_z) == true )
-					{
-						SysMsg(rmsg, MSG_SYS_MEMPOS_CASTLE);
-						SEND_Q(rmsg, ch->m_desc);
-						return ;
-					}
-
-					//공성시간에 매모리 스클롤 사용로그
-					GAMELOG << init(" PRIMIUM_MEMORYBOOK IN WARTIME " , ch )
-						<< "CUR : " << ch->m_pos.m_yLayer << "," << ch->m_pos.m_x << "," << ch->m_pos.m_z << delim
-						<< "MOV : " << ch->m_mempos.m_data[(int)slot]->m_ylayer << "," << ch->m_mempos.m_data[(int)slot]->m_x << ","
-						<< ch->m_mempos.m_data[(int)slot]->m_z << end;
-				}
-			}
-#endif
-
-			CNetMsg rmsg;
-
-			// 10초후 이동하게 하기
-			ch->m_reqWarpType = IONCE_WARP_MEMPOSPLUS;
-			ch->m_reqWarpData = slot;
-			ch->m_reqWarpTime = PULSE_WARPDELAY;
-			ch->SetPlayerState(PLAYER_STATE_WARP);
-
-			// 사용했음을 알리기
-			WarpStartMsg(rmsg, ch);
-			ch->m_pArea->SendToCell(rmsg, ch, true);
-		}
-		break;
-	}
-}
-#endif	// PRIMIUM_MEMORYBOOK

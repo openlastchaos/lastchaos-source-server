@@ -1,19 +1,20 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "doFunc.h"
 #include "CmdMsg.h"
 
-void do_Request(CNetMsg& msg, CDescriptor* dest)
+void do_Request(CNetMsg::SP& msg, CDescriptor* dest)
 {
-	msg.MoveFirst();
+	msg->MoveFirst();
 
 	int seq;
 	int serverno, subno, zone;
 	unsigned char subtype;
 
-	msg >> seq
-		>> serverno >> subno >> zone
-		>> subtype;
+	RefMsg(msg) >> seq
+				>> serverno >> subno >> zone
+				>> subtype;
 
 	CMsgListNode* node;
 	if (seq == -1)
@@ -39,25 +40,39 @@ void do_Request(CNetMsg& msg, CDescriptor* dest)
 		// 그 서버에 존재하는 존이거나
 		// 모든 존이면 추가
 		if (((serverno == -1/* && pDesc->m_serverNo != LOGIN_SERVER_NUM && pDesc->m_serverNo != CONNECTOR_SERVER_NUM*/)	// 컨넥터, 로그인서버 제외한
-			|| pDesc->m_serverNo == serverno) && (subno == -1 || pDesc->m_subNo == subno) && (zone == -1 || pDesc->FindZone(zone) != -1))
-			node->Add(pDesc);
+				|| pDesc->m_serverNo == serverno) && (subno == -1 || pDesc->m_subNo == subno) && (zone == -1 || pDesc->FindZone(zone) != -1))
+		{
+			// 세션에게 메시지 전송, 처리는 각 GameServer가 담당
+			SEND_Q(msg, pDesc);
+
+			if (node->m_bReq)
+			{
+				node->Add(pDesc);
+			}
+		}
+	}
+
+	// 응답이 필요없는 메시지의 경우 저장하지 않고 바로 지움
+	if (node->m_bReq == false)
+	{
+		gserver.m_msgList.Remove(node);
 	}
 }
 
-void do_Reply(CNetMsg& msg, CDescriptor* dest)
+void do_Reply(CNetMsg::SP& msg, CDescriptor* dest)
 {
-	msg.MoveFirst();
+	msg->MoveFirst();
 
 	int seq;
 	int serverno, subno;
 	int zoneno;
 	unsigned char subtype;
 
-	msg >> seq
-		>> serverno
-		>> subno
-		>> zoneno
-		>> subtype;
+	RefMsg(msg) >> seq
+				>> serverno
+				>> subno
+				>> zoneno
+				>> subtype;
 
 	// seq를 찾고
 	CMsgListNode* node;
@@ -103,20 +118,18 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 					CLCString rname(MAX_CHAR_NAME_LENGTH + 1);
 					CLCString chat(1000);
 
-					msg	>> sidx >> sname
-						>> rname
-						>> chat;
+					RefMsg(msg)	>> sidx >> sname
+								>> rname
+								>> chat;
 
-					CNetMsg mmsg;
-					HelperWhisperRepMsg(mmsg, seq, serverno, subno, zoneno, sidx, sname, rname, chat);
-
-					SEND_Q(mmsg, node->m_reqServer);
+					CNetMsg::SP rmsg(new CNetMsg);
+					HelperWhisperRepMsg(rmsg, seq, serverno, subno, zoneno, sidx, sname, rname, chat);
+					SEND_Q(rmsg, node->m_reqServer);
 
 					// 제대로 받았으니 지워버리자
 					bAllReceived = true;
 				}
 				break ;
-
 
 			case MSG_HELPER_WHISPER_NOTFOUND:
 				if (bAllReceived)
@@ -124,14 +137,13 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 					// 다 받았는데 귓말 대상이 없었다
 					int sidx;
 					CLCString sname(MAX_CHAR_NAME_LENGTH + 1);
-					CNetMsg mmsg;
 
-					msg >> sidx
-						>> sname;
+					RefMsg(msg) >> sidx
+								>> sname;
 
-					HelperWhisperNotfoundMsg(mmsg, seq, serverno, subno, zoneno, sidx, sname);
-
-					SEND_Q(mmsg, node->m_reqServer);
+					CNetMsg::SP rmsg(new CNetMsg);
+					HelperWhisperNotfoundMsg(rmsg, seq, serverno, subno, zoneno, sidx, sname);
+					SEND_Q(rmsg, node->m_reqServer);
 				}
 				break ;
 			}
@@ -146,3 +158,4 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 		}
 	}
 }
+//

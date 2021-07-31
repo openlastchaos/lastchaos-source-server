@@ -1,18 +1,17 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "Log.h"
-#include "Cmd.h"
 #include "Character.h"
 #include "CmdMsg.h"
 #include "doFunc.h"
 #include "Battle.h"
 
-#ifdef ENABLE_PET
 
-void do_ExPetCall(CPC* ch, CNetMsg& msg)
+void do_ExPetCall(CPC* ch, CNetMsg::SP& msg)
 {
 	int index;
-	msg >> index;
+	RefMsg(msg) >> index;
 	CPet* pet = ch->GetPet(index);
 	if (!pet)
 		return ;
@@ -26,20 +25,16 @@ void do_ExPetCall(CPC* ch, CNetMsg& msg)
 	GET_YLAYER(pet) = GET_YLAYER(ch);
 
 	pet->Appear(true);
-
-	CNetMsg rmsg;
-	ExPetStatusMsg(rmsg, pet);
 }
 
-void do_ExPetLearn(CPC* ch, CNetMsg& msg)
+void do_ExPetLearn(CPC* ch, CNetMsg::SP& msg)
 {
-	CNetMsg rmsg;
-
 	int skillindex = -1;
-	msg >> skillindex;
+	RefMsg(msg) >> skillindex;
 
-	if (ch->m_wearing[WEARING_PET] == NULL)
+	if (ch->m_wearInventory.wearItemInfo[WEARING_PET] == NULL)
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		ExPetLearnMsg(rmsg, 0, 0, MSG_EX_PET_LEARN_ERROR_WEAR);
 		SEND_Q(rmsg, ch->m_desc);
 		return ;
@@ -48,12 +43,13 @@ void do_ExPetLearn(CPC* ch, CNetMsg& msg)
 	CPet* pet = ch->GetPet();
 	if (pet == NULL)
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		ExPetLearnMsg(rmsg, 0, 0, MSG_EX_PET_LEARN_ERROR_WEAR);
 		SEND_Q(rmsg, ch->m_desc);
 		return ;
 	}
 
-	const CSkillProto* skillProto = gserver.m_skillProtoList.Find(skillindex);
+	const CSkillProto* skillProto = gserver->m_skillProtoList.Find(skillindex);
 	if (skillProto == NULL)
 		return ;
 	if (skillProto->m_type != ST_PET_COMMAND && skillProto->m_type != ST_PET_SKILL_PASSIVE && skillProto->m_type != ST_PET_SKILL_ACTIVE)
@@ -76,6 +72,7 @@ void do_ExPetLearn(CPC* ch, CNetMsg& msg)
 	// 조건 검사 : 레벨
 	if (skillLevelProto->m_learnLevel > pet->m_level)
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		ExPetLearnMsg(rmsg, 0, 0, MSG_EX_PET_LEARN_ERROR_LEVEL);
 		SEND_Q(rmsg, ch->m_desc);
 		return ;
@@ -84,29 +81,23 @@ void do_ExPetLearn(CPC* ch, CNetMsg& msg)
 	// 조건 검사 : 포인트 : 기술 포인트는 SP와 달리 단귀가 1로 통일
 	if (skillLevelProto->m_learnSP > pet->GetAbilityPoint())
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		ExPetLearnMsg(rmsg, 0, 0, MSG_EX_PET_LEARN_ERROR_POINT);
 		SEND_Q(rmsg, ch->m_desc);
 		return ;
 	}
 
 	// 조건 검사 : 아이템
-	int i;
-	CItem* item[MAX_SKILL_LEARN_ITEM];
-	for (i = 0; i < MAX_SKILL_LEARN_ITEM; i++)
+	item_search_t vec[MAX_SKILL_LEARN_ITEM];
+	for (int i = 0; i < MAX_SKILL_LEARN_ITEM; i++)
 	{
-		item[i] = NULL;
 		if (skillLevelProto->m_learnItemIndex[i] < 0)
 			continue ;
-		int r, c;
-		if (!ch->m_invenNormal.FindItem(&r, &c, skillLevelProto->m_learnItemIndex[i], 0, 0))
+
+		int sc = ch->m_inventory.searchItemByCondition(skillLevelProto->m_learnItemIndex[i], 0, 0, vec[i]);
+		if (sc == 0 || sc < skillLevelProto->m_learnItemCount[i])
 		{
-			ExPetLearnMsg(rmsg, 0, 0, MSG_EX_PET_LEARN_ERROR_ITEM);
-			SEND_Q(rmsg, ch->m_desc);
-			return ;
-		}
-		item[i] = ch->m_invenNormal.GetItem(r, c);
-		if (!item[i] || item[i]->Count() < skillLevelProto->m_learnItemCount[i])
-		{
+			CNetMsg::SP rmsg(new CNetMsg);
 			ExPetLearnMsg(rmsg, 0, 0, MSG_EX_PET_LEARN_ERROR_ITEM);
 			SEND_Q(rmsg, ch->m_desc);
 			return ;
@@ -117,7 +108,7 @@ void do_ExPetLearn(CPC* ch, CNetMsg& msg)
 	if (curSkill == NULL)
 	{
 		// 신규 추가
-		curSkill = gserver.m_skillProtoList.Create(skillindex);
+		curSkill = gserver->m_skillProtoList.Create(skillindex);
 		if (!curSkill)
 			return ;
 		pet->AddSkill(curSkill);
@@ -128,34 +119,26 @@ void do_ExPetLearn(CPC* ch, CNetMsg& msg)
 		curSkill->m_level++;
 	}
 
-	// 포인트 소모
-	pet->DecreaseAbilityPoint(skillLevelProto->m_learnSP);
-	ExPetStatusMsg(rmsg, pet);
-	SEND_Q(rmsg, ch->m_desc);
-
-	// 아이템 소모
-	for (i = 0; i < MAX_SKILL_LEARN_ITEM; i++)
 	{
-		if (item[i] && skillLevelProto->m_learnItemCount[i] > 0)
-		{
-			DecreaseFromInventory(ch, item[i], skillLevelProto->m_learnItemCount[i]);
-			if (item[i]->Count() < 1)
-			{
-				ItemDeleteMsg(rmsg, item[i]);
-				SEND_Q(rmsg, ch->m_desc);
-				RemoveFromInventory(ch, item[i], true, true);
-			}
-			else
-			{
-				ItemUpdateMsg(rmsg, item[i], -skillLevelProto->m_learnItemCount[i]);
-				SEND_Q(rmsg, ch->m_desc);
-			}
-		}
+		// 포인트 소모
+		pet->DecreaseAbilityPoint(skillLevelProto->m_learnSP);
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetStatusMsg(rmsg, pet);
+		SEND_Q(rmsg, ch->m_desc);
 	}
 
-	// 결과 알리기
-	ExPetLearnMsg(rmsg, curSkill->m_proto->m_index, curSkill->m_level, MSG_EX_PET_LEARN_ERROR_OK);
-	SEND_Q(rmsg, ch->m_desc);
+	// 아이템 소모
+	for (int i = 0; i < MAX_SKILL_LEARN_ITEM; i++)
+	{
+		ch->m_inventory.deleteItem(vec[i], skillLevelProto->m_learnItemCount[i]);
+	}
+
+	{
+		// 결과 알리기
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetLearnMsg(rmsg, curSkill->m_proto->m_index, curSkill->m_level, MSG_EX_PET_LEARN_ERROR_OK);
+		SEND_Q(rmsg, ch->m_desc);
+	}
 
 	// 스킬 효과 적용
 	ch->CalcStatus(true);
@@ -172,9 +155,25 @@ void do_ExPetLearn(CPC* ch, CNetMsg& msg)
 			<< end;
 }
 
-void do_ExPetResetSkill(CPC* ch, CNetMsg& msg)
+void do_ExPetResetSkill(CPC* ch, CNetMsg::SP& msg)
 {
-	if (ch->m_wearing[WEARING_PET] == NULL)
+#ifdef NPC_CHECK
+	int npcIndex;
+	CNPC *npc;
+	RefMsg(msg) >> npcIndex;
+	npc = ch->m_pArea->FindProtoNPCInCell(ch, npcIndex, false, 2);
+	if(!npc)
+	{
+		GAMELOG << init("ExPetResetSkill FAIL : NOT EXIST NPC (Dangerous User)", ch) << end;
+		return ;
+	}
+	if( !npc->IsFlag(NPC_EVENT) && !npc->IsFlag(NPC_QUEST) )
+	{
+		GAMELOG << init("ExPetResetSkill FAIL : NOT EXIST NPC (Dangerous User)", ch) << end;
+		return ;
+	}
+#endif
+	if (ch->m_wearInventory.wearItemInfo[WEARING_PET] == NULL)
 		return ;
 
 	if (ch->m_currentSkill)		// 080408 수정
@@ -187,14 +186,23 @@ void do_ExPetResetSkill(CPC* ch, CNetMsg& msg)
 	if (!pet->ResetSkill())
 		return ;
 
-	CNetMsg rmsg;
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetResetSkillMsg(rmsg);
+		SEND_Q(rmsg, ch->m_desc);
+	}
 
-	ExPetResetSkillMsg(rmsg);
-	SEND_Q(rmsg, ch->m_desc);
-	ExPetStatusMsg(rmsg, pet);
-	SEND_Q(rmsg, ch->m_desc);
-	ExPetSkillListMsg(rmsg, pet);
-	SEND_Q(rmsg, ch->m_desc);
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetStatusMsg(rmsg, pet);
+		SEND_Q(rmsg, ch->m_desc);
+	}
+
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetSkillListMsg(rmsg, pet);
+		SEND_Q(rmsg, ch->m_desc);
+	}
 
 	// 게임 로그
 	// TODO : petlog
@@ -205,22 +213,62 @@ void do_ExPetResetSkill(CPC* ch, CNetMsg& msg)
 			<< end;
 }
 
-void do_ExPetChangeMount(CPC* ch, CNetMsg& msg)
+void do_ExPetChangeMount(CPC* ch, CNetMsg::SP& msg)
 {
-	CNetMsg rmsg;
+	if(ch)
+	{
+		if(ch->m_evocationIndex != EVOCATION_NONE)
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			SysMsg(rmsg, MSG_SYS_CANT_MAKE_PET_EVOCATION);
+			SEND_Q(rmsg, ch->m_desc);
+			return ;
+		}
+	}
+//#endif // BUGFIX_CANT_EVOCATION
 
 	// 착용중인 펫이 있나?
 	CPet* pet = ch->GetPet();
-	if (!pet)
+	if (!pet )
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		ExPetChangeMountMsg(rmsg, MSG_EX_PET_CHANGE_MOUNT_ERROR_WEAR);
 		SEND_Q(rmsg, ch->m_desc);
 		return ;
 	}
 
-	// 착용중인 펫의 레벨이 PET_MOUNT_LEVEL이상인가?
-	if (pet->m_level < PET_MOUNT_LEVEL)
+	if( ch->m_job == JOB_NIGHTSHADOW )
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetChangeMountMsg(rmsg, MSG_EX_PET_CHANGE_MOUNT_ERROR_JOB);
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
+
+#ifdef NPC_CHECK
+	int npcIndex;
+	CNPC *npc;
+	RefMsg(msg) >> npcIndex;
+	npc = ch->m_pArea->FindProtoNPCInCell(ch, npcIndex, false, 2);
+	if(!npc)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetChangeMountMsg(rmsg, MSG_EX_PET_CHANGE_MOUNT_ERROR_NOT_EXIST_NPC);
+		SEND_Q(rmsg, ch->m_desc);
+		GAMELOG << init("EX PET CHANGE MOUNT FAIL : NOT EXIST NPC (Dangerous User)", ch) << end;
+		return ;
+	}
+	if( !npc->IsFlag(NPC_EVENT) && !npc->IsFlag(NPC_QUEST) )
+	{
+		GAMELOG << init("EX PET CHANGE MOUNT FAIL : NOT EXIST NPC (Dangerous User)", ch) << end;
+		return ;
+	}
+#endif
+
+	// 착용중인 펫의 레벨이 PET_MOUNT_LEVEL이상인가?
+	if (pet->m_level < PET_MOUNT_LEVEL )
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		ExPetChangeMountMsg(rmsg, MSG_EX_PET_CHANGE_MOUNT_ERROR_LEVEL);
 		SEND_Q(rmsg, ch->m_desc);
 		return ;
@@ -229,19 +277,19 @@ void do_ExPetChangeMount(CPC* ch, CNetMsg& msg)
 	// 현재 성인 상태인가
 	if (pet->GetPetGrade() != PET_GRADE_ADULT)
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		ExPetChangeMountMsg(rmsg, MSG_EX_PET_CHANGE_MOUNT_ERROR_GRADE);
 		SEND_Q(rmsg, ch->m_desc);
 		return ;
 	}
 
-#ifdef PET_TURNTO_NPC	// 펫 변신 취소
 	if( pet->GetPetTurnToNpc() > 0 )
 	{
 		pet->SetPetTurnToNpc(0);
+		CNetMsg::SP rmsg(new CNetMsg);
 		HelperPetTurnToNPCMsg(rmsg, ch->m_index, pet->m_index, pet->GetPetTurnToNpc() , pet->GetPetTurnToNpcSize() );
-		SEND_Q(rmsg, gserver.m_helper );
+		SEND_Q(rmsg, gserver->m_helper );
 	}
-#endif //PET_TURNTO_NPC
 
 	// 펫 Disappear 보내기
 	pet->Disappear();
@@ -253,25 +301,35 @@ void do_ExPetChangeMount(CPC* ch, CNetMsg& msg)
 	pet->ResetSkill();
 
 	pet->Mount(true);
-	// 결과 전달
-	ExPetChangeMountMsg(rmsg, MSG_EX_PET_CHANGE_MOUNT_ERROR_OK);
-	SEND_Q(rmsg, ch->m_desc);
 
-	// 펫 정보 전달
-	ExPetStatusMsg(rmsg, pet);
-	SEND_Q(rmsg, ch->m_desc);
-	ExPetSkillListMsg(rmsg, pet);
-	SEND_Q(rmsg, ch->m_desc);
+	{
+		// 결과 전달
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetChangeMountMsg(rmsg, MSG_EX_PET_CHANGE_MOUNT_ERROR_OK);
+		SEND_Q(rmsg, ch->m_desc);
+	}
 
-	// PC 마운트 전달
-	ExPetMountMsg(rmsg, ch->m_index, pet->GetPetTypeGrade());
-#ifdef PET_DIFFERENTIATION_ITEM
-	rmsg << pet->GetPetColor();
-#endif // PET_DIFFERENTIATION_ITEM
-#ifdef PET_TURNTO_NPC
-	rmsg << pet->GetPetTurnToNpc();	
-#endif //PET_TURNTO_NPC			
-	ch->m_pArea->SendToCell(rmsg, ch, true);
+	{
+		// 펫 정보 전달
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetStatusMsg(rmsg, pet);
+		SEND_Q(rmsg, ch->m_desc);
+	}
+
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetSkillListMsg(rmsg, pet);
+		SEND_Q(rmsg, ch->m_desc);
+	}
+
+	{
+		// PC 마운트 전달
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetMountMsg(rmsg, ch->m_index, pet->GetPetTypeGrade());
+		RefMsg(rmsg) << pet->GetPetColor();
+		RefMsg(rmsg) << pet->GetPetTurnToNpc();
+		ch->m_pArea->SendToCell(rmsg, ch, true);
+	}
 
 	ch->m_bChangeStatus = true;
 
@@ -284,17 +342,17 @@ void do_ExPetChangeMount(CPC* ch, CNetMsg& msg)
 			<< end;
 }
 
-void do_ExPetCommand(CPC* ch, CNetMsg& msg)
+void do_ExPetCommand(CPC* ch, CNetMsg::SP& msg)
 {
 	int petindex = -1;
 	int commandindex = -1;
 	char targettype = -1;
 	int targetindex = -1;
 
-	msg >> petindex
-		>> commandindex
-		>> targettype
-		>> targetindex;
+	RefMsg(msg) >> petindex
+				>> commandindex
+				>> targettype
+				>> targetindex;
 
 	CPet* pet = ch->GetPet();
 	if (!pet || pet->m_index != petindex || !pet->IsSummon() || !pet->m_pArea)
@@ -304,15 +362,15 @@ void do_ExPetCommand(CPC* ch, CNetMsg& msg)
 	if (!skill || skill->m_proto->m_type != ST_PET_COMMAND)
 		return ;
 
-	CNetMsg rmsg;
-
-	ExPetCommandMsg(rmsg, petindex, commandindex, targettype, targetindex);
-	pet->m_pArea->SendToCell(rmsg, pet, true);
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetCommandMsg(rmsg, petindex, commandindex, targettype, targetindex);
+		pet->m_pArea->SendToCell(rmsg, pet, true);
+	}
 }
 
-void do_ExPetMixItem(CPC* ch, CNetMsg& msg)
+void do_ExPetMixItem(CPC* ch, CNetMsg::SP& msg)
 {
-
 	typedef struct __tagMixData
 	{
 		int needitem[3];		// 재료 3종
@@ -323,94 +381,114 @@ void do_ExPetMixItem(CPC* ch, CNetMsg& msg)
 
 	static const int nSizeMixTable = 74;
 
-	static const PET_MIX_DATA mixTable[nSizeMixTable] = {
-		{{895, 896, 897}, 70, 887,  0},				// 한손검
-		{{896, 897, 898}, 70, 907,  0},				// 이도류
-		{{897, 898, 899}, 70, 908,  0},				// 대검
-		{{898, 899, 901}, 70, 909,  0},				// 도끼
-		{{899, 901, 902}, 70, 910,  0},				// 힐러 완드
-		{{901, 902, 903}, 70, 911,  0},				// 활
-		{{902, 903, 904}, 70, 912,  0},				// 숏스테프
-		{{903, 904, 905}, 70, 913,  0},				// 스테프
-		{{904, 905, 900}, 70, 914,  0},				// 단검
-		{{905, 900, 906}, 70, 915,  0},				// 석궁
-		{{900, 906, 895}, 70, 916,  0},				// 사이드
-		{{906, 895, 896}, 70, 917,  0},				// 폴암
-		{{886, 889, 894}, 25, 918,  0},				// 투구
-		{{888, 891, 894}, 75, 918,  1},				// 투구
-		{{891, 892, 894}, 25, 919,  0},				// 상의
-		{{893, 889, 894}, 75, 919,  1},				// 상의
-		{{886, 891, 894}, 25, 920,  0},				// 하의
-		{{890, 892, 894}, 75, 920,  1},				// 하의
-		{{889, 892, 894}, 25, 921,  0},				// 부츠
-		{{890, 886, 894}, 75, 921,  1},				// 부츠
-		{{889, 892, 894}, 25, 922,  0},				// 장갑
-		{{888, 886, 894}, 75, 922,  1},				// 장갑
-		{{886, 889, 894}, 25, 923,  0},				// 투구
-		{{888, 891, 894}, 75, 923,  1},				// 투구
-		{{891, 892, 894}, 25, 924,  0},				// 상의
-		{{893, 889, 894}, 75, 924,  1},				// 상의
-		{{886, 891, 894}, 25, 925,  0},				// 하의
-		{{890, 892, 894}, 75, 925,  1},				// 하의
-		{{889, 892, 894}, 25, 926,  0},				// 부츠
-		{{890, 886, 894}, 75, 926,  1},				// 부츠
-		{{889, 892, 894}, 25, 927,  0},				// 장갑
-		{{888, 886, 894}, 75, 927,  1},				// 장갑
-		{{886, 892, 894}, 25, 1280, 0},				// 방패
-		{{893, 891, 894}, 75, 1280, 1},				// 방패
-		{{886, 889, 894}, 25, 928,  0},				// 투구
-		{{888, 891, 894}, 75, 928,  1},				// 투구
-		{{891, 892, 894}, 25, 929,  0},				// 상의
-		{{893, 889, 894}, 75, 929,  1},				// 상의
-		{{886, 891, 894}, 25, 930,  0},				// 하의
-		{{890, 892, 894}, 75, 930,  1},				// 하의
-		{{889, 892, 894}, 25, 931,  0},				// 부츠
-		{{890, 886, 894}, 75, 931,  1},				// 부츠
-		{{889, 892, 894}, 25, 932,  0},				// 장갑
-		{{888, 886, 894}, 75, 932,  1},				// 장갑
-		{{886, 889, 894}, 25, 933,  0},				// 투구
-		{{888, 891, 894}, 75, 933,  1},				// 투구
-		{{891, 892, 894}, 25, 934,  0},				// 상의
-		{{893, 889, 894}, 75, 934,  1},				// 상의
-		{{886, 891, 894}, 25, 935,  0},				// 하의
-		{{890, 892, 894}, 75, 935,  1},				// 하의
-		{{889, 892, 894}, 25, 936,  0},				// 부츠
-		{{890, 886, 894}, 75, 936,  1},				// 부츠
-		{{889, 892, 894}, 25, 937,  0},				// 장갑
-		{{888, 886, 894}, 75, 937,  1},				// 장갑
-		{{886, 889, 894}, 25, 938,  0},				// 투구
-		{{888, 891, 894}, 75, 938,  1},				// 투구
-		{{891, 892, 894}, 25, 939,  0},				// 상의
-		{{893, 889, 894}, 75, 939,  1},				// 상의
-		{{886, 891, 894}, 25, 940,  0},				// 하의
-		{{890, 892, 894}, 75, 940,  1},				// 하의
-		{{889, 892, 894}, 25, 941,  0},				// 부츠
-		{{890, 886, 894}, 75, 941,  1},				// 부츠
-		{{889, 892, 894}, 25, 942,  0},				// 장갑
-		{{888, 886, 894}, 75, 942,  1},				// 장갑
-		{{886, 889, 894}, 25, 943,  0},				// 투구
-		{{888, 891, 894}, 75, 943,  1},				// 투구
-		{{891, 892, 894}, 25, 944,  0},				// 상의
-		{{893, 889, 894}, 75, 944,  1},				// 상의
-		{{886, 891, 894}, 25, 945,  0},				// 하의
-		{{890, 892, 894}, 75, 945,  1},				// 하의
-		{{889, 892, 894}, 25, 946,  0},				// 부츠
-		{{890, 886, 894}, 75, 946,  1},				// 부츠
-		{{889, 892, 894}, 25, 947,  0},				// 장갑
-		{{888, 886, 894}, 75, 947,  1},				// 장갑
+	static const PET_MIX_DATA mixTable[nSizeMixTable] =
+	{
+		{{895, 896, 897}, 85, 887,  0},				// 한손검
+		{{896, 897, 898}, 85, 907,  0},				// 이도류
+		{{897, 898, 899}, 85, 908,  0},				// 대검
+		{{898, 899, 901}, 85, 909,  0},				// 도끼
+		{{899, 901, 902}, 85, 910,  0},				// 힐러 완드
+		{{901, 902, 903}, 85, 911,  0},				// 활
+		{{902, 903, 904}, 85, 912,  0},				// 숏스테프
+		{{903, 904, 905}, 85, 913,  0},				// 스테프
+		{{904, 905, 900}, 85, 914,  0},				// 단검
+		{{905, 900, 906}, 85, 915,  0},				// 석궁
+		{{900, 906, 895}, 85, 916,  0},				// 사이드
+		{{906, 895, 896}, 85, 917,  0},				// 폴암
+		{{886, 889, 894}, 55, 918,  0},				// 투구
+		{{888, 891, 894}, 85, 918,  1},				// 투구
+		{{891, 892, 894}, 55, 919,  0},				// 상의
+		{{893, 889, 894}, 85, 919,  1},				// 상의
+		{{886, 891, 894}, 55, 920,  0},				// 하의
+		{{890, 892, 894}, 85, 920,  1},				// 하의
+		{{889, 892, 894}, 55, 921,  0},				// 부츠
+		{{890, 886, 894}, 85, 921,  1},				// 부츠
+		{{889, 892, 894}, 55, 922,  0},				// 장갑
+		{{888, 886, 894}, 85, 922,  1},				// 장갑
+		{{886, 889, 894}, 55, 923,  0},				// 투구
+		{{888, 891, 894}, 85, 923,  1},				// 투구
+		{{891, 892, 894}, 55, 924,  0},				// 상의
+		{{893, 889, 894}, 85, 924,  1},				// 상의
+		{{886, 891, 894}, 55, 925,  0},				// 하의
+		{{890, 892, 894}, 85, 925,  1},				// 하의
+		{{889, 892, 894}, 55, 926,  0},				// 부츠
+		{{890, 886, 894}, 85, 926,  1},				// 부츠
+		{{889, 892, 894}, 55, 927,  0},				// 장갑
+		{{888, 886, 894}, 85, 927,  1},				// 장갑
+		{{886, 892, 894}, 55, 1280, 0},				// 방패
+		{{893, 891, 894}, 85, 1280, 1},				// 방패
+		{{886, 889, 894}, 55, 928,  0},				// 투구
+		{{888, 891, 894}, 85, 928,  1},				// 투구
+		{{891, 892, 894}, 55, 929,  0},				// 상의
+		{{893, 889, 894}, 85, 929,  1},				// 상의
+		{{886, 891, 894}, 55, 930,  0},				// 하의
+		{{890, 892, 894}, 85, 930,  1},				// 하의
+		{{889, 892, 894}, 55, 931,  0},				// 부츠
+		{{890, 886, 894}, 85, 931,  1},				// 부츠
+		{{889, 892, 894}, 55, 932,  0},				// 장갑
+		{{888, 886, 894}, 85, 932,  1},				// 장갑
+		{{886, 889, 894}, 55, 933,  0},				// 투구
+		{{888, 891, 894}, 85, 933,  1},				// 투구
+		{{891, 892, 894}, 55, 934,  0},				// 상의
+		{{893, 889, 894}, 85, 934,  1},				// 상의
+		{{886, 891, 894}, 55, 935,  0},				// 하의
+		{{890, 892, 894}, 85, 935,  1},				// 하의
+		{{889, 892, 894}, 55, 936,  0},				// 부츠
+		{{890, 886, 894}, 85, 936,  1},				// 부츠
+		{{889, 892, 894}, 55, 937,  0},				// 장갑
+		{{888, 886, 894}, 85, 937,  1},				// 장갑
+		{{886, 889, 894}, 55, 938,  0},				// 투구
+		{{888, 891, 894}, 85, 938,  1},				// 투구
+		{{891, 892, 894}, 55, 939,  0},				// 상의
+		{{893, 889, 894}, 85, 939,  1},				// 상의
+		{{886, 891, 894}, 55, 940,  0},				// 하의
+		{{890, 892, 894}, 85, 940,  1},				// 하의
+		{{889, 892, 894}, 55, 941,  0},				// 부츠
+		{{890, 886, 894}, 85, 941,  1},				// 부츠
+		{{889, 892, 894}, 55, 942,  0},				// 장갑
+		{{888, 886, 894}, 85, 942,  1},				// 장갑
+		{{886, 889, 894}, 55, 943,  0},				// 투구
+		{{888, 891, 894}, 85, 943,  1},				// 투구
+		{{891, 892, 894}, 55, 944,  0},				// 상의
+		{{893, 889, 894}, 85, 944,  1},				// 상의
+		{{886, 891, 894}, 55, 945,  0},				// 하의
+		{{890, 892, 894}, 85, 945,  1},				// 하의
+		{{889, 892, 894}, 55, 946,  0},				// 부츠
+		{{890, 886, 894}, 85, 946,  1},				// 부츠
+		{{889, 892, 894}, 55, 947,  0},				// 장갑
+		{{888, 886, 894}, 85, 947,  1},				// 장갑
 	};
-
-	CNetMsg rmsg;
 
 	int		nWantItemIndex = 0;		// 만들고자 하는 아이템
 	int		nMethod = 0;			// 만드는 방법
 	int		nIndexTable = 0;		// 해당 제작 방법 인덱스
-	int		nLoopItem;				// 재료 아이템 루프용
-	CItem*	pItem[3];				// 재료 아이템
+	int		i;				// 재료 아이템 루프용
+	CItem*	pItem[3] = { NULL, };				// 재료 아이템
 
-	msg >> nWantItemIndex
-		>> nMethod;
-
+#ifdef NPC_CHECK
+	int npcIndex;
+	CNPC *npc;
+	RefMsg(msg) >> npcIndex
+				>> nWantItemIndex
+				>> nMethod;
+	npc = ch->m_pArea->FindProtoNPCInCell(ch, npcIndex, false, 2);
+	if(!npc)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetMixItemMsg(rmsg, MSG_EX_PET_MIX_ITEM_ERROR_NOT_EXIST_NPC);
+		SEND_Q(rmsg, ch->m_desc);
+		GAMELOG << init("ExPet MixItem FAIL: NOT EXIST NPC (Dangerous User)", ch) << end;
+		return ;
+	}
+	if( !npc->IsFlag(NPC_EVENT) && !npc->IsFlag(NPC_QUEST) )
+	{
+		GAMELOG << init("ExPet MixItem FAIL: NOT EXIST NPC (Dangerous User)", ch) << end;
+		return ;
+	}
+#else
+	RefMsg(msg) >> nWantItemIndex
+				>> nMethod;
+#endif
 	// 테이블에서 검색
 	for (nIndexTable = 0; nIndexTable < nSizeMixTable; nIndexTable++)
 	{
@@ -422,27 +500,19 @@ void do_ExPetMixItem(CPC* ch, CNetMsg& msg)
 	// 찾는 것이 없으면
 	if (nIndexTable == nSizeMixTable)
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		ExPetMixItemMsg(rmsg, MSG_EX_PET_MIX_ITEM_ERROR_NOMIX);
 		SEND_Q(rmsg, ch->m_desc);
 		return ;
 	}
 
 	// 해당 재료를 찾음
-	for (nLoopItem = 0; nLoopItem < 3; nLoopItem++)
+	for (i = 0; i < 3; i++)
 	{
-		int r, c;
-		if (ch->m_invenNormal.FindItem(&r, &c, mixTable[nIndexTable].needitem[nLoopItem], 0, 0))
+		pItem[i] = ch->m_inventory.FindByDBIndex(mixTable[nIndexTable].needitem[i], 0, 0);
+		if (pItem[i] == NULL)
 		{
-			pItem[nLoopItem] = ch->m_invenNormal.GetItem(r, c);
-			if (pItem[nLoopItem] == NULL)
-			{
-				ExPetMixItemMsg(rmsg, MSG_EX_PET_MIX_ITEM_ERROR_NOITEM);
-				SEND_Q(rmsg, ch->m_desc);
-				return ;
-			}
-		}
-		else
-		{
+			CNetMsg::SP rmsg(new CNetMsg);
 			ExPetMixItemMsg(rmsg, MSG_EX_PET_MIX_ITEM_ERROR_NOITEM);
 			SEND_Q(rmsg, ch->m_desc);
 			return ;
@@ -450,29 +520,16 @@ void do_ExPetMixItem(CPC* ch, CNetMsg& msg)
 	}
 
 	// 재료 감소
-	for (nLoopItem = 0; nLoopItem < 3; nLoopItem++)
+	for (i = 0; i < 3; i++)
 	{
-		if (pItem[nLoopItem]->Count() > 1)
-		{
-			// 감소
-			DecreaseFromInventory(ch, pItem[nLoopItem], 1);
-			ItemUpdateMsg(rmsg, pItem[nLoopItem], -1);
-		}
-		else
-		{
-			// 삭제
-			ItemDeleteMsg(rmsg, pItem[nLoopItem]);
-			RemoveFromInventory(ch, pItem[nLoopItem], true, true);
-		}
-		SEND_Q(rmsg, ch->m_desc);
+		ch->m_inventory.decreaseItemCount(pItem[i], 1);
 	}
 
 	// 확률 적용
 	if (GetRandom(1, 100) <= mixTable[nIndexTable].prob)
 	{
 		// 아이템 생성
-		CItem* pMixItem = gserver.m_itemProtoList.CreateItem(nWantItemIndex, -1, 0, 0, 1);
-		bool bDrop = false;
+		CItem* pMixItem = gserver->m_itemProtoList.CreateItem(nWantItemIndex, -1, 0, 0, 1);
 		if (pMixItem)
 		{
 			GAMELOG << init("ITEM MIX PET", ch)
@@ -483,29 +540,12 @@ void do_ExPetMixItem(CPC* ch, CNetMsg& msg)
 					<< "NEW ITEM" << delim
 					<< itemlog(pMixItem) << delim;
 
-			if (AddToInventory(ch, pMixItem, true, true))
-			{
-				if (pMixItem->tab() < 0)
-				{
-					int r, c;
-					if (ch->m_invenNormal.FindItem(&r, &c, pMixItem->m_idNum, 0, 0))
-					{
-						delete pMixItem;
-						pMixItem = ch->m_invenNormal.GetItem(r, c);
-						ItemUpdateMsg(rmsg, pMixItem, 1);
-						SEND_Q(rmsg, ch->m_desc);
-					}
-				}
-				else
-				{
-					ItemAddMsg(rmsg, pMixItem);
-					SEND_Q(rmsg, ch->m_desc);
-				}
-			}
-			else
+			bool bDrop = false;
+			if (ch->m_inventory.addItem(pMixItem) == false)
 			{
 				ch->m_pArea->DropItem(pMixItem, ch);
 				pMixItem->m_preferenceIndex = ch->m_index;
+				CNetMsg::SP rmsg(new CNetMsg);
 				ItemDropMsg(rmsg, ch, pMixItem);
 				ch->m_pArea->SendToCell(rmsg, GET_YLAYER(pMixItem), pMixItem->m_cellX, pMixItem->m_cellZ);
 				bDrop = true;
@@ -514,8 +554,11 @@ void do_ExPetMixItem(CPC* ch, CNetMsg& msg)
 			GAMELOG << ((bDrop) ? "DROP" : "GIVE")
 					<< end;
 
-			ExPetMixItemMsg(rmsg, MSG_EX_PET_MIX_ITEM_ERROR_OK);
-			SEND_Q(rmsg, ch->m_desc);
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				ExPetMixItemMsg(rmsg, MSG_EX_PET_MIX_ITEM_ERROR_OK);
+				SEND_Q(rmsg, ch->m_desc);
+			}
 		}
 		else
 		{
@@ -526,6 +569,7 @@ void do_ExPetMixItem(CPC* ch, CNetMsg& msg)
 					<< mixTable[nIndexTable].needitem[2]
 					<< end;
 
+			CNetMsg::SP rmsg(new CNetMsg);
 			ExPetMixItemMsg(rmsg, MSG_EX_PET_MIX_ITEM_ERROR_FAIL);
 			SEND_Q(rmsg, ch->m_desc);
 		}
@@ -533,46 +577,62 @@ void do_ExPetMixItem(CPC* ch, CNetMsg& msg)
 	else
 	{
 		// 실패 알림
+		CNetMsg::SP rmsg(new CNetMsg);
 		ExPetMixItemMsg(rmsg, MSG_EX_PET_MIX_ITEM_ERROR_FAIL);
 		SEND_Q(rmsg, ch->m_desc);
 	}
 }
 
-void do_ExPetWarpTown(CPC* ch, CNetMsg& msg)
+void do_ExPetWarpTown(CPC* ch, CNetMsg::SP& msg)
 {
-	CNetMsg rmsg;
-
 	if (!ch->GetPet() || !ch->GetPet()->IsMount())
 		return ;
 
 	int zone, extra;
-	int i = gserver.FindNearestZone(ch->m_pZone->m_index, GET_X(ch), GET_Z(ch), &zone, &extra);
-	if (i == -1)
+	CZone* pZone = gserver->FindNearestZone(ch->m_pZone->m_index, GET_X(ch), GET_Z(ch), &zone, &extra, ch->getSyndicateType());
+	if (pZone == NULL)
 		return ;
 
 	// 동일 싱글 던전으로는 이동 불가
 	if ((ch->m_pZone->IsPersonalDungeon() || ch->m_pZone->IsGuildRoom()) && ch->m_pZone->m_index == zone)
 		return ;
 
-	CZone* pZone = gserver.m_zones + i;
-
 	if (extra < 0 || extra >= pZone->m_countZonePos)
 		return ;
 
 	GoZone(ch, zone,
-			pZone->m_zonePos[extra][0],														// ylayer
-			GetRandom(pZone->m_zonePos[extra][1], pZone->m_zonePos[extra][3]) / 2.0f,		// x
-			GetRandom(pZone->m_zonePos[extra][2], pZone->m_zonePos[extra][4]) / 2.0f);		// z
+		   pZone->m_zonePos[extra][0],														// ylayer
+		   GetRandom(pZone->m_zonePos[extra][1], pZone->m_zonePos[extra][3]) / 2.0f,		// x
+		   GetRandom(pZone->m_zonePos[extra][2], pZone->m_zonePos[extra][4]) / 2.0f);		// z
 }
 
-void do_ExPetChangeItem(CPC* ch, CNetMsg& msg)
+void do_ExPetChangeItem(CPC* ch, CNetMsg::SP& msg)
 {
-	CNetMsg rmsg;
+#ifdef NPC_CHECK
+	int npcIndex;
+	CNPC *npc;
+	RefMsg(msg) >> npcIndex;
+	npc = ch->m_pArea->FindProtoNPCInCell(ch, npcIndex, false, 2);
+	if(!npc)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetChangeItemMsg(rmsg, MSG_EX_PET_CHANGE_ITEM_ERROR_NOT_EXIST_NPC);
+		SEND_Q(rmsg, ch->m_desc);
+		GAMELOG << init("ExPet Change Item FAIL: NOT EXIST NPC (Dangerous User)", ch) << end;
+		return ;
+	}
+	if( !npc->IsFlag(NPC_EVENT) && !npc->IsFlag(NPC_QUEST) )
+	{
+		GAMELOG << init("ExPet Change Item FAIL: NOT EXIST NPC (Dangerous User)", ch) << end;
+		return ;
+	}
+#endif
 
 	// 펫을 착용하고 있는가?
 	CPet* pet = ch->GetPet();
 	if (!pet)
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		ExPetChangeItemMsg(rmsg, MSG_EX_PET_CHANGE_ITEM_ERROR_FAIL);
 		SEND_Q(rmsg, ch->m_desc);
 		return ;
@@ -592,35 +652,42 @@ void do_ExPetChangeItem(CPC* ch, CNetMsg& msg)
 			<< "SUCCESS" << delim
 			<< ((bSuccess) ? 1 : 0)
 			<< end;
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		if (bSuccess)
+			ExPetChangeItemMsg(rmsg, MSG_EX_PET_CHANGE_ITEM_ERROR_OK);
+		else
+			ExPetChangeItemMsg(rmsg, MSG_EX_PET_CHANGE_ITEM_ERROR_NOITEM);
+
+		SEND_Q(rmsg, ch->m_desc);
+	}
+
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		HelperPetDeleteReqMsg(rmsg, pet->m_index, ch->m_index);
+		SEND_Q(rmsg, gserver->m_helper);
+	}
 
 	// 펫 제거
 	ch->DelPet(pet->m_index);
-
-	if (bSuccess)
-		ExPetChangeItemMsg(rmsg, MSG_EX_PET_CHANGE_ITEM_ERROR_OK);
-	else
-		ExPetChangeItemMsg(rmsg, MSG_EX_PET_CHANGE_ITEM_ERROR_NOITEM);
-
-	ch->SaveNow(false);
-
-	SEND_Q(rmsg, ch->m_desc);
 }
 
-void do_ExPetRebirth(CPC* ch, CNetMsg& msg)
+void do_ExPetRebirth(CPC* ch, CNetMsg::SP& msg)
 {
-	CNetMsg		rmsg;
 	int			nPetIndex = 0;
 	CPet*		pet;
 	LONGLONG	nNeedNas;
 
-	msg >> nPetIndex;
+	RefMsg(msg) >> nPetIndex;
 
 	pet = ch->GetPet(nPetIndex);
 
 	if (pet == NULL)
 	{
 		// 펫 없으면 오류
+		CNetMsg::SP rmsg(new CNetMsg);
 		ExPetRebirthMsg(rmsg, nPetIndex, MSG_EX_PET_REBIRTH_ERROR_NOPET);
+		SEND_Q(rmsg, ch->m_desc);
 	}
 	else
 	{
@@ -628,7 +695,9 @@ void do_ExPetRebirth(CPC* ch, CNetMsg& msg)
 		if (pet->GetRemainRebirthTime() < 1)
 		{
 			// 살아 있으면 오류
+			CNetMsg::SP rmsg(new CNetMsg);
 			ExPetRebirthMsg(rmsg, nPetIndex, MSG_EX_PET_REBIRTH_ERROR_NODEAD);
+			SEND_Q(rmsg, ch->m_desc);
 		}
 		else
 		{
@@ -640,30 +709,19 @@ void do_ExPetRebirth(CPC* ch, CNetMsg& msg)
 			if (nNeedNas > 0)
 			{
 				// 나스가 필요하면 소지금과 비교
-				if (ch->m_moneyItem == NULL || ch->m_moneyItem->Count() < nNeedNas)
+				if (ch->m_inventory.getMoney() < nNeedNas)
 				{
 					// 소지금 부족하면 오류
+					CNetMsg::SP rmsg(new CNetMsg);
 					ExPetRebirthMsg(rmsg, nPetIndex, MSG_EX_PET_REBIRTH_ERROR_NOMONEY);
+					SEND_Q(rmsg, ch->m_desc);
 					bRebirth = false;
 				}
 				else
 				{
+					ch->m_inventory.decreaseMoney(nNeedNas);
 					// 소지금 충분하면 비용 적용
-					if (ch->m_moneyItem->Count() > nNeedNas)
-					{
-						DecreaseFromInventory(ch, ch->m_moneyItem, nNeedNas);
-						ItemUpdateMsg(rmsg, ch->m_moneyItem, -nNeedNas);
-						SEND_Q(rmsg, ch->m_desc);
-					}
-					else
-					{
-						ItemDeleteMsg(rmsg, ch->m_moneyItem);
-						SEND_Q(rmsg, ch->m_desc);
-						RemoveFromInventory(ch, ch->m_moneyItem, true, true);
-					} // 나스 소비
-
-				} // 소지 나스 검사
-
+				}
 			} // 필요 나스 검사
 
 			if (bRebirth)
@@ -671,8 +729,12 @@ void do_ExPetRebirth(CPC* ch, CNetMsg& msg)
 				// 비용 적용후 펫 부활
 				pet->SetRemainRebirthTime(0);
 				pet->m_hp = 30;
-				ExPetStatusMsg(rmsg, pet);
-				SEND_Q(rmsg, ch->m_desc);
+
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					ExPetStatusMsg(rmsg, pet);
+					SEND_Q(rmsg, ch->m_desc);
+				}
 
 				// TODO : petlog
 				GAMELOG << init("PET REBIRTH", ch)
@@ -686,31 +748,30 @@ void do_ExPetRebirth(CPC* ch, CNetMsg& msg)
 						<< nNeedNas
 						<< end;
 
-				ExPetRebirthMsg(rmsg, nPetIndex, MSG_EX_PET_REBIRTH_ERROR_OK);
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					ExPetRebirthMsg(rmsg, nPetIndex, MSG_EX_PET_REBIRTH_ERROR_OK);
+					SEND_Q(rmsg, ch->m_desc);
+				}
 			}
-
 		} // 펫 사망 검사
-
 	} // 펫 존재 검사
-
-	SEND_Q(rmsg, ch->m_desc);
 }
 
-#ifdef PET_NAME_CHANGE
-void do_PetNameChange(CPC* ch, CNetMsg& msg)
+void do_PetNameChange(CPC* ch, CNetMsg::SP& msg)
 {
-	CNetMsg		rmsg;
 	int			nPetIndex = 0;
 	CLCString	strPetName( 30 );
 	CPet*		pet;
 
-	msg >> nPetIndex
-		>> strPetName;
+	RefMsg(msg) >> nPetIndex
+				>> strPetName;
 
 	bool bApet = false;
-		
+
 	if( strlen( strPetName ) < 4 || strlen(strPetName) > 16  )
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		PetNameChange( rmsg, MSG_EX_PET_CHANGE_NAME_ERROR_FAIL, nPetIndex, strPetName );
 		SEND_Q( rmsg, ch->m_desc );
 		return;
@@ -718,64 +779,62 @@ void do_PetNameChange(CPC* ch, CNetMsg& msg)
 
 	if( strinc( strPetName, "'" ) || strinc( strPetName, " " ) )
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		PetNameChange( rmsg, MSG_EX_PET_CHANGE_NAME_ERROR_FAIL, nPetIndex, strPetName );
 		SEND_Q( rmsg, ch->m_desc );
 		return;
 	}
 
-	int r, c;
-	if( !ch->m_invenNormal.FindItem(  &r, &c, 2360, 0, 0 ) )
+	if(findPercentChar(strPetName.getBuffer()) != NULL)
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		PetNameChange( rmsg, MSG_EX_PET_CHANGE_NAME_ERROR_FAIL, nPetIndex, strPetName );
+		SEND_Q( rmsg, ch->m_desc );
+		return;
+	}
+
+// [selo: 101229] 러시아는 러시아어 이외의 글자 들어가면 안된다.
+#ifdef LC_RUS
+	if( CheckNoRussianCharacter(strPetName) )
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		PetNameChange( rmsg, MSG_EX_PET_CHANGE_NAME_ERROR_FAIL, nPetIndex, strPetName );
+		SEND_Q( rmsg, ch->m_desc );
+		return;
+	}
+#endif // LC_RUS
+
+	CItem* pItem = ch->m_inventory.FindByDBIndex(2360, 0, 0 );
+	if (pItem == NULL)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		PetNameChange( rmsg, MSG_EX_PET_CHANGE_NAME_ERROR_ITEM, nPetIndex, strPetName );
 		SEND_Q( rmsg, ch->m_desc );
 		return;
 	}
-#ifdef ATTACK_PET
 	CAPet* apet = ch->GetAPet();
 	if( apet )
-		bApet = true;		
-#endif // ATTACK_PET
+		bApet = true;
 
 	pet = ch->GetPet( nPetIndex );
 	if( !bApet && pet == NULL )
 	{
-		
+		CNetMsg::SP rmsg(new CNetMsg);
 		PetNameChange( rmsg, MSG_EX_PET_CHANGE_NAME_ERROR_NOPET, nPetIndex, strPetName );
 		SEND_Q( rmsg, ch->m_desc );
 		return;
 	}
 
-#ifdef ATTACK_PET
 	if( bApet )
 	{
-		CItem* pItem = ch->m_invenNormal.GetItem( r, c );
-		if( pItem )
-		{
-			if (pItem->Count() > 1)
-			{
-				DecreaseFromInventory(ch, pItem, 1);
-				ItemUpdateMsg(rmsg, pItem, -1);
-				SEND_Q(rmsg, ch->m_desc);
-			}
-			else
-			{
-				ItemDeleteMsg(rmsg, pItem);
-				SEND_Q(rmsg, ch->m_desc);
-				ch->RemoveItemFromQuickSlot(pItem);
-				RemoveFromInventory(ch, pItem, true, true);
-			}
-
-			apet->m_name = strPetName;
-		}
+		ch->m_inventory.decreaseItemCount(pItem, 1);
+		apet->m_name = strPetName;
 	}
 	else
-#endif // ATTACK_PET
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		HelperPetNameChange( rmsg, ch->m_index, pet->m_index, strPetName );
-		SEND_Q( rmsg, gserver.m_helper );
+		SEND_Q( rmsg, gserver->m_helper );
 	}
 }
 
-#endif // PET_NAME_CHANGE
-
-#endif // #ifdef ENABLE_PET

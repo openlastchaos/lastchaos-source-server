@@ -1,9 +1,10 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "PersonalShop.h"
 
 CPersonalShop::CPersonalShop(char type, const char* name)
-: m_name(PS_MAX_SHOPNAME + 1)
+	: m_name(PS_MAX_SHOPNAME + 1)
 {
 	m_type = type;
 	m_name = name;
@@ -18,6 +19,9 @@ CPersonalShop::CPersonalShop(char type, const char* name)
 
 bool CPersonalShop::AddItem(bool bNormal, int itemindex, LONGLONG count, LONGLONG price)
 {
+	if( count < 0 || price < 0 )
+		return false;
+
 	int i;
 
 	if (bNormal)
@@ -161,3 +165,4 @@ int CPersonalShop::GetNextPackageItem(int pos)
 
 	return -1;
 }
+//

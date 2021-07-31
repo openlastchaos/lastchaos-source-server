@@ -1,4 +1,5 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "Character.h"
 
@@ -27,10 +28,18 @@ CElemental::CElemental(CPC* owner, char elementalType)
 	m_defHP = 0;
 	switch (m_elementalType)
 	{
-	case ELEMENTAL_FIRE:		m_defHP = 50;		break;
-	case ELEMENTAL_WIND:		m_defHP = 30;		break;
-	case ELEMENTAL_EARTH:		m_defHP = 50;		break;
-	case ELEMENTAL_WATER:		m_defHP = 30;		break;
+	case ELEMENTAL_FIRE:
+		m_defHP = 50;
+		break;
+	case ELEMENTAL_WIND:
+		m_defHP = 30;
+		break;
+	case ELEMENTAL_EARTH:
+		m_defHP = 50;
+		break;
+	case ELEMENTAL_WATER:
+		m_defHP = 30;
+		break;
 	}
 	m_defHP += 5 * (m_defStr - base_stat[JOB_SORCERER][0]) + 5 * (m_defCon - base_stat[JOB_SORCERER][3]);
 
@@ -56,7 +65,9 @@ CElemental::CElemental(CPC* owner, char elementalType)
 
 	m_eqResist = owner->m_level;
 	m_attackSpeed = ELEMENTAL_ATTACK_SPEED;
-	m_walkSpeed = m_runSpeed = ELEMENTAL_RUN_SPEED;
+	//m_walkSpeed = m_runSpeed = ELEMENTAL_RUN_SPEED;
+	m_walkSpeed = ELEMENTAL_RUN_SPEED;
+	SetRunSpeed(ELEMENTAL_RUN_SPEED);
 	m_recoverHP = ELEMENTAL_RECOVER_HP;
 
 	switch (m_elementalType)
@@ -109,7 +120,7 @@ CElemental::CElemental(CPC* owner, char elementalType)
 		{
 			if (skill->m_proto->CheckSorcererFlag(skillflag))
 			{
-				CSkill* elementalSkill = gserver.m_skillProtoList.Create(skill->m_proto->m_index, skill->m_level);
+				CSkill* elementalSkill = gserver->m_skillProtoList.Create(skill->m_proto->m_index, skill->m_level);
 				m_skillList.Add(elementalSkill);
 			}
 		}
@@ -192,8 +203,8 @@ void CElemental::ApplyPassive()
 
 			if (bApply)
 				ApplyPassiveSkill(pSkill, 100);
-			}
-			}
+		}
+	}
 
 	ApplyAssistData(&m_avPassiveAddition, &m_avPassiveRate);
 }
@@ -213,7 +224,7 @@ void CElemental::AddSkill(int skillindex, int level)
 		skill->m_level = level;
 	else
 	{
-		CSkill* skill = gserver.m_skillProtoList.Create(skillindex, level);
+		CSkill* skill = gserver->m_skillProtoList.Create(skillindex, level);
 		m_skillList.Add(skill);
 	}
 }
@@ -228,9 +239,13 @@ void CElemental::ResetStat()
 	m_int = m_defInt;
 	m_con = m_defCon;
 
-	m_attackSpeed = ELEMENTAL_ATTACK_SPEED;
-	m_walkSpeed = m_runSpeed = ELEMENTAL_RUN_SPEED;
-	m_recoverHP = ELEMENTAL_RECOVER_HP;
+	m_attackSpeed	= ELEMENTAL_ATTACK_SPEED;
+	//m_walkSpeed		= m_runSpeed = ELEMENTAL_RUN_SPEED;
+	m_walkSpeed = ELEMENTAL_RUN_SPEED;
+	SetRunSpeed(ELEMENTAL_RUN_SPEED);
+	m_recoverHP		= ELEMENTAL_RECOVER_HP;
+	m_statPall		= 0;
+	m_statPall_per	= 0;
 
 	switch (m_elementalType)
 	{
@@ -253,7 +268,6 @@ void CElemental::CalcStatus(bool bSend)
 {
 	// 원상태로
 	ResetStat();
-	m_attribute.Reset();
 
 	// 패시브 스킬 적용
 	ApplyPassive();
@@ -263,7 +277,6 @@ void CElemental::CalcStatus(bool bSend)
 	m_bChangeStatus = true;
 }
 
-#ifdef ADULT_SERVER_NEW_BALANCE  
 float CElemental::GetHitrate(CCharacter* df, MSG_DAMAGE_TYPE type)
 {
 	if (m_owner)
@@ -279,4 +292,3 @@ float CElemental::GetAvoid(CCharacter* of, MSG_DAMAGE_TYPE type)
 	else
 		return 0.0f;
 }
-#endif // ADULT_SERVER_NEW_BALANCE

@@ -5,10 +5,6 @@
 #if !defined(AFX_SSKILL_H__6305E9D0_9AE3_4F29_A7D2_D0C8F9DCF5A1__INCLUDED_)
 #define AFX_SSKILL_H__6305E9D0_9AE3_4F29_A7D2_D0C8F9DCF5A1__INCLUDED_
 
-#if _MSC_VER > 1000
-#pragma once
-#endif // _MSC_VER > 1000
-
 class CSSkillProto
 {
 public:
@@ -40,8 +36,7 @@ public:
 	CSSkillProto();
 };
 
-
-class CSSkill  
+class CSSkill
 {
 public:
 	CSSkillProto*	m_proto;		// SSkill Proto
@@ -53,6 +48,8 @@ public:
 class CSSkillProtoList
 {
 public:
+	typedef std::map<int, CSSkillProto*> map_t;
+	map_t			map_;
 	CSSkillProto*	m_proto;		// SSkill 프로토 리스트
 	int				m_nCount;		// SSkill 수
 
@@ -63,14 +60,20 @@ public:
 	CSSkillProto* FindProto(int index);		// SSkill proto 찾기
 	CSSkill* Create(int index, int level = 1);	// SSKill 생성
 
-	protected:
-	static int CompIndex(const void* p1, const void* p2)
-	{
-		CSSkillProto* i1 = (CSSkillProto*)p1;
-		CSSkillProto* i2 = (CSSkillProto*)p2;
+private:
+	std::vector<std::string>	a_level_need_level_str;
+	std::vector<std::string>	a_level_need_sp_str;
 
-		return i1->m_index - i2->m_index;
-	}
+	std::vector<std::string>	a_level_num0_str;
+	std::vector<std::string>	a_level_num1_str;
+	std::vector<std::string>	a_level_num2_str;
+	std::vector<std::string>	a_level_num3_str;
+	std::vector<std::string>	a_level_num4_str;
+	std::vector<std::string>	a_level_num5_str;
+	std::vector<std::string>	a_level_num6_str;
+	std::vector<std::string>	a_level_num7_str;
+	std::vector<std::string>	a_level_num8_str;
+	std::vector<std::string>	a_level_num9_str;
 };
 
 class CSSkillNode
@@ -79,7 +82,7 @@ public:
 	CSSkill*		m_sskill;
 	CSSkillNode*	m_next;
 	CSSkillNode*	m_prev;
-	
+
 	CSSkillNode(CSSkill* sskill)
 	{
 		m_sskill = sskill;
@@ -104,8 +107,8 @@ public:
 	CSSkill* Find(int index);		// SSkillList에서 해당 인덱스 SSkill 찾기
 
 	char* GetString(char* buf);		// DB 저장 String 만들기
-
+	void GetString(std::string& buf);
 };
 
-
 #endif // !defined(AFX_SSKILL_H__6305E9D0_9AE3_4F29_A7D2_D0C8F9DCF5A1__INCLUDED_)
+//

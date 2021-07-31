@@ -1,22 +1,16 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "Log.h"
 #include "CmdMsg.h"
 #include "WarCastle.h"
 #include "DratanCastle.h"
 
-#ifdef ENABLE_WAR_CASTLE
-
 void CheckWarCastle()
 {
-	meracCastle.CheckWarCastle();
-#ifdef DRATAN_CASTLE 
+	meracCastle.CheckWarCastle(false);
 	CDratanCastle * pCastle = CDratanCastle::CreateInstance();
-	if(pCastle != NULL)
-	{
-		pCastle->CheckWarCastle();
-	}
-#endif // DRATAN_CASTLE
+	pCastle->CheckWarCastle();
 }
 
 bool LoadCastleData()
@@ -25,14 +19,19 @@ bool LoadCastleData()
 	if (!meracCastle.LoadCastleData())
 		return false;
 
-#ifdef DRATAN_CASTLE
+#ifdef WARCASTLE_SUBNUMBER_MEMBER_VALUE
+	// yhj... 러시아에서 올라 온 메라크 공성전때 느려진다는 것 때문에 패치
+	// 글로벌 변수를 맴버 변수로 저장
+	else
+		meracCastle.m_subNumber = gserver->m_subno;
+#endif // WARCASTLE_SUBNUMBER_MEMBER_VALUE
+
 	// 드라탄(성인 서버만 드라탄 공성이 있다)
 	CDratanCastle * pCastle = CDratanCastle::CreateInstance();
-	if (pCastle != NULL && pCastle->LoadCastleData() == false)
+	if (pCastle->LoadCastleData() == false)
 	{
 		return false;
 	}
-#endif // DRATAN_CASTLE
 
 	return true;
 }
@@ -40,13 +39,8 @@ bool LoadCastleData()
 bool IsValidGuildCommandWithWarCastle(CPC* ch, unsigned char subtype)
 {
 	// 공성 참여 유저는 길드 관련 커맨드 중 일부를 할 수 없음
-#ifndef DRATAN_CASTLE
-	int warZoneCount = 1;
-	int warZoneIndex[] = { ZONE_MERAC };
-#else
 	int warZoneCount = 2;
 	int warZoneIndex[] = { ZONE_MERAC, ZONE_DRATAN };
-#endif // DRATAN_CASTLE
 
 	int i;
 	for (i = 0; i < warZoneCount; i++)
@@ -75,6 +69,8 @@ bool IsValidGuildCommandWithWarCastle(CPC* ch, unsigned char subtype)
 				case MSG_GUILD_BATTLE_STOP_REQ:
 				case MSG_GUILD_BATTLE_STOP_REJECT:
 				case MSG_GUILD_BATTLE_STOP_ACCEPT:
+				case MSG_GUILD_MASTER_KICK_REQ:
+				case MSG_GUILD_MASTER_KICK_CANCEL_REQ:
 					return false;
 				}
 			}
@@ -84,4 +80,3 @@ bool IsValidGuildCommandWithWarCastle(CPC* ch, unsigned char subtype)
 	return true;
 }
 
-#endif // ENABLE_WAR_CASTLE

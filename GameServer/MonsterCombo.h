@@ -5,11 +5,7 @@
 #if !defined(AFX_MONSTERCOMBO_H__A0046A35_9FFA_4984_98CE_7C324A4237A6__INCLUDED_)
 #define AFX_MONSTERCOMBO_H__A0046A35_9FFA_4984_98CE_7C324A4237A6__INCLUDED_
 
-#if _MSC_VER > 1000
-#pragma once
-#endif // _MSC_VER > 1000
-
-#ifdef MONSTER_COMBO
+#include <vector>
 
 #define MAXCOMBOCASE		20
 #define MAXEFFECT			5
@@ -60,6 +56,8 @@ struct EFFECTPOS
 	float	h;
 };
 
+typedef std::vector<EFFECTPOS> vec_effectpos_t;
+
 class CMissionCaseProto
 {
 public:
@@ -73,7 +71,7 @@ public:
 	MOBREGEN*		m_npcRegen;		// 리젠 정보
 
 	// 패널티
-	CLCList<PENALTY>	m_listPanalty;		// 패널티 가능한 스킬인덱스
+	std::vector<PENALTY>	m_listPanalty;		// 패널티 가능한 스킬인덱스
 
 	bool			LoadProto();
 
@@ -90,19 +88,14 @@ public:
 	CMIssionCaseList();
 	~CMIssionCaseList();
 
+	typedef std::map<int, CMissionCaseProto*> map_t;
+
 	int					m_nCount;
 	CMissionCaseProto*	m_proto;
+	map_t				map_;
 
 	CMissionCaseProto*	FindProto(int index);
 	bool				LoadList();
-
-	static int CompIndex(const void* p1, const void* p2)
-	{
-		CMissionCaseProto* m1 = (CMissionCaseProto*)p1;
-		CMissionCaseProto* m2 = (CMissionCaseProto*)p2;
-
-		return (m1->m_nIndex - m2->m_nIndex);
-	}
 };
 
 struct MISSION
@@ -116,8 +109,7 @@ struct MISSION
 	};
 };
 
-
-class CMonsterCombo  
+class CMonsterCombo
 {
 public:
 	CMonsterCombo();
@@ -132,14 +124,18 @@ public:
 
 	int		m_pulseFirst;		// 1번째 이펙트
 	int		m_pulseSecond;		// 2번째 이펙트
-	
-    int	    m_nTotalMission;
+
+	int	    m_nTotalMission;
 	char	m_cPlayerNum;		// stage에 있는 파티원수
 
 	static int m_virtualIndex;
 
+#ifdef MONSTER_COMBO_FIX
+	bool	m_bPartyRecall;
+#endif // MONSTER_COMBO_FIX
+
 	// 이펙트 위치 저장
-	CLCList<EFFECTPOS> m_listEffect;
+	vec_effectpos_t m_listEffect;
 
 	MISSION*	m_case;
 	CArea*		m_area;
@@ -163,7 +159,7 @@ public:
 
 	// 스테이지 시작
 	bool StartStage();
-	
+
 	// 패널티 초기화
 	void ClearPenalty();
 
@@ -176,7 +172,7 @@ public:
 	//  미션케이스 총 포인트 계산
 	int GetTotalPoint();
 
-	// 
+	//
 	int GetMaxCoinCount(int count)
 	{
 		int temp;
@@ -186,7 +182,7 @@ public:
 		float temp3;
 		temp3 = temp2 - (float)temp;
 
-		if(temp3 >= 0.5) 
+		if(temp3 >= 0.5)
 		{
 			temp += 1;
 		}
@@ -200,7 +196,6 @@ public:
 	}
 
 	// 불기둥 준비 이펙트
-	void FireEffectReady();
 	void FireEffectReady2();
 
 	// 불기둥 실행 이펙트
@@ -232,8 +227,46 @@ public:
 	void InitAllVar();
 
 	bool SetMonsterCombo(CPC* pc);
+
+#ifdef MONSTER_COMBO_FIX
+	bool IsAllCharLive();
+#endif // MONSTER_COMBO_FIX
 };
 
-#endif // MONSTER_COMBO
+#define MAX_GROUND_EFFECT2_NPC_NUM	15
+class CGroundEffect2
+{
+public:
+	bool IsStarted();
+	CGroundEffect2();
+	virtual ~CGroundEffect2();
+
+	bool	Init(int zone, CArea* area);			// 처음에 한번 세팅
+	void	Start();	// 발동 시작
+	void	Stop();								// 발동 멈춤
+	void	Activity();							// 발동 중
+	CArea*	GetArea();
+private:
+	bool	EffectReady();
+	bool	EffectFire();
+	void	Clean();							// 변수 초기화
+
+	vec_effectpos_t m_listEffect;		// 이펙트 발생위치
+
+	// 초기에 세팅
+	CNPC*	m_effectNPC[30];
+	CArea*	m_area;
+	int		m_zonenum;
+//	int		m_extra;
+
+	int		m_pulseFirst;		// 1번째 이펙트  10초마다 한번
+	int		m_pulseSecond;		// 2번째 이펙트
+
+	bool	m_bEffectStart;
+
+//	int		m_guildindex1;
+//	int		m_guildindex2;
+};
 
 #endif // !defined(AFX_MONSTERCOMBO_H__A0046A35_9FFA_4984_98CE_7C324A4237A6__INCLUDED_)
+//

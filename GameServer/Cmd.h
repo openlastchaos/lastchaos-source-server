@@ -1,11 +1,11 @@
 #ifndef __ACMD_H__
 #define __ACMD_H__
 
-#include "NetMsg.h"
+#include <map>
 
 class CPC;
 
-typedef void (* LCCMDPROC)(CPC*, CNetMsg&);
+typedef void (* LCCMDPROC)(CPC*, CNetMsg::SP& msg);
 
 class CCmd
 {
@@ -26,16 +26,17 @@ public:
 	CCmdList();
 	~CCmdList();
 
-	CCmd* m_cmd[CMD_NUM];
-	int m_cnt;
-
 	void AddMessage();
 	void AddExMessage();
 
 	bool Add(int cmdType, LCCMDPROC cmdFunc, int minlevel, bool bCanDoWhileWarp, bool bCanDoWhileDisable);
-	void Sort(void);
-	int Find(CPC* ch, int cmdType);
-	void Run(int cmd_num, CPC* ch, CNetMsg& msg);
+	bool Find(int cmdType);
+	void Run(int cmd_num, CPC* ch, CNetMsg::SP& msg);
+
+private:
+	typedef std::map<int, CCmd*> map_t;
+	map_t	map_;
 };
 
 #endif
+//

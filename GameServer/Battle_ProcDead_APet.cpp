@@ -1,4 +1,5 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "Battle.h"
 #include "WarCastle.h"
@@ -7,17 +8,18 @@
 #include "Log.h"
 #include "doFunc.h"
 
-#ifdef ATTACK_PET 
 void ProcDead(CAPet* df, CCharacter* of)
 {
-	
 	CPC*		opc				= NULL;
 	CNPC*		onpc			= NULL;
-#ifdef ENABLE_PET
 	CPet*		opet			= NULL;
-#endif // #ifdef ENABLE_PET
 	CElemental*	oelemental		= NULL;
 	CAPet*		oapet			= NULL;
+
+	if( IS_NPC(of) && TO_NPC(of)->Check_MobFlag(STATE_MONSTER_MERCENARY) && TO_NPC(of)->GetOwner() )
+	{
+		TO_NPC(of)->GetOwner()->SetSummonOwners_target(NULL);
+	}
 
 	switch (of->m_type)
 	{
@@ -47,7 +49,10 @@ void ProcDead(CAPet* df, CCharacter* of)
 	default:
 		return ;
 	}
-	
+
+	if( opc )
+		opc->SetSummonOwners_target(NULL);
+
 	bool bPKPenalty = false;
 
 	if (df->GetOwner())
@@ -57,7 +62,7 @@ void ProcDead(CAPet* df, CCharacter* of)
 			CalcPKPoint(opc, df->GetOwner(), true);
 	}
 
-	if( !bPKPenalty )
+	if( !bPKPenalty && !(df->GetOwner()->GetMapAttr() & MATT_FREEPKZONE) )
 	{
 		if( df->m_level >= 10  )
 		{
@@ -69,8 +74,6 @@ void ProcDead(CAPet* df, CCharacter* of)
 		df->AddFaith(-10);
 	}
 	DelAttackList(df);
-	
-	CNetMsg rmsg;
 
 	CPC* owner = df->GetOwner();
 	const char* ownerName = "NO OWNER";
@@ -128,19 +131,28 @@ void ProcDead(CAPet* df, CCharacter* of)
 	if (owner)
 	{
 		// Item şŔŔÎ
-		CItem* apet_item = owner->m_wearing[WEARING_PET];
-		apet_item->m_flag |= FLAG_ITEM_SEALED;
-		ItemUpdateMsg(rmsg, apet_item, 0);
-		SEND_Q(rmsg, owner->m_desc);
+		CItem* apet_item = owner->m_wearInventory.wearItemInfo[WEARING_PET];
+		if( !apet_item )
+			return;
+		apet_item->setFlag(apet_item->getFlag() | FLAG_ITEM_SEALED);
+		{
+			owner->m_wearInventory.sendOneItemInfo(WEARING_PET);
+		}
 
-		// Âřżë ÇŘÁ¦
-		ItemWearMsg(rmsg, WEARING_PET, NULL, NULL);
-		do_ItemWear(owner, rmsg);
-		// Ćę »óĹÂ ş¸łż
+		df->m_bMount = false;
 
-		ExAPetStatusMsg(rmsg, df);
-		SEND_Q(rmsg, owner->m_desc);
+		// Á×ľúŔ»¶§´Â ÂřżëÇŘÁ¦żˇĽ­ Disappear ¸¦ ş¸ł»Áö ľĘ±â¶«ą®żˇ ż©±âĽ­ ĽżżˇĽ­ »©ÁŘ´Ů.
+		df->m_bSummon = false;
+		DelAttackList(df);
+		if( df->m_pZone && df->m_pArea )
+			df->m_pArea->CharFromCell(df, true);
+
+		{
+			// Ćę »óĹÂ ş¸łż
+			CNetMsg::SP rmsg(new CNetMsg);
+			ExAPetStatusMsg(rmsg, df);
+			SEND_Q(rmsg, owner->m_desc);
+		}
 	}
 }
 
-#endif //ATTACK_PET

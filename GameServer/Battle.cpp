@@ -1,4 +1,5 @@
 #include "stdhdrs.h"
+
 #include "CmdMsg.h"
 #include "Server.h"
 #include "Exp.h"
@@ -7,6 +8,9 @@
 #include "hardcoding.h"
 #include "WarCastle.h"
 #include "doFunc.h"
+#include "HolyWaterData.h"
+#include "Artifact_Manager.h"
+#include "../ShareLib/packetType/ptype_old_do_item.h"
 
 ///////////////////
 // 공격 관련 함수들
@@ -37,15 +41,30 @@ int ProcAttack(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, CSkil
 	df->m_assist.CancelSleep();
 	df->m_assist.CancelFear();
 	df->CancelInvisible();
-#ifdef ADULT_SERVER_NEWITEM
 	df->m_assist.CancelMantle();
 	of->m_assist.CancelMantle();
-#endif // ADULT_SERVER_NEWITEM
+
+	if( IS_APET(df) )
+	{
+		CAPet* apet = TO_APET(df);
+		if ( apet && apet->GetOwner() && apet->IsMount() )
+		{
+			df = (CCharacter*) apet->GetOwner() ;
+			if(DEAD(df))
+				return 0;
+		}
+	}
 
 	// 공격자 공격에 따른 버프 취소
 	of->CancelInvisible();
+	if ( IS_APET(of) )
+	{
+		if(TO_APET(of)->GetOwner())
+			TO_APET(of)->GetOwner()->CancelInvisible();
+	}
 
 	char flag;
+	bool isCharge = false;
 	switch (damageType)
 	{
 	case MSG_DAMAGE_REFLEX:
@@ -61,13 +80,74 @@ int ProcAttack(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, CSkil
 		// 명중/회피/크리티컬 검사
 		if (flag != HITTYPE_MISS)
 			flag = SelectHitType(of, df, damageType, flag, magic, magiclevel, true);
-		// 데미지 계산
-		damage = GetDamage(of, df, damageType, flag, magic, magiclevel);
+		// 데미지 계산		
+		damage = GetDamage(of, df, damageType, flag, magic, magiclevel, isCharge);
 		break;
 	}
 
+	// 자살 공격은 NPC를 제와하고는 데미지를 10%만 적용
+	if( proto && proto->m_index == 1110 && !IS_NPC(df) )
+		damage = (int)(damage * 0.1f);
+
 	ApplyHateByDamage(of, df, flag, damage);
-	ApplyDamage(of, df, damageType, proto, magic, damage, flag);
+	ApplyDamage(of, df, damageType, proto, magic, damage, flag, isCharge);
+
+	//보석 옵션 체크하여 스킬 발동 처리
+	//옵션 스킬 발동
+	if(IS_PC(of))
+	{
+		CPC* pc = TO_PC(of);
+		if(pc->m_optionAttSkillList.count() > 0)
+		{
+			int optionCount  = pc->m_optionAttSkillList.count();
+			void* pos = pc->m_optionAttSkillList.GetHeadPosition();
+			bool bApply;
+			for(int i=0; i<optionCount; i++)
+			{
+				int rand = GetRandom(1, 10000);
+				CSkill *pAttskill = pc->m_optionAttSkillList.GetNext(pos);
+				if(rand < pAttskill->m_optionSkillProb)
+				{
+					ApplySkill(of, df, pAttskill,-1, bApply);
+				}
+			}
+		}
+
+#ifdef DURABILITY
+		// 무기 장비 내구도 감소 (공격자 이므로)
+		pc->calcDurability_for_weapon();
+#endif
+	}
+	if(IS_PC(df))
+	{
+		CPC* pc = TO_PC(df);
+		if(pc->m_optionDefSkillList.count() > 0)
+		{
+			bool bRet;
+			int optionCount  = pc->m_optionDefSkillList.count();
+			void* pos = pc->m_optionDefSkillList.GetHeadPosition();
+			bool bApply;
+			bool bHits[] = {true, true, true};
+			for(int i=0; i<optionCount; i++)
+			{
+				CSkill *pDefskill = pc->m_optionDefSkillList.GetNext(pos);
+				int rand = GetRandom(1, 10000);
+				if(rand < pDefskill->m_optionSkillProb)
+				{
+					if (df->m_assist.Add(df, -1, pDefskill->m_proto, pDefskill->m_level, bHits, true, -1,
+										 -1,
+										 0, 0, 0))
+						bRet = true;
+					ApplySkill(df, df, pDefskill,-1, bApply);
+				}
+			}
+		}
+
+#ifdef DURABILITY
+		// 방어구(액세서리) 장비 내구도 감소 (방어자 이므로)
+		pc->calcDurability_for_armor();
+#endif
+	}
 
 	if (flag != HITTYPE_MISS)
 		ProcAfterHit(of, df);
@@ -88,11 +168,9 @@ int ProcAttack(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, CSkil
 		case MSG_CHAR_ELEMENTAL:
 			ProcDead(TO_ELEMENTAL(df), of);
 			break;
-#ifdef ATTACK_PET
 		case MSG_CHAR_APET:
 			ProcDead(TO_APET(df), of );
 			break;
-#endif //ATTACK_PET
 		default:
 			break;
 		}
@@ -125,16 +203,46 @@ int ProcAttack(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, CSkil
 					return -1;
 			}
 		}
-		
-#ifdef NIGHTSHADOW_SKILL
-		// 테이밍 몬스터는 주인이 때리는 타겟만 때려야 함
-		// 여기서 pc가 때리는 npc 저장
+
 		if ( IS_PC(of) && IS_NPC(df) )
 		{
+			// 테이밍 몬스터는 주인이 때리는 타겟만 때려야 함
+			// 여기서 pc가 때리는 npc 저장
 			CPC* temp = TO_PC(of);
-			temp->SetOwners_target(df);
+			if(temp)
+				temp->SetOwners_target(df);
 		}
-#endif // NIGHTSHADOW_SKILL
+
+		if( IS_PC(of) )
+		{
+			CPC* pPcOf = TO_PC(of);
+			if(pPcOf)
+				pPcOf->SetSummonOwners_target(df);
+
+			if( IS_NPC(df) )
+			{
+				CNPC * pNpc = TO_NPC(df);
+				if( pNpc->GetOwner() && pNpc->GetOwner()->GetSummonNpc(SUMMON_NPC_TYPE_MERCENARY) == pNpc)
+					pNpc->GetOwner()->SetSummonOwners_target(of);
+			}
+
+			if( pPcOf->IsSetPlayerState(PLAYER_STATE_PKMODE)  )
+			{
+				if(  IS_PC( df) )
+				{
+					CPC* pPcDf = TO_PC(df);
+					if(pPcDf && pPcDf->GetSummonNpc(SUMMON_NPC_TYPE_MERCENARY) )
+						pPcDf->SetSummonOwners_target(of);
+				}
+				// PVP 상태에서 용병을 때리면 맞은 용병의 오너에게 정당 방위를 성립 시킨다.
+				else if( IS_NPC(df) && TO_NPC(df)->GetOwner() && TO_NPC(df) == TO_NPC(df)->GetOwner()->GetSummonNpc(SUMMON_NPC_TYPE_MERCENARY) )
+				{
+					CPC* pPcDf = TO_NPC(df)->GetOwner();
+					AddRaList(pPcOf, pPcDf ); //
+				}
+			}
+		}
+
 	}
 
 	return 0;
@@ -165,44 +273,13 @@ bool CheckInNearCellExt(CCharacter* ch, CCharacter* tch)
 	if (ch->m_pArea->m_index != tch->m_pArea->m_index)
 		return false;
 
-#ifdef MONSTER_COMBO
 	if (ch->m_pos.m_yLayer != tch->m_pos.m_yLayer)
 		return false;
-#endif // MONSTER_COMBO
 
 	if (ABS(ch->m_cellX - tch->m_cellX) <= CELL_EXT && ABS(ch->m_cellZ - tch->m_cellZ) <= CELL_EXT)
 		return true;
-	
-	return false;
-}
 
-// npc의 어택리스트중 가장 많은 데미지를 준 pc 반환
-CAttackChar* FindMaxDamage(CNPC* npc)
-{
-	CAttackChar* ret = NULL;
-	CAttackChar* attackCh = npc->m_attackList;
-	int dam = 0;
-	
-	while (attackCh)
-	{
-		if (attackCh->ch)
-		{
-			// 같은 zone에 없거나 같은 area에 없거나 CELL_EXT(+-5) 범위 안에 없거나
-			if ((npc->m_pZone->m_index != attackCh->ch->m_pZone->m_index) || 
-				(npc->m_pArea->m_index != attackCh->ch->m_pArea->m_index) ||
-				!CheckInNearCellExt(npc, attackCh->ch))
-				break;
-			
-			if (dam <= attackCh->m_damage)
-			{
-				dam = attackCh->m_damage;
-				ret = attackCh;
-			}
-		}
-		attackCh = attackCh->m_next;
-	}
-	
-	return ret;
+	return false;
 }
 
 // 우선권 PC 찾기
@@ -212,36 +289,20 @@ typedef struct __tagPreferencePCData
 {
 	CPC*		m_pc;		// PC 포인터
 	int			m_damage;	// 해당 PC의 데미지
-
-	static int Comp(struct __tagPreferencePCData* d1, struct __tagPreferencePCData* d2)
-	{
-		if (d1->m_pc == d2->m_pc)
-			return 0;
-		else
-			return -1;
-	}
 } PPDATA;
 
-#ifdef NEW_DIVISION_EXPSP
 CPC* FindPreferencePC(CNPC* npc, int* level, LONGLONG* pnTotalDamage)
-#else // #ifdef NEW_DIVISION_EXPSP
-CPC* FindPreferencePC(CNPC* npc, int* level)
-#endif // #ifdef NEW_DIVISION_EXPSP
 {
 	CPC* ret = NULL;
 	CAttackChar* target = npc->m_attackList;
 
 	int dam = 0;
-#ifdef NEW_DIVISION_EXPSP
 	*pnTotalDamage = npc->GetTotalDamage();
 	LONGLONG nPreferDamage = *pnTotalDamage + npc->m_maxHP * 2 / 10;		// 최대 대미지와 NPC의 최대HP 20%를 합한 값을 아이템 우선권에 사용
-#else // #ifdef NEW_DIVISION_EXPSP
-	int totalDam = npc->m_totalDamage + (npc->m_maxHP * 20 / 100);
-#endif // #ifdef NEW_DIVISION_EXPSP
 	int totLevel = 0;
 	int	count = 0;
 
-	CLCList<PPDATA*> listAttackPC(PPDATA::Comp);	// NPC 공격에 가담한 PC 리스트
+	std::map<CPC*, PPDATA> listAttackPC;	// NPC 공격에 가담한 PC 리스트
 	while (target)
 	{
 		if (target->ch)
@@ -264,9 +325,9 @@ CPC* FindPreferencePC(CNPC* npc, int* level)
 			if (npc->m_pZone == NULL)
 				break;
 			// 같은 zone에 없거나 같은 area에 없거나 CELL_EXT(+-5) 범위 안에 없거나
-			if ((npc->m_pZone->m_index != target->ch->m_pZone->m_index) || 
-				(npc->m_pArea->m_index != target->ch->m_pArea->m_index) ||
-				!CheckInNearCellExt(npc, target->ch))
+			if ((npc->m_pZone->m_index != target->ch->m_pZone->m_index) ||
+					(npc->m_pArea->m_index != target->ch->m_pArea->m_index) ||
+					!CheckInNearCellExt(npc, target->ch))
 				break;
 
 			dam = target->m_damage;
@@ -282,79 +343,72 @@ CPC* FindPreferencePC(CNPC* npc, int* level)
 				ppdata.m_pc = target->pc;
 				break;
 
-#ifdef ENABLE_PET
 			case MSG_CHAR_PET:
 				if (TO_PET(target->ch)->GetOwner())
 					ppdata.m_pc = TO_PET(target->ch)->GetOwner();
 				break;
-#endif // ENABLE_PET
 
 			case MSG_CHAR_ELEMENTAL:
 				if (TO_ELEMENTAL(target->ch)->GetOwner())
 					ppdata.m_pc = TO_ELEMENTAL(target->ch)->GetOwner();
 				break;
-				
-#ifdef ATTACK_PET
+
 			case MSG_CHAR_APET:
 				if ( TO_APET(target->ch)->GetOwner() )
 					ppdata.m_pc = TO_APET(target->ch)->GetOwner();
 				break;
-#endif //ATTACK_PET
 
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
 			case MSG_CHAR_NPC:
 				if ( TO_NPC(target->ch)->GetOwner() )
 					ppdata.m_pc = TO_NPC(target->ch)->GetOwner();
 				break;
-#endif  // NIGHTSHADOW_SKILL	
 			default:
 				break;
 			}
 
 			if (ppdata.m_pc)
 			{
-				void* pos = listAttackPC.FindData(&ppdata);
-				if (pos == NULL)
+				std::map<CPC*, PPDATA>::iterator it = listAttackPC.find(ppdata.m_pc);
+				if (it == listAttackPC.end())
 				{
-					PPDATA* ppdatanew = new PPDATA;
-					ppdatanew->m_pc = ppdata.m_pc;
-					ppdatanew->m_damage = dam;
-					listAttackPC.AddToTail(ppdatanew);
+					PPDATA ppdatanew;
+					ppdatanew.m_pc = ppdata.m_pc;
+					ppdatanew.m_damage = dam;
+					listAttackPC.insert(std::map<CPC*, PPDATA>::value_type(ppdatanew.m_pc, ppdatanew));
+					count++;
+					totLevel += ppdata.m_pc->m_level;
 				}
 				else
 				{
-					PPDATA* ppdatacur = listAttackPC.GetData(pos);
-					ppdatacur->m_damage += dam;
+					PPDATA& ppdatacur = it->second;
+					ppdatacur.m_damage += dam;
 				}
 			}
 
-			totLevel += target->ch->m_level;
-			count++;
+			if( target->ch->m_type == MSG_CHAR_NPC )
+			{
+				if( TO_NPC(target->ch)->GetOwner() && TO_NPC(target->ch)->GetOwner()->GetSummonNpc(TO_NPC(target->ch)) )
+				{
+					target = target->m_next;
+					continue;
+				}
+			}
 		}
 		target = target->m_next;
 	}
 
-	void* pos = listAttackPC.GetHead();
-	while (pos)
+	std::map<CPC*, PPDATA>::iterator it = listAttackPC.begin();
+	std::map<CPC*, PPDATA>::iterator endit = listAttackPC.end();
+	for(; it != endit; ++it)
 	{
-		PPDATA* ppdata = listAttackPC.GetData(pos);
+		PPDATA& ppdata = it->second;
 
 		// 50% 이상 데미지 준 PC 반환
-#ifdef NEW_DIVISION_EXPSP
-		if (ppdata->m_damage > nPreferDamage / 2)
-#else // #ifdef NEW_DIVISION_EXPSP
-		if (ppdata->m_damage > totalDam / 2)
-#endif // #ifdef NEW_DIVISION_EXPSP
-			ret = ppdata->m_pc;
-		pos = listAttackPC.GetNext(pos);
+		if (ppdata.m_damage > nPreferDamage / 2)
+			ret = ppdata.m_pc;
 	}
 
-	while (listAttackPC.GetCount() > 0)
-	{
-		PPDATA* ppdata = listAttackPC.GetData(listAttackPC.GetHead());
-		listAttackPC.Remove(listAttackPC.GetHead());
-		delete ppdata;
-	}
+	listAttackPC.clear();
 
 	if (count == 0)
 		*level = -1;
@@ -368,767 +422,61 @@ CPC* FindPreferencePC(CNPC* npc, int* level)
 	return ret;
 }
 
-// 파티원 들에게 경험치 SP 분배
-// npc가 죽었을때 party 원에게 Exp, SP 분배
-#ifndef NEW_DIVISION_EXPSP
-void DivisionExpSPParty(CParty* party, CNPC* npc, CPC* preferencePC)
-{
-	if (!party || !npc)
-		return;
-	
-	int i;
-	int nParty = 0;
-	bool bTakeExp[MAX_PARTY_MEMBER];
-	float partyDam = 0.0f;					// 파티 총 데미지
-	float partyExp = 0.0f, partySP = 0.0f;	// 파티 총 경험치, SP
-
-	float exp = 0.0f;					// 파티원 한사람이 가져갈 경험치 : damExp + sameExp + levelExp
-	float sp = 0.0f;					// 파티원 한사람이 가져갈 SP : damSP + sameSP + levelSP
-
-#ifdef EVENT_TEACH_2007
-	bool	bTeacherAndStudent = IsTeachAndStudent( pParty );		// 사제간의 파티인지지 검사
-#endif // EVENT_TEACH_2007
-
-	memset(bTakeExp, 0, sizeof(bool) * MAX_PARTY_MEMBER);
-
-	CAttackChar* attackCh = npc->m_attackList;
-
-	int partyLevel = 0;
-	int partyTotalLevel = 0;
-	int partyMaxLevel = 0;
-	i = 0;
-
-	// 파티 총데미지 계산
-	while (attackCh)
-	{
-		// 어택리스트에 파티 존재	: attackCh->pc->m_party
-		// 파티원					: party == attackCh->pc->m_party && attackCh->pc != party->m_request
-		// 근처						: CheckInNearCellExt(attackCh->pc, npc)
-		// 살아 있음				: !DEAD(attackCh->pc)
-		CPC* pExpPC = NULL;
-		switch (attackCh->ch->m_type)
-		{
-		case MSG_CHAR_PC:
-			pExpPC = TO_PC(attackCh->ch);
-			break;
-		case MSG_CHAR_PET:
-			pExpPC = TO_PET(attackCh->ch)->GetOwner();
-			break;
-		case MSG_CHAR_ELEMENTAL:
-			pExpPC = TO_ELEMENTAL(attackCh->ch)->GetOwner();
-			break;
-#ifdef ATTACK_PET
-		case MSG_CHAR_APET:
-			pExpPC = TO_APET(attackCh->ch)->GetOwner();
-			break;
-#endif //ATTACK_PET
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
-		case MSG_CHAR_NPC:
-			pExpPC = TO_NPC(attackCh->ch)->GetOwner();
-			break;
-#endif  // NIGHTSHADOW_SKILL
-		default:
-			break;
-		}
-		
-		if (!pExpPC)
-		{
-			attackCh = attackCh->m_next;
-			continue;
-		}
-
-		if (pExpPC->IsParty() && party == pExpPC->m_party && CheckInNearCellExt(pExpPC, npc) && !DEAD(pExpPC))
-		{
-			// 파티 뎀쥐에 추가,, Exp, SP주었는가 셋팅
-			partyDam += (float)attackCh->m_damage;
-			attackCh->m_bGiveExpSP = true;
-		}
-
-		attackCh = attackCh->m_next;
-	}
-
-	for (i = 0; i < MAX_PARTY_MEMBER; i++)
-	{
-		if (party->GetMember(i) && CheckInNearCellExt(party->GetMember(i), npc) && !DEAD(party->GetMember(i)))
-		{
-			nParty++;
-
-			partyTotalLevel += party->GetMember(i)->m_level;
-			if (partyMaxLevel < party->GetMember(i)->m_level)
-				partyMaxLevel = party->GetMember(i)->m_level;	// 파티원 최고 레벨
-
-			int idx = party->Find(party->GetMember(i));
-			if (idx >= 0)
-				bTakeExp[idx] = true;
-		}
-	}
-
-	// 파티데미지가 0 이거나 0명이거나 레벨합이 0이거나 ?!
-	if (partyDam < 1 || nParty < 1 || partyTotalLevel < 1)
-		return;
-
-	partyLevel = (partyMaxLevel - (partyTotalLevel / nParty) > 5) ? (partyMaxLevel - 5) : (partyTotalLevel / nParty);
-
-	// 파티 총데미지로 exp, sp 계산
-	partyExp = (float)npc->m_proto->m_exp * partyDam / (float)npc->m_totalDamage;
-	partySP = (float)npc->m_proto->m_skillPoint * partyDam / (float)npc->m_totalDamage;
-	
-
-	// 파티 exp 조정 : 050413
-	// 인원수에 따른 보너스 %
-	static const int countBonus[MAX_PARTY_MEMBER] = { 15, 30, 40, 50, 60, 70, 70, 70};
-
-	int basic_party_plus_exp;
-	int basic_party_plus_sp;
-
-	// bw : 060817 : 파티 시스템 버그 부분, 인원수 보너스도 한명일때 0이도록 수정요함
-	/*
-	if( nParty == 1 )
-	{
-		basic_party_plus_exp = 0;
-		basic_party_plus_sp = 0;
-	}
-	else
-	*/
-	{
-		basic_party_plus_exp = PARTY_PLUS_EXP;
-		basic_party_plus_sp = PARTY_PLUS_SP;
-	}
-
-	partyExp = partyExp + partyExp * (basic_party_plus_exp / 100.0f + (float)countBonus[nParty - 1] / 100.0f);
-	partySP = partySP + partySP * (basic_party_plus_sp / 100.0f + (PARTY_PLUS_SP_COUNT * (float)(nParty - 1) / 100.0f));
-
-	// 미리 랜덤 계산 하기
-	partyExp *= GetRandom(900, 1100) / 1000.0f;
-	partySP *= GetRandom(900, 1100) / 1000.0f;
-
-	// 파티 exp 조정 : 050413
-	// 레벨 차에 따른 경험치 페널티 %
-	static const int levelPenalty[6] = {95, 90, 75, 60, 45, 10};
-
-#ifdef EVENT_TEACH_2007
-	if (bTeacherAndStudent == false)
-	{
-#endif // EVENT_TEACH_2007
-		if (partyLevel > npc->m_level)
-		{
-			int diff = partyLevel - npc->m_level;
-			
-			if (diff > 6)
-				diff = 6;
-
-			partyExp = partyExp * (float)levelPenalty[diff - 1] / 100.0f;
-		}
-
-		//	SP 페널티
-		if (party->GetPartyType() == PARTY_TYPE_RANDOM || party->GetPartyType() == PARTY_TYPE_BATTLE)
-		{
-			if (partyLevel > npc->m_level)
-			{
-				int diff = partyLevel - npc->m_level;
-
-				bool bSP = false;
-
-				if (diff > MAX_PENALTY_SP_LEVEL)
-					bSP = true;
-
-				if (bSP)
-					partySP = 1.0f;
-				else
-					partySP *= (1.0f - (float)diff * DOWN_LEVEL_SP / 100.0f);
-			}
-			else if (partyLevel < npc->m_level)
-				partySP *= (1.0f + (float)(npc->m_level - partyLevel) * UP_LEVEL_SP / 100.0f);
-		}
-#ifdef EVENT_TEACH_2007
-	}
-#endif //EVENT_TEACH_2007
-
-	// 파티원에게 Exp, SP 분배
-	for (i = 0; i < MAX_PARTY_MEMBER; i++)
-	{
-		// 분배 대상만
-		if (!party->GetMember(i) || !bTakeExp[i])
-			continue;
-
-		CPC* tpc = party->GetMember(i);
-
-		// 파티 exp 조정 : 050413
-		// 경험치
-		// 파티타입이 0, 1이면
-		//		(( 경험치 * 75 %) * 자신의 lv / 파티원 lv의 총합)) + (exp * 25%) * 1/ 파티원수
-		// 2이면 ((경험치 * 70%) * 자신이 몹에게 피해를 준 dam / 몹이 받은 총dam)
-		//				+ ((경험치 * 30) * 자신의 lv / 파티원 lv의 총합
-		if(party->GetPartyType() == PARTY_TYPE_RANDOM || party->GetPartyType() == PARTY_TYPE_FIRSTGET )
-		{
-			exp = (partyExp * 75.0f / 100.0f) * ((float)tpc->m_level / (float)partyTotalLevel) 
-						+ (partyExp * 25.0f / 100.0f) / (float)nParty;
-#ifdef EVENT_TEACH_2007
-			if (bTeacherAndStudent == true)
-			{
-				exp = partyExp / (100.0f * nParty);
-			}
-#endif // EVENT_TEACH_2007
-		}
-		else
-		{
-			float dam = 0.0f;
-			attackCh = npc->m_attackList;
-
-			// 자기가 때린 데미지 가져오기
-			while (attackCh)
-			{
-				CPC* pExpPC = NULL;
-				switch (attackCh->ch->m_type)
-				{
-				case MSG_CHAR_PC:
-					pExpPC = TO_PC(attackCh->ch);
-					break;
-				case MSG_CHAR_PET:
-					pExpPC = TO_PET(attackCh->ch)->GetOwner();
-					break;
-				case MSG_CHAR_ELEMENTAL:
-					pExpPC = TO_ELEMENTAL(attackCh->ch)->GetOwner();
-					break;
-#ifdef ATTACK_PET
-				case MSG_CHAR_PET:
-					pExpPC = TO_APET(attackCh->ch)->GetOwner();
-					break;
-#endif //ATTACK_PET
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
-				case MSG_CHAR_NPC:
-					pExpPC = TO_NPC(attackCh->ch)->GetOwner();
-					break;
-#endif  // NIGHTSHADOW_SKILL	
-				default:
-					break;
-				}
-				
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
-				if (!pExpPC)
-				{
-					attackCh = attackCh->m_next;
-					continue;
-				}
-#endif  // NIGHTSHADOW_SKILL	
-
-				if (pExpPC == tpc)
-				{
-					dam = (float)attackCh->m_damage;
-					break;
-				}
-
-				attackCh = attackCh->m_next;
-			}
-
-			exp = partyExp * 70.0f / 100.0f * dam / partyDam
-						+ (partyExp * 30.0f / 100.0f) * tpc->m_level / (float) partyTotalLevel ;
-			
-		}
-
-		// 파티타입이 0, 2이면 sp = partySP / nParty
-		// 
-		if (party->GetPartyType() == PARTY_TYPE_RANDOM || party->GetPartyType() == PARTY_TYPE_BATTLE)
-		{
-			// 균등
-			sp = partySP / nParty;
-		}
-		else
-		{
-			float dam = 0.0f;
-			attackCh = npc->m_attackList;
-			// 자기가 때린 데미지 가져오기
-			while (attackCh)
-			{
-				CPC* pExpPC = NULL;
-				switch (attackCh->ch->m_type)
-				{
-				case MSG_CHAR_PC:
-					pExpPC = TO_PC(attackCh->ch);
-					break;
-				case MSG_CHAR_PET:
-					pExpPC = TO_PET(attackCh->ch)->GetOwner();
-					break;
-				case MSG_CHAR_ELEMENTAL:
-					pExpPC = TO_ELEMENTAL(attackCh->ch)->GetOwner();
-					break;
-#ifdef ATTACK_PET
-				case MSG_CHAR_PET:
-					pExpPC = TO_APET(attackCh->ch)->GetOwner();
-					break;
-#endif //ATTACK_PET
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
-				case MSG_CHAR_NPC:
-					pExpPC = TO_NPC(attackCh->ch)->GetOwner();
-					break;
-#endif  // NIGHTSHADOW_SKILL	
-				default:
-					break;
-				}
-				
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
-				if (!pExpPC)
-				{
-					attackCh = attackCh->m_next;
-					continue;
-				}
-#endif  // NIGHTSHADOW_SKILL	
-
-				if (pExpPC == tpc)
-				{
-					dam = (float)attackCh->m_damage;
-					break;
-				}
-
-				attackCh = attackCh->m_next;
-			}
-
-			// 파티 균등 경험치, SP 미리 구함 (파티원 모두에게 같음)
-			sp = PARTY_SP_SAME * partySP / (100.0f * nParty);
-
-			sp += PARTY_SP_DAMAGE * partySP * dam / (100.0f * partyDam);
-			sp += PARTY_SP_LEVEL * partySP * tpc->m_level / (100.0f * partyTotalLevel);
-
-#ifdef EVENT_TEACH_2007
-			if( !bTeacherAndStudent )
-			{
-#endif //EVENT_TEACH_2007
-			// 레벨 페널티 적용
-			if (tpc->m_level > npc->m_level)
-			{
-				int diff = tpc->m_level - npc->m_level;
-
-				bool bSP = false;
-
-				if (diff > MAX_PENALTY_SP_LEVEL)
-					bSP = true;
-
-				if (bSP)
-					sp = 1.0f;
-				else
-					sp *= (1.0f - (float)diff * DOWN_LEVEL_SP / 100.0f);
-			}
-#ifdef EVENTE_TEACH_2007
-			}
-			else
-			{
-#endif // EVENTE_TEACH_2007
-			else if (tpc->m_level < npc->m_level)
-				sp *= (1.0f + (float)(npc->m_level - tpc->m_level) * UP_LEVEL_SP / 100.0f);
-
-#ifdef EVENTE_TEACH_2007
-			}
-#endif // EVENTE_TEACH_2007
-		}
-
-
-		
-#ifdef EVENT_TEACH_2007
-		if (bTeacherAndStudent == false)
-		{
-#endif //EVENT_TEACH_2007
-		// 파티원중 최고레벨보다 15렙 작으면 경험치/SP를 5%만 얻는다
-			if (partyMaxLevel - 15 > tpc->m_level)
-			{
-				exp /= 20;
-				sp /= 20;
-			}
-#ifdef EVENTE_TEACH_2007
-		}
-#endif // EVENTE_TEACH_2007
-
-
-		if (exp < 1.0f)
-			exp = 1.0f;
-		
-		if (sp < 1.0f)
-			sp = 1.0f;
-
-		if (tpc == preferencePC)
-		{
-			// 9월 이벤트 : 경험치 4배
-			if (tpc->m_assist.m_avAddition.hcSepExp)
-			{
-				tpc->m_assist.CureByItemIndex(882);	// 경험치
-				exp = exp * 4;
-				CNetMsg rmsg;
-				EventErrorMsg(rmsg, MSG_EVENT_ERROR_SEPTEMBER_EXP);
-				SEND_Q(rmsg, tpc->m_desc);
-			}
-
-			// 9월 이벤트 : SP 4배
-			if (tpc->m_assist.m_avAddition.hcSepSP)
-			{
-				tpc->m_assist.CureByItemIndex(883);	// 숙련도
-				sp = sp * 4;
-				CNetMsg rmsg;
-				EventErrorMsg(rmsg, MSG_EVENT_ERROR_SEPTEMBER_SP);
-				SEND_Q(rmsg, tpc->m_desc);
-			}
-		}
-
-#ifdef NEW_ACCERY_ADD
-		if( tpc->m_AddProb )
-		{
-			exp = exp + ( exp * tpc->m_AddProb / 100 );
-			sp = sp + ( SP * tpc->m_AddProb / 100 );
-		}
-#endif // NEW_ACCERY_ADD
-
-
-		tpc->AddExpSP((LONGLONG)exp, (int)sp, true);
-
-#ifdef ATTACK_PET
-		CAPet* apet = tpc->GetAPet();
-		if( apet )
-		{
-			apet->AddExpSP( (LONGLONG)( npc->m_level/5) , 0 );
-		}
-#endif //ATTACK_PET
-			
-
-		if( sp > 1000000 )
-		{
-			GAMELOG << init("SP_UP_BUG", tpc)
-					<< tpc->m_skillPoint << delim
-					<< sp << end;
-			/*GAMELOG
-					<< attackCh->pc->m_str << delim
-					<< attackCh->pc->m_dex << delim
-					<< attackCh->pc->m_int << delim
-					<< attackCh->pc->m_con << delim
-					<< sp << delim
-					<< attackCh->m_damage << delim
-					<< npc->m_totalDamage << delim
-					<< attackCh->pc->IsParty() << delim
-					<< party->GetPartyType() << delim
-					<< partyLevel << delim
-					<< partyMaxLevel << delim
-					<< partyDam << delim
-					<< partySP << end;
-					*/
-			
-		}
-	}
-}
-
-// npc가 죽었을때 어택리스트들에게 Exp, SP 분배
-bool DivisionExpSP(CNPC* npc, CPC* preferencePC)
-{
-	float exp = 0.0f, sp = 0.0f;
-
-	// 동급 레벨
-	float giveExp = (float)npc->m_proto->m_exp;
-	float giveSP = (float)npc->m_proto->m_skillPoint;
-	
-	CAttackChar* attackCh = NULL;
-	CAttackChar* attackChNext = npc->m_attackList;
-	
-	while ((attackCh = attackChNext))
-	{
-		attackChNext = attackCh->m_next;
-		
-		if (attackCh->ch)
-		{
-			// 같은 zone에 없거나 같은 area에 없거나 CELL_EXT 범위 안에 없거나
-			if ((npc->m_pZone->m_index != attackCh->ch->m_pZone->m_index) || 
-				(npc->m_pArea->m_index != attackCh->ch->m_pArea->m_index) ||
-				!CheckInNearCellExt(npc, attackCh->ch))
-				continue;
-			
-			// 경험치와 SP를 받았는가
-			if (attackCh->m_bGiveExpSP)
-				continue;
-
-			// 지가 때린 데미지가 없으면 ?!
-			if (attackCh->m_damage <= 0)
-			{
-				attackCh->m_bGiveExpSP = true;
-				continue;
-			}
-
-			CPC* pExpPC = NULL;
-			switch (attackCh->ch->m_type)
-			{
-			case MSG_CHAR_PC:
-				pExpPC = TO_PC(attackCh->ch);
-				break;
-			case MSG_CHAR_PET:
-				pExpPC = TO_PET(attackCh->ch)->GetOwner();
-				break;
-			case MSG_CHAR_ELEMENTAL:
-				pExpPC = TO_ELEMENTAL(attackCh->ch)->GetOwner();
-				break;
-#ifdef ATTACK_PET
-			case MSG_CHAR_APET :
-				pExpPC = TO_APET(attackCh->ch)->GetOwner();
-				break;
-#endif //ATTACK_PET
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
-			case MSG_CHAR_NPC:
-				pExpPC = TO_NPC(attackCh->ch)->GetOwner();
-				break;
-#endif  // NIGHTSHADOW_SKILL	// 
-			default:
-				break;
-			}
-			
-			if (!pExpPC) continue;
-
-			// 파티의 경우
-			if (pExpPC->IsParty())
-				DivisionExpSPParty(pExpPC->m_party, npc, preferencePC);
-			
-			// 파티가 아닌 경우
-			else
-			{
-				attackCh->m_bGiveExpSP = true;
-
-				// 경험치 페널티 조정 : 050413
-				// 레벨 차에 따른 경험치 페널티 %
-				static const int levelPenalty[6] = {95, 90, 75, 60, 45, 10};
-				
-				if (pExpPC->m_level > npc->m_level)
-				{
-					int diff = pExpPC->m_level - npc->m_level;
-					
-					if (diff > 6)
-						diff = 6;
-					
-					giveExp = giveExp * (float)levelPenalty[diff - 1] / 100.0f;
-				}
-
-				if (pExpPC->m_level > npc->m_level)
-				{
-					int diff = pExpPC->m_level - npc->m_level;
-
-					bool bSP = false;
-					
-					if (diff > MAX_PENALTY_SP_LEVEL)
-						bSP = true;
-					
-					if (bSP)
-						giveSP = 1.0f;
-					else
-						giveSP *= (1.0f - (float)diff * DOWN_LEVEL_SP / 100.0f);
-				}
-
-				// SP의 경우 상위레벨 적용
-				else if (pExpPC->m_level < npc->m_level)
-					giveSP *= (1 + (float)(npc->m_level - pExpPC->m_level) * UP_LEVEL_SP / 100.0f);
-
-				exp = giveExp * (float)attackCh->m_damage / (float)npc->m_totalDamage;
-				sp = giveSP * (float)attackCh->m_damage / (float)npc->m_totalDamage;
-
-				exp *= GetRandom(900, 1100) / 1000.0f;
-				sp *= GetRandom(900, 1100) / 1000.0f;
-
-				if (exp < 1.0f)
-					exp = 1.0f;
-
-				if (sp < 1.0f)
-					sp = 1.0f;
-
-				if (pExpPC)
-				{
-					if (pExpPC == preferencePC)
-					{
-						// 9월 이벤트 : 경험치 4배
-						if (pExpPC->m_assist.m_avAddition.hcSepExp)
-						{
-							pExpPC->m_assist.CureByItemIndex(882);	// 경험치
-							exp = exp * 4;
-							CNetMsg rmsg;
-							EventErrorMsg(rmsg, MSG_EVENT_ERROR_SEPTEMBER_EXP);
-							SEND_Q(rmsg, pExpPC->m_desc);
-						}
-
-						// 9월 이벤트 : SP 4배
-						if (pExpPC->m_assist.m_avAddition.hcSepSP)
-						{
-							pExpPC->m_assist.CureByItemIndex(883);	// 숙련도
-							sp = sp * 4;
-							CNetMsg rmsg;
-							EventErrorMsg(rmsg, MSG_EVENT_ERROR_SEPTEMBER_SP);
-							SEND_Q(rmsg, pExpPC->m_desc);
-						}
-					}
-#ifdef NEW_ACCERY_ADD
-					if( tpc->m_AddProb )
-					{
-						exp = exp + ( exp * tpc->m_AddProb / 100 );
-						sp = sp + ( SP * tpc->m_AddProb / 100 );
-					}
-#endif // NEW_ACCERY_ADD
-
-					if( sp > 1000000 )
-					{
-						GAMELOG << init("SP_UP_BUG", pExpPC)
-								<< pExpPC->m_skillPoint << delim
-								<< sp << end;
-					}
-
-					if( pExpPC->AddExpSP((LONGLONG)exp, (int)sp), true)
-#ifdef ATTACK_PET
-					{
-						CAPet* apet = pExpPC->GetAPet();
-						if( apet )
-						{
-							apet->AddExpSP( (LONGLONG)( npc->m_level/5) , 0 );
-						}						
-						return true
-					}
-#else
-						return true;
-#endif //ATTACK_PET
-
-						
-					attackCh->m_bGiveExpSP = true;
-
-					pExpPC->m_bChangeStatus = true;
-				}
-			}
-		}
-	}
-	return false;
-}
-#endif // #ifndef NEW_DIVISION_EXPSP
-
 // 균등 파티 시 돈 갈라먹기
-void DivisionPartyMoney(CPC* pc, CItem* item)
+void DivisionPartyMoney(CPC* pc, LONGLONG count)
 {
 	// validation
-	if (!pc && !item && item->m_idNum != gserver.m_itemProtoList.m_moneyItem->m_index)
+	if (pc == NULL || count <= 0)
 		return;
-	
+
 	int i;
 	CParty* party = pc->m_party;
-	bool bPreference = false;		// 이 파티가 자격이 있는가
 	int divCount = 0;				// 돈 갈라먹을 파티 멤버 수
-	
+
 	for (i=0; i < MAX_PARTY_MEMBER; i++)
 	{
 		CPC* pMemberPC = party->GetNearMember(pc, i);
 		if (!pMemberPC)
 			continue;
-		
-		if (item->m_preferenceIndex == pMemberPC->m_index)
-			bPreference = true;
 
 		divCount++;
 	}
-	
-	if (item->m_preferenceIndex != -1 && !bPreference)
-		return;
-	
-	CNetMsg itemmsg;
 
 	if (divCount < 1)
 		return;
-	
+
 	// 돈 갈라내기
-	bool bTake = false;		// 돈을 받은 사람이 있나?: 없으면 아이템은 바닥에 그대로
-	LONGLONG count = item->Count() / (LONGLONG)divCount;
-	
+	//bool bTake = false;		// 돈을 받은 사람이 있나?: 없으면 아이템은 바닥에 그대로
+	count = count / divCount;
+
 	if (count < 1)
 		return;
-	
+
+	GoldType_t Artimoney = 0;
+
 	// 파티원에게 분배
 	for (i = MAX_PARTY_MEMBER - 1; i >= 0; i--)
 	{
-		CPC* pMemberPC = party->GetNearMember(pc, i);
+		Artimoney = 0;
+
+		CPC* pMemberPC = TO_PC(party->GetNearMember(pc, i));
 		if (!pMemberPC)
 			continue;
-		
-		// 들어갈 인벤토리 결정
-		CInventory* inven = GET_INVENTORY(pMemberPC, GET_TAB(item->m_itemProto->m_typeIdx, item->m_itemProto->m_subtypeIdx));
-		if (!inven)
-			continue ;
-		
+
 		// 갈른 돈 만들기
-		CItem* money = gserver.m_itemProtoList.CreateItem(gserver.m_itemProtoList.m_moneyItem->m_index, WEARING_NONE, 0, 0, count);
-		
-		if (!money)
-			continue;
-		
-		bool bCountable = false;
-		// 인벤에 넣기
-		if (AddToInventory(pMemberPC, money, true, true))
+		int bonus = 0;
+		if(pMemberPC->m_avPassiveAddition.money_nas > 0)
 		{
-			bTake = true;
-			
-			// 겹쳐졌는지 검사
-			if (money->tab() == -1)
-			{
-				bCountable = true;
-				
-				// 수량 변경 알림
-				int r, c;
-				if (inven->FindItem(&r, &c, money->m_idNum, money->m_plus, money->m_flag))
-				{
-					CItem* p = inven->GetItem(r, c);
-					if (p)
-						ItemUpdateMsg(itemmsg, p, money->Count());
-				}
-			}
-			else
-			{
-				ItemAddMsg(itemmsg, money);
-				// 돈 검사
-				if (money->m_idNum == gserver.m_itemProtoList.m_moneyItem->m_index && pMemberPC->m_moneyItem == NULL)
-					pMemberPC->m_moneyItem = money;
-			}
-			
-			// LOG
-			GAMELOG << init("ITEM_PICK", pc)
-					<< itemlog(money)
-					<< end;
-			
-			SEND_Q(itemmsg, pMemberPC->m_desc);
+			bonus += pMemberPC->m_avPassiveAddition.money_nas;	
 		}
-		else
+		if(pMemberPC->m_avPassiveRate.money_nas > 0)
 		{
-			CNetMsg smsg;
-			SysFullInventoryMsg(smsg, (char)inven->m_tab);
-			SEND_Q(smsg, pMemberPC->m_desc);
-			
-			delete money;
-			money = NULL;
-			continue ;
+			bonus = count * (pMemberPC->m_avPassiveRate.money_nas - 100) / SKILL_RATE_UNIT;
 		}
-		
-		if (bCountable)
-		{
-			delete money;
-			money = NULL;
-		}
-	}
-	
-	if (bTake)
-	{
-		// 원래 돈 하나 짜리 아이템 처리
-		CNetMsg disappmsg;
-		CNetMsg takemsg;
-		
-		int cx, cz;
-		
-		cx = item->m_cellX;
-		cz = item->m_cellZ;
-		
-		ItemTakeMsg(takemsg, pc, item);
-		ItemDisappearMsg(disappmsg, item);
-		
-		// 우선권 제거
-		item->m_preferenceIndex = -1;
-		
-		// 땅에서 제거
-		pc->m_pArea->ItemFromCell(item);
-		
-		delete item;
-		
-		// 메시지 보내고
-		pc->m_pArea->SendToCell(takemsg, pc, true);
-		pc->m_pArea->SendToCell(disappmsg, GET_YLAYER(pc), cx, cz);
+
+		Artimoney = count * pMemberPC->m_artiGold / 100;
+
+		pMemberPC->m_inventory.increaseMoney(count + Artimoney, bonus);
 	}
 }
 
@@ -1138,31 +486,27 @@ bool GetItemRandomParty(CPC* pc, CItem* item)
 	// validation
 	if (!pc && !item && !pc->m_party)
 		return false;
-	
+
 	int i;
 	CParty* party = pc->m_party;
 	bool bPreference = false;		// 이 파티가 자격이 있는가
 	int partyCount = 0;				// 받을 수 있는 자격이 있는 파티원 수
-	
+
 	for (i=0; i < MAX_PARTY_MEMBER; i++)
 	{
 		CPC* pMemberPC = party->GetNearMember(pc, i);
 		if (!pMemberPC)
 			continue;
-		
+
 		if (item->m_preferenceIndex == pMemberPC->m_index)
 			bPreference = true;
 
 		partyCount++;
 	}
-	
+
 	// 우선권이 있는데 파티가 자격없으면 return;
 	if (item->m_preferenceIndex != -1 && !bPreference)
 	{
-		// 우선권이 없습니다 메시지 전송
-		CNetMsg smsg;
-		SysMsg(smsg, MSG_SYS_NOT_OWNER_ITEM);
-		SEND_Q(smsg, pc->m_desc);
 		return false;
 	}
 
@@ -1170,175 +514,476 @@ bool GetItemRandomParty(CPC* pc, CItem* item)
 	if (partyCount < 1)
 		return false;
 
-	CNetMsg itemmsg;
-
 	bool bGiveItem = false;		// 아이템 가져 갔다!
 	int idx;					// 결정된 파티원 인덱스
 
 	int bitfield = 0;			// 결정瑛립?실패한 파티원 인덱스 저장
 	bool bAll = false;
 
-	while (!bGiveItem)
+	int deleteVIndex = item->getVIndex();
+
+	std::vector<CPC*> _user;
+
+	for(int i = 0 ; i < party->GetMemberCount(); i++)
 	{
-		idx = GetRandom(0, MAX_PARTY_MEMBER - 1);
-
-		for (i = 0; i < MAX_PARTY_MEMBER; i++)
-		{
-			if ((bitfield & (1 << ((idx + i) % MAX_PARTY_MEMBER))) == 0)
-				break ;
-		}
-
-		// 가져갈 사람이 없음 다 한번씩 받아갔음
-		if (i == MAX_PARTY_MEMBER)
-		{
-			if (bAll)
-				return false;
-
-			bAll = true;
-			bitfield = 0;
-			for (i=0; i < MAX_PARTY_MEMBER; i++)
-			{
-				CPC* pMemberPC = pc->m_party->GetNearMember(pc, i);
-				if (!pMemberPC)
-				{
-					bitfield |= (1 << i);
-					continue;
-				}
-				pMemberPC->m_bGiveItem = false;
-			}
-
-			continue;
-		}
-		else
-			idx = (idx + i) % MAX_PARTY_MEMBER;
-
-		bitfield |= (1 << idx);
-
-		// 파티원이 없으면 continue;
-		CPC* pMemberPC = party->GetNearMember(pc, idx);
-		if (!pMemberPC)
+		CPC* party_member = party->GetNearMember(pc, i);
+		
+		if(party_member == NULL)
 			continue;
 
-		// 이미 한번 받았으면 continue;
-		if (pMemberPC->m_bGiveItem)
+		else if(party_member->m_inventory.getEmptyCount() == 0)
 			continue;
 
-		// 들어갈 인벤토리 결정
-		CInventory* inven = GET_INVENTORY(pMemberPC, GET_TAB(item->m_itemProto->m_typeIdx, item->m_itemProto->m_subtypeIdx));
-		if (!inven)
-			continue ;
+		else if(gserver->isActiveEvent(A_EVENT_EGGS_HUNT) &&
+			item->getDBIndex() == 2148 &&
+			party_member->m_inventory.FindByDBIndex(item->getDBIndex()) != NULL)
+			continue;
 
-#ifdef EVENT_EGGS_HUNT_2007
-		if(item->m_idNum == 2148)
+		else if(item->m_itemProto->getItemTypeIdx() == ITYPE_ACCESSORY && item->m_itemProto->getItemSubTypeIdx() == IACCESSORY_ARTIFACT)
 		{
-			int r, c;
-			if(inven->FindItem(&r, &c, item->m_idNum, -1, -1))
-			{
-				// EGG 아이템 이미 소유하고 있음
-				CNetMsg rmsg;
-				EventEggsHunt2007ErrorMsg(rmsg, MSG_EVENT_EGGS_HUNT_2007_ERROR_ALREADY_EXIST);
-				SEND_Q(rmsg, pMemberPC->m_desc);
-				return false;
-			}
-		}
-#endif // EVENT_EGGS_HUNT_2007
+			if(party_member->m_level <= PKMODE_LIMIT_LEVEL)
+				continue;
+			if(party_member->m_assist.FindBySkillIndex(PVP_PROTECT_SKILL_INDEX) != 0)
+				continue;
 
-		bool bCountable = false;
-		// 인벤에 넣기
-		if (AddToInventory(pMemberPC, item, true, true))
-		{
-			bGiveItem = true;
-			
-			// 겹쳐졌는지 검사
-			if (item->tab() == -1)
-			{
-				bCountable = true;
-				
-				// 수량 변경 알림
-				int r, c;
-				if (inven->FindItem(&r, &c, item->m_idNum, item->m_plus, item->m_flag))
-				{
-					CItem* p = inven->GetItem(r, c);
-					if (p)
-						ItemUpdateMsg(itemmsg, p, item->Count());
-				}
-			}
-			else
-				ItemAddMsg(itemmsg, item);
-			
-			// LOG
-			GAMELOG << init("ITEM_PICK", pMemberPC)
-					<< itemlog(item)
-					<< end;
-			
-			SEND_Q(itemmsg, pMemberPC->m_desc);
+			_user.push_back(party_member);
 		}
+
 		else
 		{
-			CNetMsg smsg;
-			SysFullInventoryMsg(smsg, (char)inven->m_tab);
-			SEND_Q(smsg, pMemberPC->m_desc);
-			continue ;
+			_user.push_back(party_member);
 		}
+	}
 
-		// 원래 아이템 처리
-		CNetMsg disappmsg;
-		CNetMsg takemsg;
-		CNetMsg getmsg;
-		
-		int cx, cz;
-		
-		cx = item->m_cellX;
-		cz = item->m_cellZ;
-		
-		ItemTakeMsg(takemsg, pc, item);
-		ItemDisappearMsg(disappmsg, item);
-		ItemGetMsg(getmsg, pMemberPC, item);
-		
-		// 우선권 제거
-		item->m_preferenceIndex = -1;
-		
-		// 땅에서 제거
-		pc->m_pArea->ItemFromCell(item);
+	if(_user.size() == 0)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		SysMsg(rmsg, MSG_SYS_NOT_CONDITION_ITEM_ALL_USER);
+		SEND_Q(rmsg, pc->m_desc);
+		return false;
+	}
 
-		// 받았다고 셋팅
-		pMemberPC->m_bGiveItem = true;
-		
-		// 메시지 보내고
-		pc->m_pArea->SendToCell(takemsg, pc, true);
-		pc->m_pArea->SendToCell(disappmsg, GET_YLAYER(pc), cx, cz);
+	idx = GetRandom(0, _user.size() - 1);
+	_user[idx]->m_inventory.addItem(item);
+
+	if(item->m_itemProto->getItemTypeIdx() == ITYPE_ACCESSORY && item->m_itemProto->getItemSubTypeIdx() == IACCESSORY_ARTIFACT)
+	{
+		ArtifactManager::instance()->addOwner(_user[idx], item, true);
+	}
+
+#ifdef GER_LOG
+	GAMELOGGEM << init( 0, "CHAR_LOOT")
+		<< LOG_VAL("account-id", pc->m_desc->m_idname ) << blank
+		<< LOG_VAL("character-id", pc->m_desc->m_pChar->m_name ) << blank
+		<< LOG_VAL("item-id", item->getDBIndex() ) << blank
+		<< LOG_VAL("amount",item->Count() ) << blank
+		//<< LOG_VAL("amount", money ) << blank
+		<<endGer;
+#endif // GER_LOG
+
+	// LOG
+	itemPickGameLog(_user[idx], item);
+
+	// 원래 아이템 처리
+	CNetMsg::SP disappmsg(new CNetMsg);
+	CNetMsg::SP takemsg(new CNetMsg);
+	CNetMsg::SP getmsg(new CNetMsg);
+
+	int cx, cz;
+
+	cx = item->m_cellX;
+	cz = item->m_cellZ;
+
+	ItemTakeMsg(takemsg, pc, item);
+	ItemDisappearMsg(disappmsg, deleteVIndex);
+	ItemGetMsg(getmsg, _user[idx], item);
+
+	// 우선권 제거
+	item->m_preferenceIndex = -1;
+
+	// 땅에서 제거
+	pc->m_pArea->ItemFromCell(item);
+
+	// 메시지 보내고
+	pc->m_pArea->SendToCell(takemsg, pc, true);
+	pc->m_pArea->SendToCell(disappmsg, GET_YLAYER(pc), cx, cz);
+	pc->m_party->SendToPCInSameZone(pc->m_pZone->m_index, pc->m_pArea->m_index, getmsg);
+
+	return true;
+}
+
+//파티, 원정대 Box 아이템 획득
+bool GetItemRaidOpenBox(CPC* pc, CItem* item)
+{
+	// validation
+	if (!pc || !item || !(pc->m_pArea))
+		return false;
+
+	time_t t_now;
+	bool bGiveItem = false;		// 아이템 가져 갔다!
+	int BoxitemIndex = 4709;	// 상자아이템 인덱스
+
+	int deleteVIndex = item->getVIndex();
+
+	if(item->getDBIndex() != BoxitemIndex)
+		return false;
+
+	// 획득 시간 체크
+	t_now = time(NULL);
+	int nBoxItemTime = 0;
+
+	nBoxItemTime = pc->GetRaidBoxItemTime();
+	if(nBoxItemTime == 0)
+	{
+		// 박스아이템 획득 시간 설정
+		pc->SetRaidBoxItemTime(t_now);
+	}
+	else if(nBoxItemTime > 0 && pc->m_isNotCoolBoxItem == false)
+	{
+		// 5분 체크
+		if( (t_now - pc->GetRaidBoxItemTime()) <= (5 * 60))
+		{
+			// 더 이상 상자 주울 수 없음(획득 시간 5분)
+			CNetMsg::SP rmsg(new CNetMsg);
+			RaidErrorMsg(rmsg, MSG_RAID_ERROR_INZONE_NOT_5MIN_GETBOX);
+			SEND_Q(rmsg, pc->m_desc);
+			return false;
+		}
+	}
+
+	//Box 아이템이 이미 있는지 체크 (박스 아이템 인덱스 조정 필요)
+	if(item->getDBIndex() == BoxitemIndex && pc->m_isNotCoolBoxItem == false)
+	{
+		if (pc->m_inventory.FindByDBIndex(item->getDBIndex()))
+		{
+			// 레이드 박스 아이템 이미 소유하고 있음
+			CNetMsg::SP rmsg(new CNetMsg);
+			RaidErrorMsg(rmsg, MSG_RAID_ERROR_INZONE_ALREADY_GETBOX);
+			SEND_Q(rmsg, pc->m_desc);
+			return false;
+		}
+	}
+
+	// 인벤에 넣기
+	if (pc->m_inventory.addItem(item))
+	{
+		bGiveItem = true;
+
+		// 박스아이템 획득 시간 설정
+		pc->SetRaidBoxItemTime(t_now);
+
+#ifdef GER_LOG
+		GAMELOGGEM << init( 0 , "CHAR_LOOT")
+				   << LOG_VAL("account-id", pc->m_desc->m_idname ) << blank
+				   << LOG_VAL("character-id", pc->m_desc->m_pChar->m_name ) << blank
+				   << LOG_VAL("item-id", item->getDBIndex() ) << blank
+				   << LOG_VAL("amount",item->Count() ) << blank
+				   <<endGer;
+#endif // GER_LOG
+
+		// LOG
+		itemPickGameLog(pc, item);
+	}
+	else
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		SysFullInventoryMsg(rmsg, 0);
+		SEND_Q(rmsg, pc->m_desc);
+		return false;
+	}
+	// 원래 아이템 처리
+	CNetMsg::SP disappmsg(new CNetMsg);
+	CNetMsg::SP takemsg(new CNetMsg);
+	CNetMsg::SP getmsg(new CNetMsg);
+
+	int cx, cz;
+
+	cx = item->m_cellX;
+	cz = item->m_cellZ;
+
+	ItemTakeMsg(takemsg, pc, item);
+	ItemDisappearMsg(disappmsg, deleteVIndex);
+	ItemGetMsg(getmsg, pc, item);
+
+	// 우선권 제거
+	item->m_preferenceIndex = -1;
+
+	// 땅에서 제거
+	pc->m_pArea->ItemFromCell(item);
+
+	// 받았다고 셋팅
+	pc->m_bGiveItem = true;
+
+	// 메시지 보내고
+	pc->m_pArea->SendToCell(takemsg, pc, true);
+	pc->m_pArea->SendToCell(disappmsg, GET_YLAYER(pc), cx, cz);
+
+	if(pc->IsParty())
+	{
 		pc->m_party->SendToPCInSameZone(pc->m_pZone->m_index, pc->m_pArea->m_index, getmsg);
-		
-		if (bCountable)
-		{
-			delete item;
-			item = NULL;
-		}
+	}
+	else if(pc->IsExped())
+	{
+		pc->m_Exped->SendToPCInSameZone(pc->m_pZone->m_index, pc->m_pArea->m_index, getmsg);
 	}
 
 	return true;
 }
 
-// target list 중 hate 수치 가장 높은 target 반환
-CAttackChar* GetMaxHateTarget(CNPC* npc)
+// 균등 파티 시 돈 갈라먹기(원정대)
+void DivisionExpedMoney(CPC* pc, LONGLONG count)
 {
-	CAttackChar* ret = NULL;
-	CAttackChar* target = npc->m_attackList;
-	int hate = 0;
-	
-	while (target)
+	// validation
+	if (!pc || count <= 0)
+		return;
+
+	int i,j;
+	CExpedition* Exped = pc->m_Exped;
+	int divCount = 0;				// 돈 갈라먹을 파티 멤버 수
+
+	for (i=0; i < MAX_EXPED_GROUP; i++)
 	{
-		// hate 수치가 0이면 도망간넘 : 타겟리스트에는 있지만 타겟은 아니다.
-		if (hate <= target->m_targetHate && target->m_targetHate != 0)
+		for (j=0; j < MAX_EXPED_GMEMBER; j++)
 		{
-			hate = target->m_targetHate;
-			ret = target;
+			CPC* pMemberPC = Exped->GetNearMember(pc, i,j);
+			if (!pMemberPC)
+				continue;
+
+			divCount++;
 		}
-		
-		target = target->m_next;
 	}
-	
-	return ret;
+
+	if (divCount < 1)
+		return;
+
+	// 돈 갈라내기
+	//bool bTake = false;		// 돈을 받은 사람이 있나?: 없으면 아이템은 바닥에 그대로
+	count = count / divCount;
+
+	if (count < 1)
+		return;
+
+	GoldType_t Artimoney = 0;
+
+	// 파티원에게 분배
+	for (i = MAX_EXPED_GROUP - 1; i >= 0; i--)
+	{
+		for (j = MAX_EXPED_GMEMBER - 1; j >= 0; j--)
+		{
+			Artimoney = 0;
+
+			CPC* pMemberPC = Exped->GetNearMember(pc, i,j);
+			if (!pMemberPC)
+				continue;
+
+			// 갈른 돈 만들기
+			int bonus = 0;
+
+			if(pMemberPC->m_avPassiveAddition.money_nas > 0)
+			{
+				bonus += pMemberPC->m_avPassiveAddition.money_nas;	
+			}
+			if(pMemberPC->m_avPassiveRate.money_nas > 0)
+			{
+				bonus = count * (pMemberPC->m_avPassiveRate.money_nas - 100) / SKILL_RATE_UNIT;
+			}
+
+			Artimoney = count * pMemberPC->m_artiGold / 100;
+
+			pMemberPC->m_inventory.increaseMoney(count + Artimoney, bonus);
+		}
+	}
+}
+
+// 균등원정대 아이템 랜덤으로 가져가지(원정대)
+bool GetItemRandomExped(CPC* pc, CItem* item)
+{
+	// validation
+	if (!pc || !item || !(pc->m_Exped) || !(pc->m_pArea))
+		return false;
+
+	int i,j;
+	CExpedition* Exped = pc->m_Exped;
+	bool bPreference = false;		// 이 원정대가 자격이 있는가
+	int ExpedCount = 0;				// 받을 수 있는 자격이 있는 원정대원 수
+
+	for (i=0; i < MAX_EXPED_GROUP; i++)
+	{
+		for (j=0; j < MAX_EXPED_GMEMBER; j++)
+		{
+			CPC* pMemberPC = Exped->GetNearMember(pc, i,j);
+			if (!pMemberPC)
+				continue;
+
+			if (item->m_preferenceIndex == pMemberPC->m_index)
+				bPreference = true;
+
+			ExpedCount++;
+		}
+	}
+
+	// 우선권이 있는데 원정대가 자격없으면 return;
+	if (item->m_preferenceIndex != -1 && !bPreference)
+	{
+		// 우선권이 없습니다 메시지 전송
+		CNetMsg::SP rmsg(new CNetMsg);
+		SysMsg(rmsg, MSG_SYS_NOT_OWNER_ITEM);
+		SEND_Q(rmsg, pc->m_desc);
+		return false;
+	}
+
+	// 받을 사람이 없다.
+	if (ExpedCount < 1)
+		return false;
+
+	bool bGiveItem = false;		// 아이템 가져 갔다!
+	int idx,idx2;				// 결정된 파티원 인덱스
+
+	int bitfield = 0;			// 결정瑛립?실패한 원정대원 인덱스 저장
+	bool bAll = false;
+
+	int deleteVIndex = item->getVIndex();
+
+	//TODO
+	/*
+	1. 인벤토리가 빈 유저를 먼저 찾아 데이터를 저장해 놓고
+	2. 랜덤으로 아이템을 넣어준다.
+	*/
+
+	std::vector<CPC*> _user;
+
+	for(int i = 0; i < MAX_EXPED_GROUP; i++)
+	{
+		for(int j = 0; j < pc->m_Exped->GetGroupMemberCount(i); j++)
+		{
+			CPC* exped_member = Exped->GetNearMember(pc, i, j);
+
+			if(exped_member == NULL)
+				continue;
+			
+			else if(exped_member->m_inventory.getEmptyCount() == 0)
+				continue;
+
+			else if(gserver->isActiveEvent(A_EVENT_EGGS_HUNT) &&
+				item->getDBIndex() == 2148 &&
+				exped_member->m_inventory.FindByDBIndex(item->getDBIndex()) != NULL)
+				continue;
+
+			else if(item->m_itemProto->getItemTypeIdx() == ITYPE_ACCESSORY && item->m_itemProto->getItemSubTypeIdx() == IACCESSORY_ARTIFACT)
+			{
+				if(exped_member->m_level <= PKMODE_LIMIT_LEVEL)
+					continue;
+				if(exped_member->m_assist.FindBySkillIndex(PVP_PROTECT_SKILL_INDEX) != 0)
+					continue;
+
+				_user.push_back(exped_member);
+			}
+			
+			else
+				_user.push_back(exped_member);
+		}
+	}
+
+	if(_user.size() == 0)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		SysMsg(rmsg, MSG_SYS_NOT_CONDITION_ITEM_ALL_USER);
+		SEND_Q(rmsg, pc->m_desc);
+		return false;
+	}
+
+	idx = GetRandom(0, _user.size() - 1);
+	_user[idx]->m_inventory.addItem(item);
+
+	if(item->m_itemProto->getItemTypeIdx() == ITYPE_ACCESSORY && item->m_itemProto->getItemSubTypeIdx() == IACCESSORY_ARTIFACT)
+	{
+		ArtifactManager::instance()->addOwner(_user[idx], item, true);
+	}
+
+#ifdef GER_LOG
+	GAMELOGGEM << init( 0, "CHAR_LOOT")
+		<< LOG_VAL("account-id", pc->m_desc->m_idname ) << blank
+		<< LOG_VAL("character-id", pc->m_desc->m_pChar->m_name ) << blank
+		<< LOG_VAL("item-id", item->getDBIndex() ) << blank
+		<< LOG_VAL("amount",item->Count() ) << blank
+		//<< LOG_VAL("amount", money ) << blank
+		<<endGer;
+#endif // GER_LOG
+	itemPickGameLog(_user[idx], item);
+		
+	// 원래 아이템 처리
+	CNetMsg::SP disappmsg(new CNetMsg);
+	CNetMsg::SP takemsg(new CNetMsg);
+	CNetMsg::SP getmsg(new CNetMsg);
+
+	int cx, cz;
+
+	cx = item->m_cellX;
+	cz = item->m_cellZ;
+
+	ItemTakeMsg(takemsg, pc, item);
+	ItemDisappearMsg(disappmsg, deleteVIndex);
+	ItemGetMsg(getmsg, _user[idx], item);
+
+	// 우선권 제거
+	item->m_preferenceIndex = -1;
+
+	// 땅에서 제거
+	pc->m_pArea->ItemFromCell(item);
+
+	// 메시지 보내고
+	pc->m_pArea->SendToCell(takemsg, pc, true);
+	pc->m_pArea->SendToCell(disappmsg, GET_YLAYER(pc), cx, cz);
+	pc->m_Exped->SendToPCInSameZone(pc->m_pZone->m_index, pc->m_pArea->m_index, getmsg);
+
+	return true;
+}
+
+bool GetItemGiveToBoss(CPC* pc, CItem* item)
+{
+	if(!pc || !item || !(pc->m_Exped) || !(pc->m_pArea))
+		return false;
+
+	int boss_idx = pc->m_Exped->GetBossIndex();
+	CPC *pBoss = PCManager::instance()->getPlayerByCharIndex(boss_idx);
+	if( !pBoss )
+		return false;
+
+	int deleteVIndex = item->getVIndex();
+
+	if (pBoss->m_inventory.addItem(item))
+	{
+		GAMELOG << init("ITEM_PICK_TRIGGERITEM", pBoss)
+				<< itemlog(item)
+				<< end;
+	}
+	else
+	{
+		return false;
+	}
+
+	// 원래 아이템 처리
+	CNetMsg::SP disappmsg(new CNetMsg);
+	CNetMsg::SP takemsg(new CNetMsg);
+	CNetMsg::SP getmsg(new CNetMsg);
+
+	int cx, cz;
+
+	cx = item->m_cellX;
+	cz = item->m_cellZ;
+
+	ItemTakeMsg(takemsg, pc, item);
+	ItemDisappearMsg(disappmsg, deleteVIndex);
+	ItemGetMsg(getmsg, pBoss, item);
+
+	item->m_preferenceIndex = -1;
+	pc->m_pArea->ItemFromCell(item);
+
+	pc->m_pArea->SendToCell(takemsg, pc, true);
+	pc->m_pArea->SendToCell(disappmsg, GET_YLAYER(pc), cx, cz);
+	pc->m_Exped->SendToPCInSameZone(pc->m_pZone->m_index, pc->m_pArea->m_index, getmsg);
+
+	return true;
 }
 
 // tch 의 어택리스트에 ch 정보 추가
@@ -1350,11 +995,11 @@ CAttackChar* AddAttackList(CCharacter* ch, CCharacter* tch, int hate)
 
 	bool bCh = true;
 	bool bTCh = true;
-	
+
 	CAttackChar* chAttackList = ch->m_attackList;
 	CAttackChar* tchAttackList = tch->m_attackList;
 	CAttackChar* ret = NULL;
-	
+
 	// 이미 어택리스에 있지만 다시 어택리스크가 된 경우
 	// TargetHate 가 0인 넘이 있다면 도망갔다가 다시 온 경우
 	// TargetHate를 초기값으로 셋팅
@@ -1368,7 +1013,7 @@ CAttackChar* AddAttackList(CCharacter* ch, CCharacter* tch, int hate)
 		}
 		chAttackList = chAttackList->m_next;
 	}
-	
+
 	while (tchAttackList)
 	{
 		if (tchAttackList->ch == ch)
@@ -1376,6 +1021,8 @@ CAttackChar* AddAttackList(CCharacter* ch, CCharacter* tch, int hate)
 			bTCh = false;
 			tchAttackList->m_targetHate += hate;
 			ret = tchAttackList;
+			if(IS_NPC(tch))
+				tchAttackList->m_targetPulse = gserver->m_pulse;
 			break;
 		}
 		tchAttackList = tchAttackList->m_next;
@@ -1383,29 +1030,27 @@ CAttackChar* AddAttackList(CCharacter* ch, CCharacter* tch, int hate)
 
 	CAttackChar* attackCh = NULL;
 	CAttackChar* attackTCh = NULL;
-	
+
 	if (bCh)
 	{
 		attackCh = new CAttackChar;
 		attackCh->ch = tch;
 		ADD_TO_BILIST(attackCh, ch->m_attackList, m_prev, m_next);
 	}
-	
+
 	if (bTCh)
 	{
 		attackTCh = new CAttackChar;
 		attackTCh->ch = ch;
-#ifdef NEW_PK
 		attackTCh->m_bFirstAttack = true;
-#endif
 		ADD_TO_BILIST(attackTCh, tch->m_attackList, m_prev, m_next);
 		ret = attackTCh;
 	}
-	
+
 	if (bCh && bTCh)
 	{
 		if (IS_NPC(tch))
-			attackTCh->m_targetPulse = gserver.m_pulse;
+			attackTCh->m_targetPulse = gserver->m_pulse;
 		attackTCh->m_targetHate += hate;
 	}
 
@@ -1416,7 +1061,7 @@ CAttackChar* AddAttackList(CCharacter* ch, CCharacter* tch, int hate)
 void DelAttackList(CCharacter* ch)
 {
 	if (ch == NULL
-		|| ch->m_attackList == NULL)
+			|| ch->m_attackList == NULL)
 	{
 		return;
 	}
@@ -1425,11 +1070,11 @@ void DelAttackList(CCharacter* ch)
 	CAttackChar* attChNext = ch->m_attackList;
 	CAttackChar* attTCh;
 	CAttackChar* attTChNext;
-	
+
 	while ((attCh = attChNext))
 	{
 		attChNext = attCh->m_next;
-		
+
 		attTChNext = attCh->ch->m_attackList;
 		while ((attTCh = attTChNext))
 		{
@@ -1442,7 +1087,7 @@ void DelAttackList(CCharacter* ch)
 				break;
 			}
 		}
-		
+
 		REMOVE_FROM_BILIST(attCh, ch->m_attackList, m_prev, m_next);
 		delete attCh;
 		attCh = NULL;
@@ -1456,7 +1101,7 @@ void DelTargetFromAttackList(CCharacter* ch, CCharacter* tch)
 	CAttackChar* attChNext = ch->m_attackList;
 	CAttackChar* attTCh;
 	CAttackChar* attTChNext;
-	
+
 	while ((attCh = attChNext))
 	{
 		attChNext = attCh->m_next;
@@ -1475,7 +1120,7 @@ void DelTargetFromAttackList(CCharacter* ch, CCharacter* tch)
 					break;
 				}
 			}
-			
+
 			REMOVE_FROM_BILIST(attCh, ch->m_attackList, m_prev, m_next);
 			delete attCh;
 			attCh = NULL;
@@ -1501,10 +1146,10 @@ void AddRaList(CPC* of, CPC* df)
 	raDf->m_bAttacker = false;
 	ADD_TO_BILIST(raDf, of->m_raList, m_prev, m_next);
 
-	CNetMsg rMsg;
-	RightAttackMsg(rMsg, of, MSG_RIGHT_ATTACK_ADD);
-	SEND_Q(rMsg, of->m_desc);
-	SEND_Q(rMsg, df->m_desc);
+	CNetMsg::SP rmsg(new CNetMsg);
+	RightAttackMsg(rmsg, of, MSG_RIGHT_ATTACK_ADD);
+	SEND_Q(rmsg, of->m_desc);
+	SEND_Q(rmsg, df->m_desc);
 }
 
 // 정당방위 리스트에서 제거
@@ -1516,42 +1161,51 @@ void DelRaList(CPC* pc, bool bForce)
 	CRaChar* raTPC;
 	CRaChar* raTPCNext;
 
-	CNetMsg rMsg;
-	RightAttackMsg(rMsg, pc, MSG_RIGHT_ATTACK_DEL);
-	
-	while ((raPC = raPCNext))
 	{
-		raPCNext = raPC->m_next;
-		raTPCNext = raPC->m_raTarget->m_raList;
+		CNetMsg::SP rmsg(new CNetMsg);
+		RightAttackMsg(rmsg, pc, MSG_RIGHT_ATTACK_DEL);
 
-		while ((raTPC = raTPCNext))
+		while ((raPC = raPCNext))
 		{
-			raTPCNext = raTPC->m_next;
+			raPCNext = raPC->m_next;
+			raTPCNext = raPC->m_raTarget->m_raList;
 
-			if (raTPC->m_raTarget == pc)
+			while ((raTPC = raTPCNext))
 			{
-				if (!raTPC->m_bAttacker && !bForce)
-					return;
+				raTPCNext = raTPC->m_next;
 
-				SEND_Q(rMsg, raTPC->m_raTarget->m_desc);
-				REMOVE_FROM_BILIST(raTPC, raPC->m_raTarget->m_raList, m_prev, m_next);
-				delete raTPC;
-				raTPC = NULL;
-				break;
+				if (raTPC->m_raTarget == pc)
+				{
+					if (!raTPC->m_bAttacker && !bForce)
+						return;
+
+					SEND_Q(rmsg, raTPC->m_raTarget->m_desc);
+					REMOVE_FROM_BILIST(raTPC, raPC->m_raTarget->m_raList, m_prev, m_next);
+					delete raTPC;
+					raTPC = NULL;
+					break;
+				}
 			}
+
+			SEND_Q(rmsg, raPC->m_raTarget->m_desc);
+
+			REMOVE_FROM_BILIST(raPC, pc->m_raList, m_prev, m_next);
+			delete raPC;
+			raPC = NULL;
 		}
-
-		SEND_Q(rMsg, raPC->m_raTarget->m_desc);
-
-		REMOVE_FROM_BILIST(raPC, pc->m_raList, m_prev, m_next);
-		delete raPC;
-		raPC = NULL;
 	}
 }
 
 // pc 정당방위 리스트에 tpc가 있는가
 bool IsRaList(CPC* pc, CPC* tpc)
 {
+	CPC* findPC = PCManager::instance()->getPlayerByCharIndex(pc->m_index);
+	if (findPC == NULL)
+	{
+		GAMELOG << init("PCMEM_CHECK_ERROR", pc) << "IsRaList" << end;
+		return false;
+	}
+
 	CRaChar* raList = pc->m_raList;
 
 	while (raList)
@@ -1565,7 +1219,6 @@ bool IsRaList(CPC* pc, CPC* tpc)
 	return false;
 }
 
-#ifdef NEW_PK
 bool IsFirstAttackInAttackList(CPC* of, CPC* df)
 {
 	CAttackChar* pAttackChar = df->m_attackList;
@@ -1577,7 +1230,6 @@ bool IsFirstAttackInAttackList(CPC* of, CPC* df)
 	}
 	return false;
 }
-#endif
 
 // 공격 당하는 npc의 동족찾기 : 있으면 같이 공격
 void FindFamilyInNear(CCharacter* of, CNPC* npc)
@@ -1587,19 +1239,19 @@ void FindFamilyInNear(CCharacter* of, CNPC* npc)
 	int ex = npc->m_cellX + 2;
 	int sz = npc->m_cellZ - 2;
 	int ez = npc->m_cellZ + 2;
-	
+
 	int x, z;
-	
+
 	for (x = sx; x <= ex; x++)
 	{
 		if (x < 0 || x >= npc->m_pArea->m_size[0])
 			continue;
-		
+
 		for (z = sz; z <= ez; z++)
 		{
 			if (z < 0 || z >= npc->m_pArea->m_size[1])
 				continue;
-			
+
 			CCharacter* ch = npc->m_pArea->m_cell[x][z].m_listChar;
 			while (ch)
 			{
@@ -1610,11 +1262,11 @@ void FindFamilyInNear(CCharacter* of, CNPC* npc)
 					// 동족이고 시야 2배 이내 거리이고 disableTime이 셋팅 되어 있지 않을때
 					// attacklist가 비어 있을 때
 					if (npc->m_proto->m_family != -1 &&
-						tnpc->m_proto->m_family == npc->m_proto->m_family && 
-						GetDistance(npc, tnpc) < npc->m_proto->m_sight * 2 &&
-						tnpc->m_disableTime == 0 && !tnpc->IsBlind()
-						&& tnpc->m_attackList == NULL)
-							AddAttackList(of, tnpc, HATE_FIRST_ATTACK);
+							tnpc->m_proto->m_family == npc->m_proto->m_family &&
+							GetDistance(npc, tnpc) < npc->m_proto->m_sight * 2 &&
+							tnpc->m_disableTime == 0 && !tnpc->IsBlind()
+							&& tnpc->m_attackList == NULL)
+						AddAttackList(of, tnpc, HATE_FIRST_ATTACK);
 				}
 				ch = ch->m_pCellNext;
 			}
@@ -1622,11 +1274,10 @@ void FindFamilyInNear(CCharacter* of, CNPC* npc)
 	}
 }
 
-
 ////////////////////
 // Function name	: GetSkillPrototypes
 // Description	    : proto, level, magicindex로 각각의 프로토타입을 얻는다
-// Return type		: bool 
+// Return type		: bool
 //                  : 정상일때 true
 bool GetSkillPrototypes(const CSkillProto* proto, int level, int magicindex, const CSkillLevelProto** levelproto, const CMagicProto** magic, const CMagicLevelProto** magiclevel)
 {
@@ -1678,7 +1329,6 @@ CAttackChar* ApplyHate(CCharacter* of, CCharacter* df, int hate, bool bApplyFami
 	return ret;
 }
 
-
 ////////////////////
 // Function name	: ApplyHateByDamage
 // Description	    : of가 df를 damage만큼 공격시 해당하는 hate 수치를 적용
@@ -1703,12 +1353,6 @@ void ApplyHateByDamage(CCharacter* of, CCharacter* df, char hittype, int damage)
 			if (p->m_damage + damage > 1)
 				p->m_damage += damage;
 		}
-
-#ifndef NEW_DIVISION_EXPSP
-		// 대상의 전체 데미지 누적 갱신
-		if (IS_NPC(df))
-			TO_NPC(df)->m_totalDamage += damage;
-#endif // #ifndef NEW_DIVISION_EXPSP
 	}
 }
 
@@ -1716,9 +1360,8 @@ void ApplyHateByDamage(CCharacter* of, CCharacter* df, char hittype, int damage)
 // Function name	: ApplyDamage
 // Description	    : of가 df를 damageType형태의 proto를 가지고 flag형태로 damage만큼 공격
 //                  : 해당하는 damage메시지와 proto에 다른 effect메시지를 전달
-void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, const CSkillProto* proto, const CMagicProto* magic, int damage, char flag)
+void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, const CSkillProto* proto, const CMagicProto* magic, int damage, char flag, bool isCharge)
 {
-	CNetMsg rmsg;
 	int realdamage = 0;
 
 	// PvP에서는 데미지 25%만
@@ -1732,11 +1375,10 @@ void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, con
 		if (damage < 1)
 			damage = 1;
 
-#ifdef ENABLE_PET
 		if (IS_PET(df))
 		{
 			damage = 1;
-			// 050309: bw 배고픔 20프로 미만일때 데미지 2씩 감소 
+			// 050309: bw 배고픔 20프로 미만일때 데미지 2씩 감소
 			CPet* p = TO_PET(df);
 			if( p )
 			{
@@ -1744,18 +1386,26 @@ void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, con
 					damage = 2;
 			}
 		}
-#endif
 	}
 	else
 		damage = 0;
 
 	if (damage > 0)
 	{
+		//트랩스킬 pvp 데미지 처리
+		if(proto != NULL && proto->m_index == 1753)
+		{
+			if(IS_PC(df) && IS_NPC(of) && TO_NPC(of)->m_owner != NULL)
+			{
+				damage /= 4;
+			}
+		}
+
 		// 절망 처리
 		if (df->m_assist.m_state & AST_DESPAIR)
 		{
 			damage += df->m_assist.m_avAddition.despair
-					+ damage * df->m_assist.m_avRate.despair / SKILL_RATE_UNIT;
+					  + damage * df->m_assist.m_avRate.despair / SKILL_RATE_UNIT;
 			df->m_assist.CancelDespair();
 		}
 
@@ -1774,7 +1424,7 @@ void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, con
 			if (pPC && (pPC->m_assist.m_state & AST_MANASCREEN) && CheckInNearCellExt(pElemental, pPC))
 			{
 				damage -= pPC->m_assist.m_avAddition.manascreen
-						+ damage * pPC->m_assist.m_avRate.manascreen / SKILL_RATE_UNIT;
+						  + damage * pPC->m_assist.m_avRate.manascreen / SKILL_RATE_UNIT;
 				pPC->m_mp -= pPC->m_maxMP * 3 / 100;
 				if (pPC->m_mp <= 0)
 				{
@@ -1788,6 +1438,36 @@ void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, con
 		if (damage < 1)
 			damage = 1;
 
+#ifdef ASSIST_REDUCE_SKILL
+		if (proto)
+		{
+			if (GetRandom(1, 10000) <=
+					df->m_avPassiveAddition.reduceSkillProb)
+			{
+				damage = damage - df->m_avPassiveAddition.reduceSkill -
+						 damage * df->m_avPassiveRate.reduceSkill /
+						 SKILL_RATE_UNIT;
+			}
+
+			if (GetRandom(1, 10000) <=
+					df->m_assist.m_avAddition.reduceSkillProb)
+			{
+				damage = damage - df->m_assist.m_avAddition.reduceSkill -
+						 damage * df->m_assist.m_avRate.reduceSkill /
+						 SKILL_RATE_UNIT;
+
+				df->m_assist.DecreaseCount(MT_REDUCE, MST_REDUCE_SKILL);
+			}
+
+			if (damage < 0) /* reduce skill can cause damage zero */
+				damage = 0;
+		}
+#endif
+		damage = CalcNewDamage(of, df, damage);
+
+		if (damage < 0)
+			damage = 0;
+
 		// HP 감소
 		if (damage > df->m_hp)
 			realdamage = df->m_hp;
@@ -1800,8 +1480,8 @@ void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, con
 		if (IS_PC(of) && realdamage > 0)
 		{
 			CPC* pPCOffense = TO_PC(of);
-			
-#ifdef HP_STEEL_POTION
+
+//#ifdef HP_STEEL_POTION
 			if (pPCOffense->m_assist.m_avAddition.hcHPSteelPotion == true )
 			{
 				int prob = GetRandom( 1, 100 );
@@ -1815,31 +1495,34 @@ void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, con
 							pPCOffense->m_hp = pPCOffense->m_maxHP;
 						pPCOffense->m_bChangeStash = true;
 						bSendOFStatusMsg = true;
-						
-						EffectEtcMsg(rmsg, pPCOffense, MSG_EFFECT_ETC_HP_STEEL);
-						pPCOffense->m_pArea->SendToCell(rmsg, pPCOffense, true);
+
+						{
+							CNetMsg::SP rmsg(new CNetMsg);
+							EffectEtcMsg(rmsg, pPCOffense, MSG_EFFECT_ETC_HP_STEEL);
+							pPCOffense->m_pArea->SendToCell(rmsg, pPCOffense, true);
+						}
 					}
 				}
 			}
 			else
-#endif // HP_STEEL_POTION
-			if (pPCOffense->m_opHPSteal > 0)
-			{
-				if (GetRandom(1, 100) > 95) // 5%
+//#endif // HP_STEEL_POTION
+				if (pPCOffense->m_opHPSteal > 0)
 				{
-					int nStealHP = realdamage * pPCOffense->m_opHPSteal / 100;
-					if (nStealHP > 0)
+					if (GetRandom(1, 100) > 95) // 5%
 					{
-						pPCOffense->m_hp += nStealHP;
-						if (pPCOffense->m_hp > pPCOffense->m_maxHP)
-							pPCOffense->m_hp = pPCOffense->m_maxHP;
-						pPCOffense->m_bChangeStatus = true;
-						bSendOFStatusMsg = true;
+						int nStealHP = realdamage * pPCOffense->m_opHPSteal / 100;
+						if (nStealHP > 0)
+						{
+							pPCOffense->m_hp += nStealHP;
+							if (pPCOffense->m_hp > pPCOffense->m_maxHP)
+								pPCOffense->m_hp = pPCOffense->m_maxHP;
+							pPCOffense->m_bChangeStatus = true;
+							bSendOFStatusMsg = true;
+						}
 					}
 				}
-			}
-			
-#ifdef MP_STEEL_POTION
+
+//#ifdef MP_STEEL_POTION
 			if (pPCOffense->m_assist.m_avAddition.hcMPSteelPotion == true )
 			{
 				int prob = GetRandom( 1, 100 );
@@ -1853,33 +1536,39 @@ void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, con
 							pPCOffense->m_mp = pPCOffense->m_maxMP;
 						pPCOffense->m_bChangeStatus = true;
 						bSendOFStatusMsg = true;
-						
-						EffectEtcMsg(rmsg, pPCOffense, MSG_EFFECT_ETC_MP_STEEL);
-						pPCOffense->m_pArea->SendToCell(rmsg, pPCOffense, true);
-					}
-				}
-			}		
-			else
-#endif // MP_STEEL_POTION
-			if (pPCOffense->m_opMPSteal > 0)
-			{
-				if (GetRandom(1, 100) > 95) // 5%
-				{
-					int nStealMP = realdamage * pPCOffense->m_opMPSteal / 100;
-					if (nStealMP > 0)
-					{
-						pPCOffense->m_mp += nStealMP;
-						if (pPCOffense->m_mp > pPCOffense->m_maxMP)
-							pPCOffense->m_mp = pPCOffense->m_maxMP;
-						pPCOffense->m_bChangeStatus = true;
-						bSendOFStatusMsg = true;
+
+						{
+							CNetMsg::SP rmsg(new CNetMsg);
+							EffectEtcMsg(rmsg, pPCOffense, MSG_EFFECT_ETC_MP_STEEL);
+							pPCOffense->m_pArea->SendToCell(rmsg, pPCOffense, true);
+						}
 					}
 				}
 			}
+			else
+//#endif // MP_STEEL_POTION
+				if (pPCOffense->m_opMPSteal > 0)
+				{
+					if (GetRandom(1, 100) > 95) // 5%
+					{
+						int nStealMP = realdamage * pPCOffense->m_opMPSteal / 100;
+						if (nStealMP > 0)
+						{
+							pPCOffense->m_mp += nStealMP;
+							if (pPCOffense->m_mp > pPCOffense->m_maxMP)
+								pPCOffense->m_mp = pPCOffense->m_maxMP;
+							pPCOffense->m_bChangeStatus = true;
+							bSendOFStatusMsg = true;
+						}
+					}
+				}
 		}
 
-
-		if (magic)
+		if (magic
+#ifdef ASSIST_REDUCE_SKILL
+				&& realdamage > 0
+#endif
+		   )
 		{
 			switch (magic->m_type)
 			{
@@ -1895,7 +1584,7 @@ void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, con
 							of->m_hp += realdamage;
 						if (of->m_hp > of->m_maxHP)
 							of->m_hp = of->m_maxHP;
-						
+
 						if (IS_PC(of))
 						{
 							CPC* opc = TO_PC(of);
@@ -1904,7 +1593,6 @@ void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, con
 						bSendOFStatusMsg = true;
 					}
 					break;
-#ifdef NIGHTSHADOW_SKILL
 				case MST_ATTACK_ONESHOTKILL:
 					// 15% 미만이면 즉사가 적용됨
 					if ( IS_NPC(df) && df->m_hp <= df->m_maxHP * 15 / 100 )
@@ -1912,52 +1600,191 @@ void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, con
 						damage = df->m_hp;
 					}
 					break;
-#endif // NIGHTSHADOW_SKILL
 				}
 				break;
 			}
 		}
 
-#ifdef ATTACK_PET
 		if ( IS_APET(df) )
 		{
 			CAPet* apet = TO_APET(df);
 			if( apet )
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExAPetStatusMsg( rmsg, apet);
 				SEND_Q( rmsg, apet->GetOwner()->m_desc );
 			}
 		}
-#endif // ATTACK_PET
 
 		if (bSendOFStatusMsg)
 		{
+			CNetMsg::SP rmsg(new CNetMsg);
 			CharStatusMsg(rmsg, of, 0);
 			df->m_pArea->SendToCell(rmsg, of, true);
 		}
 
+		// npc가 리플렉션 데미지를 받고 죽으면 npc=null 되어 서버 다운 버그 수정
+		switch( damageType )
+		{
+		case MSG_DAMAGE_REFLEX:
+		case MSG_DAMAGE_LINK:
+			if( IS_NPC(df) )
+			{
+				if( damage >= df->m_hp )
+					damage = df->m_hp -1;
+			}
+			break;
+		default:
+			break;
+		}
+
+#ifdef TLD_EVENT_SONG
+		if (IS_NPC(df))
+		{
+			CNPC* pNpc = TO_NPC(df);
+			if (pNpc->m_proto->m_index == 1622 || pNpc->m_proto->m_index == 1623)
+			{
+				damage = 1;
+			}
+		}
+#endif
+
 		df->m_hp -= damage;
-#ifdef NIGHTSHADOW_SKILL
+
 		if ( of->m_assist.m_state & AST_INVERSE_DAMAGE && damageType != MSG_DAMAGE_COMBO )
 		{
 			// 역 데미지 디버프에 걸린 몬스터이면 몬스터 콤보 이펙트 데미지를 제외한 모든 데미지를 회복으로 바꾼다.
 			df->m_hp += damage * 2;
 		}
-		if (df->m_hp >= df->m_maxHP)
+
+		if(IS_APET(df))
+		{
+			if(df->m_hp >= df->m_maxHP + TO_APET(df)->GetOwner()->m_opJewelElementPetHPUP)
+			{
+				df->m_hp = df->m_maxHP + TO_APET(df)->GetOwner()->m_opJewelElementPetHPUP;
+			}
+		}
+		else if (df->m_hp >= df->m_maxHP)
 			df->m_hp = df->m_maxHP;
-#endif // NIGHTSHADOW_SKILL
 		if (df->m_hp <= 0)
 			df->m_hp = 0;
+	}
+	//아이템에 옵션(패시브, 공격형, 방어형) 이 있는 경우 적용.
+	//TODO	1단계 : 캐릭터가 입고 있는 아이템을 검사한다.
+	//		2단계 : 아이템에 있는 옵션중에 패시브이면 항상 적용, 공격형이면 공격시 적용, 방어형이면 피해를 입었을 때 적용시킨다.
+	//		3단계 : 스킬 메시지를 보낸다.
+
+	//성수 아이템 데미지 최종 데미지에서 +@로 들어감.
+
+	int holyItemIndex = -1;
+
+	if(IS_PC(of) && flag != HITTYPE_MISS )
+	{
+		CPC* pc = TO_PC(of);
+		if(pc->holy_water_item != NULL && isCharge == false)
+		{
+			holyItemIndex = pc->holy_water_item->getDBIndex();
+			damage = HolyWaterData::instance()->getDamage(pc, df, magic, damage);			
+		}
 	}
 
 	// 결과 메시지
 	if (proto)
-		DamageMsg(rmsg, of, df, damageType, proto->m_index, damage, flag);
-	else
-		DamageMsg(rmsg, of, df, damageType, -1, damage, flag);
-	df->m_pArea->SendToCell(rmsg, df, true);
-}
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		DamageMsg(rmsg, of, df, damageType, proto->m_index, damage, flag, holyItemIndex);
+#if defined (LC_GAMIGO) || defined (LC_USA) || defined (LC_RUS)					//보스몬스터 로그 게더링
+		if(IS_NPC(df)) 															//보스NPC에게 공격하는 경우 로그
+		{
+			CNPC *npc = TO_NPC(df);
+			if(npc->m_proto->CheckFlag(NPC_BOSS | NPC_MBOSS))
+			{
+				GAMELOG << init("BOSS DAMAGE IN") << df->m_index << df->m_name << delim << damage << delim << proto->m_index << delim << of->m_name << delim;
+				CAssistData *p = NULL;
+				CAssistData *pNext = NULL;
 
+				p = of->m_assist.m_help.getHead();
+				while((pNext = p))
+				{
+					p = p->m_next;
+					GAMELOG << pNext->m_proto->m_index << "(" << pNext->m_level << ") ";
+				}
+				GAMELOG << end;
+			}
+		}
+		if(IS_NPC(of)) 															//보스NPC에게 공격당할 경우 로그
+		{
+			CNPC *npc = TO_NPC(of);
+			if(npc->m_proto->CheckFlag(NPC_BOSS | NPC_MBOSS))
+			{
+				GAMELOG << init("BOSS DAMAGE OUT") << of->m_index << of->m_name << delim << damage << delim << proto->m_index << delim << df->m_name << delim;
+				CAssistData *p = NULL;
+				CAssistData *pNext = NULL;
+
+				p = df->m_assist.m_help.getHead();
+				while((pNext = p))
+				{
+					p = p->m_next;
+					GAMELOG << pNext->m_proto->m_index << "(" << pNext->m_level << ") ";
+				}
+				GAMELOG << end;
+			}
+		}
+#endif
+		df->m_pArea->SendToCell(rmsg, df, true);
+	}
+	else
+	{
+		//일반 공격일때
+		CNetMsg::SP rmsg(new CNetMsg);
+		DamageMsg(rmsg, of, df, damageType, -1, damage, flag, holyItemIndex);
+#if defined (LC_GAMIGO) || defined (LC_USA) || defined (LC_RUS)					//보스몬스터 로그 게더링
+		if(IS_NPC(df)) 															//보스NPC에게 공격할 경우 로그
+		{
+			CNPC *npc = TO_NPC(df);
+			if(npc->m_proto->CheckFlag(NPC_BOSS | NPC_MBOSS))
+			{
+				GAMELOG << init("BOSS DAMAGE IN") << df->m_index << df->m_name << delim << damage << delim << -1 << delim << of->m_name << delim;
+				CAssistData *p = NULL;
+				CAssistData *pNext = NULL;
+
+				p = of->m_assist.m_help.getHead();
+				while((pNext = p))
+				{
+					p = p->m_next;
+					GAMELOG << pNext->m_proto->m_index << "(" << pNext->m_level << ") ";
+				}
+				GAMELOG << end;
+			}
+		}
+		if(IS_NPC(of)) 															//보스NPC에게 공격당할 경우 로그
+		{
+			CNPC *npc = TO_NPC(of);
+			if(npc->m_proto->CheckFlag(NPC_BOSS | NPC_MBOSS))
+			{
+				GAMELOG << init("BOSS DAMAGE OUT") << of->m_index << of->m_name << delim << damage << delim << -1 << delim << df->m_name << delim;
+				CAssistData *p = NULL;
+				CAssistData *pNext = NULL;
+
+				p = df->m_assist.m_help.getHead();
+				while((pNext = p))
+				{
+					p = p->m_next;
+					GAMELOG << pNext->m_proto->m_index << "(" << pNext->m_level << ") ";
+				}
+				GAMELOG << end;
+			}
+		}
+#endif
+		df->m_pArea->SendToCell(rmsg, df, true);
+	}
+
+	//무적 버프가 있는 경우에(공격가능모드)는 해당 버프를 지워준다.
+	if (of->m_assist.FindBySkillIndex(IMMOTAL_BUF) && of->m_bFirstDoIt == true)
+	{
+		of->m_assist.CureBySkillIndex(IMMOTAL_BUF);
+	}
+}
 
 ////////////////////
 // Function name	: CalcPKPoint
@@ -1965,241 +1792,133 @@ void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, con
 //                  : bDeadPet가 true이면 Pet 사망에 의한 처리
 void CalcPKPoint(CPC* of, CPC* df, bool bDeadPet)
 {
-
-#ifdef ADULT_SERVER
-	int nPkBagicPenalty = -5;
-	int nPkPlusPenalty = 0;
-	int nPkPlusCount = 0;
-
-	if( of->m_level <= PKMODE_LIMIT_LEVEL ) // 렙이 15이하이면 페널티 없음
+	//공격자가 무소속이 아니라면 return;
+	if (of->m_pZone->isRVRZone() && of->getSyndicateType() != 0)
 		return;
-
-	CRaChar* raList = of->m_raList;
-
-	// 진사람 처리
-	while (raList)
-	{
-		if ( raList->m_raTarget == df && raList->m_bAttacker )		// 정당방위 리스트에 선빵이면 기본 페널티 -5 받기
-		{
-			if( of->IsChaotic() && !df->IsChaotic() )
-				nPkBagicPenalty= 0;
-			df->m_pkPenalty += nPkBagicPenalty;
-		
-			CNetMsg rmsg;
-			CharStatusMsg(rmsg, df, 0);
-			df->m_pArea->SendToCell(rmsg, df, false);
-			df->m_bChangeStatus = true;
-
-			char cChangeForDead = df->IsUpdateKing();
-			if( cChangeForDead )
-			{
-				CNetMsg KingChangeMsg;		// MSG_HELPER_UPDATE_CHAOKING  bChao : 1(Guardian),2(ChaoKing) , index , penalty
-				HelperUpdateKing( KingChangeMsg, cChangeForDead, of->m_index, of->m_pkPenalty );
-				SEND_Q( KingChangeMsg, gserver.m_helper );
-			}
-		}
-		raList = raList->m_next;
-	}
-
-	raList = of->m_raList;
-	while (raList)
-	{
-		if (raList->m_raTarget == df && !raList->m_bAttacker )		// df 정당방위 리스트에 of가 있고, of가 선빵이 아니면 ( 무고한 희생자 )
-		{
-			if( raList->m_bRevenge == true )		// 죽은 사람이 상대를 때린적이 있으면 
-			{
-				nPkBagicPenalty += -10;
-			}
-			else
-			{
-				nPkBagicPenalty += -15;
-			}
-			break;
-		}
-		raList = raList->m_next;
-	}
-
-	if( raList == NULL )  // 정당방이 리스트에 없으면
-		return;
-
-	if( of->IsChaotic() )	// 카오 추가 페널티
-	{
-		nPkPlusCount = 1;
-
-		// 추가 페널티
-		if( df->IsChaotic() )	// 카오가 카오를 죽임
-		{
-			nPkPlusPenalty = -5;
-		}
-		else
-		{
-			switch( df->GetPKLevel() ) 
-			{
-			case PK_NAME_NORMAL	:			nPkPlusPenalty = 0;		break;	
-			case PK_NAME_HUNTER	:			nPkPlusPenalty = -2;	break;
-			case PK_NAME_HUNTER_MASTER :	nPkPlusPenalty = -5;	break;
-			case PK_NAME_KNIGHT	:			nPkPlusPenalty = -10;	break;
-			case PK_NAME_SAINT_KNIGHT :		nPkPlusPenalty = -15;	break;
-			case PK_NAME_GUARDIAN :			nPkPlusPenalty = -20;	break;
-			}
-		}		
-	}
-	else	// 헌터 추가 페널티
-	{
-		// 추가 페널티
-		if( !df->IsChaotic() )	// 헌터가 일반유저를 죽임
-		{
-			nPkPlusCount = 1;
-
-			if( of->GetPKLevel() == PK_NAME_NORMAL ) // 공격이 일반유저
-			{ nPkPlusPenalty = 0; }
-			else
-			{ nPkPlusPenalty = -20;	}
-		}
-		else	// 헌터가 카오를 죽임
-		{
-			nPkPlusCount = 0;
-
-			switch( df->GetPKLevel() )
-			{
-			case PK_NAME_OUTLAW	:		nPkPlusPenalty = 25;	break;
-			case PK_NAME_MURDERER :		nPkPlusPenalty = 30;	break;
-			case PK_NAME_ASSESIN :		nPkPlusPenalty = 35;	break;
-			case PK_NAME_DARK_KNIGHT:	nPkPlusPenalty = 40;	break;
-			case PK_NAME_CHAOS_KING:	nPkPlusPenalty = 50;	break;
-			}
-		}		
-	}
-
-	// 추가 페널티
-	of->m_pkCount += nPkPlusCount;
-	if( of->m_pkCount > MAX_PK_COUNT )
-		of->m_pkCount = MAX_PK_COUNT;
-
-	if( of->IsChaotic() )
-	{ of->m_pkPenalty += nPkBagicPenalty + nPkPlusPenalty - (of->m_pkCount/10);	}	// 카오 페널티 계산
-	else
-	{ of->m_pkPenalty += nPkBagicPenalty + nPkPlusPenalty; }	// 일반 페널티 계산 
-
-	// 킹 변경
-	char cChange = of->IsUpdateKing();
-	if( cChange )
-	{
-		CNetMsg KingChangeMsg;		// MSG_HELPER_UPDATE_CHAOKING  bChao : 1(Guardian),2(ChaoKing) , index , penalty
-		HelperUpdateKing( KingChangeMsg, cChange, of->m_index, of->m_pkPenalty );
-		SEND_Q( KingChangeMsg, gserver.m_helper );
-	}
-#ifdef ADULT_QUEST
-	CQuest* pQuest;
-	CQuest* pQuestNext = of->m_questList.GetNextQuest(NULL, QUEST_STATE_RUN);
-	while ((pQuest = pQuestNext))
-	{
-		pQuestNext = of->m_questList.GetNextQuest(pQuestNext, QUEST_STATE_RUN);
-		switch ( pQuest->GetQuestType0() )
-		{
-		case QTYPE_KIND_PK:
-			pQuest->QuestUpdateData(of, df);
-			break;
-		default:
-			break;
-		}
-	}
-	of->m_questList.CheckComplete(of);
-#endif // ADULT_QUEST
-#else // ADULT_SERVER
-
-#ifndef DISABLE_PKPENALTY
+	
 	// 이전에 카오인지 검사
 
 #ifdef FREE_PK_SYSTEM
-if( !gserver.m_bFreePk )
+	if( !gserver->m_bFreePk )
 	{
 #endif // FREE_PK_SYSTEM
 
 #ifdef MAL_DISABLE_PKPENALTY
-	if( !gserver.m_bDisablePKPaenalty )
-	{
+		if( !gserver->m_bDisablePKPaenalty )
+		{
 #endif // MAL_DISABLE_PKPENALTY
 
-		bool isPKChar = (of->m_pkPenalty < -9) ? true : false;
+			bool isPKChar = (of->m_pkPenalty < -9) ? true : false;
 
-		if (!df->IsChaotic() || bDeadPet)
-		{
-			// 멀쩡한 사람 죽임 또는 펫 죽임
-	#ifdef RESTRICT_PK
-			if (of->IsChaotic())
-				of->m_pkPenalty -= 10;
-			else
-				of->m_pkPenalty = -10;
-	#else // RESTRICT_PK
-			of->m_pkPenalty -= 10;
-			if (!df->IsSetPlayerState(PLAYER_STATE_PKMODE))
-				of->m_pkPenalty -= 10;
-	#endif // RESTRICT_PK
-
-			of->m_pkCount -= 1;
-
-			if (of->m_pkPenalty < -155)
-				of->m_pkPenalty = -155;
-			if (of->m_pkCount < -110)
-				of->m_pkCount = -110;
-		}
-		else
-		{
-			// 나쁜넘 죽임
-
-			// 동렙 이상이면
-			if (df->m_level >= of->m_level)
+			if (!df->IsChaotic() || bDeadPet)
 			{
-	#ifdef RESTRICT_PK
-				if (of->m_lastPKTime == -1 || of->m_lastPKTime + RESTRICT_PK <= gserver.m_gameTime || !of->IsChaotic())
+				// 멀쩡한 사람 죽임 또는 펫 죽임
+#ifdef REFORM_PK_PENALTY_201108 // PK 패널티 리폼 :: 멀쩡한 사람을 죽였으니 카오성향으로 증가
+				if( of->IsChaotic() ) // 카오가 일반이나 헌터를 죽였을 경우
 				{
-	#endif // RESTRICT_PK
-	#if defined ( NON_PK_SYSTEM )
-					if( !gserver.m_bNonPK )
+					int penalty = 0;
+					if( of->m_pkPenalty >= PK_CHAOTIC_POINT_1 )
+						penalty = -8000;
+					else if ( of->m_pkPenalty >= PK_CHAOTIC_POINT_2 )
+						penalty = -10000;
+					else
+						penalty = -15000;
+
+					of->AddPkPenalty( penalty );
+				}
+				else // 일반이나 헌터가 일반 혹은 헌터를 죽였을 경우 무조건 카오로 만든다.
+					of->m_pkPenalty = PK_CHAOTIC_POINT_1;
+#else
+				of->m_pkPenalty -= 10;
+				if (!df->IsSetPlayerState(PLAYER_STATE_PKMODE))
+					of->m_pkPenalty -= 10;
+				if (of->m_pkPenalty < -155)
+					of->m_pkPenalty = -155;
+#endif // REFORM_PK_PENALTY_201108 // PK 패널티 리폼
+				of->m_pkCount -= 1;
+				if (of->m_pkCount < -110)
+					of->m_pkCount = -110;
+			}
+			else
+			{
+				// 나쁜넘 죽임
+#ifdef REFORM_PK_PENALTY_201108 // PK 패널티 리폼 :: 카오를 죽였다면
+				if( of->m_pkPenalty >= 0 && of->m_pkPenalty < PK_HUNTER_POINT_1 ) // 특정 성향 범위에서만 카오를 죽일때 성향 수치를 준다.
+				{
+					int nlevel = df->m_level - of->m_level;
+					int pkPenalty = 0;
+					if( nlevel > 4 )
+						pkPenalty += 3000;
+					else if( nlevel > -5 )
+						pkPenalty += 1000;
+					else if( nlevel <= -5 )
+						pkPenalty += 200;
+
+					if( of->m_assist.m_avRate.pkDispositionPointValue > 0 )
+					{
+						pkPenalty = pkPenalty * of->m_assist.m_avRate.pkDispositionPointValue;
+						of->m_assist.CureByItemIndex(7474);	// 성향 수치 상승 증폭제
+						of->m_assist.CureByItemIndex(7475);	// 성향 수치 상승 증폭제
+						of->m_assist.CureByItemIndex(7476);	// 성향 수치 상승 증폭제
+					}
+
+					of->AddPkPenalty( pkPenalty );
+				}
+
+				if( df->m_level >= of->m_level )
+				{
+					of->m_pkCount += 1;
+					if (of->m_pkCount > 110)
+						of->m_pkCount = 110;
+				}
+#else // REFORM_PK_PENALTY_201108 // PK 패널티 리폼 :: 카오를 죽였다면
+				// 동렙 이상이면
+				if (df->m_level >= of->m_level)
+				{
+					if( !gserver->m_bNonPK )
 						of->m_pkPenalty += 5;
-	#else
-					of->m_pkPenalty += 5;
-	#endif	// NON_PK_SYSTEM
+
 					if (of->m_pkPenalty > 155)
 						of->m_pkPenalty = 155;
-	#ifdef RESTRICT_PK
+
+					of->m_pkCount += 1;
+
+					if (of->m_pkCount > 110)
+						of->m_pkCount = 110;
 				}
-	#endif // RESTRICT_PK
-				of->m_pkCount += 1;
-
-				if (of->m_pkCount > 110)
-					of->m_pkCount = 110;
+#endif // REFORM_PK_PENALTY_201108  PK 패널티 리폼 :: 카오를 죽였다면
 			}
-		}
 
-		if (of->m_pkPenalty < -9)
-		{
-			if (!isPKChar || of->m_pkRecoverPulse <= 0)
-				of->m_pkRecoverPulse = PULSE_REAL_HOUR;
-		}
+#ifdef REFORM_PK_PENALTY_201108 // PK 패널티 리폼
+			if (of->m_pkPenalty < 0 )
+#else // REFORM_PK_PENALTY_201108 // PK 패널티 리폼
+			if (of->m_pkPenalty < -9)
+#endif // REFORM_PK_PENALTY_201108 // PK 패널티 리폼
+			{
+				if (!isPKChar || of->m_pkRecoverPulse <= 0)
+					of->m_pkRecoverPulse = TIME_ONE_HOUR;
+			}
 #ifdef MAL_DISABLE_PKPENALTY
-	}
+		}
 #endif // MAL_DISABLE_PKPENALTY
 
 #ifdef FREE_PK_SYSTEM
 	}
 #endif // FREE_PK_SYSTEM
 
-#endif  // DISABLE_PKPANELTY
-
 	of->m_bChangeStatus = true;
 
-#endif // ADULT_SERVER
 
-	// 페널티 수치 변경 알리기
-	CNetMsg rmsg;
-	CharStatusMsg(rmsg, of, 0);
-	of->m_pArea->SendToCell(rmsg, of, false);
+	{
+		// 페널티 수치 변경 알리기
+		CNetMsg::SP rmsg(new CNetMsg);
+		CharStatusMsg(rmsg, of, 0);
+		of->m_pArea->SendToCell(rmsg, of, false);
+	}
+
 	of->m_bChangeStatus = true;
 }
 
-#ifdef ENABLE_WAR_CASTLE
 void CalcWarPoint(CCharacter* of, CCharacter* df)
 {
 	// 공성이 이루어지고 있는 존에서
@@ -2207,12 +1926,12 @@ void CalcWarPoint(CCharacter* of, CCharacter* df)
 	CWarCastle* castle = CWarCastle::GetCastleObject(zoneindex);
 	if (castle == NULL)
 		return ;
-		
+
 	// 공성중에 길드장 사망시 포인트 감소 : 10 %
 	if (IS_PC(df))
 	{
 		CPC* dpc = TO_PC(df);
-		if (dpc->m_guildInfo && dpc->m_guildInfo->guild()->boss()->charindex() == dpc->m_index)
+		if (dpc->m_guildInfo && dpc->m_guildInfo->guild())
 		{
 			if (dpc->GetJoinFlag(dpc->m_pZone->m_index) == WCJF_ATTACK_GUILD)
 			{
@@ -2220,10 +1939,17 @@ void CalcWarPoint(CCharacter* of, CCharacter* df)
 				{
 					if (castle->IsTop3Guild(dpc->m_guildInfo->guild()->index()))
 					{
-						int point = castle->GetTeamPoint(dpc->m_guildInfo->guild()->index());
-						point = (int)(point / 10.0 + 0.5);
-						castle->IncreaseTeamPoint(dpc->m_guildInfo->guild()->index(), -point);
-						gserver.m_playerList.SendGuildWarPointMsg(castle, dpc->m_pZone->m_index);
+						int point=0;
+						if(dpc->m_guildInfo->pos() == MSG_GUILD_POSITION_BOSS)
+							point = (int)(point / 10.0 + 0.5);
+						else if(dpc->m_guildInfo->pos() == MSG_GUILD_POSITION_OFFICER)
+							point = (int)(point / 20.0 + 0.5);
+
+						if(point > 0)
+						{
+							castle->IncreaseTeamPoint(dpc->m_guildInfo->guild()->index(), -point);
+							PCManager::instance()->sendGuildWarPointMsg(castle, dpc->m_pZone->m_index);
+						}
 					}
 				}
 			}
@@ -2294,6 +2020,43 @@ void CalcWarPoint(CCharacter* of, CCharacter* df)
 	else
 		return ;
 
+	int increasePoint=0;
+	switch(mode)
+	{
+	case 1:
+	case 2:
+		if (IS_PC(df))
+		{
+			CPC* dpc = TO_PC(df);
+			int joinflag = dpc->GetJoinFlag(zoneindex);
+
+			if(joinflag == WCJF_OWNER							// 길드참여일 때
+					|| joinflag == WCJF_DEFENSE_GUILD
+					|| joinflag == WCJF_ATTACK_GUILD)
+			{
+				if(dpc->m_guildInfo)
+				{
+					MSG_GUILD_POSITION_TYPE postype = dpc->m_guildInfo->pos();
+					if(postype == MSG_GUILD_POSITION_BOSS)			increasePoint=20;
+					else if(postype == MSG_GUILD_POSITION_OFFICER)	increasePoint=7;
+					else if(postype != MSG_GUILD_POSITION_UNKNOWN)	increasePoint=5;
+				}
+			}
+			else if(joinflag == WCJF_DEFENSE_CHAR				// 용병참여일 때
+					|| joinflag == WCJF_ATTACK_CHAR)
+			{
+				// 용병은 5점
+				increasePoint=5;
+			}
+		}
+		break;
+	case 3:														// 수호병 NPC 일 때
+		increasePoint=3;
+		break;
+	default:
+		return ;
+	}
+
 	switch (mode)
 	{
 	case 1:			// 수성측 1포인트
@@ -2332,7 +2095,7 @@ void CalcWarPoint(CCharacter* of, CCharacter* df)
 			// 체력의 절반 이상 대미지를 준경우 포인트 증가
 			if (totalDamage / 2 <= damage && damage > 0)
 			{
-				castle->IncreaseTeamPoint(0, WCFP_PLAYER);
+				castle->IncreaseTeamPoint(0, increasePoint);
 			}
 		}
 		break;
@@ -2341,12 +2104,6 @@ void CalcWarPoint(CCharacter* of, CCharacter* df)
 	case 3:			// 공성측 5포인트
 		{
 			int totalDamage = 0;
-			int increasePoint = 0;
-			if (mode == 2)
-				increasePoint = WCFP_PLAYER;
-			else
-				increasePoint = WCFP_CASTLE_GUARD;
-
 			int countAttackGuild = castle->GetCountAttackGuild();		// 공성 길드 수
 			int* indexAttackGuild = new int[countAttackGuild];			// 공성 길드 인덱스
 			int* damagePerAttackGuild = new int[countAttackGuild];		// 공성 길드별 대미지
@@ -2408,223 +2165,133 @@ void CalcWarPoint(CCharacter* of, CCharacter* df)
 	default:
 		return ;
 	}
-
-	gserver.m_playerList.SendGuildWarPointMsg(castle, zoneindex);
+	PCManager::instance()->sendGuildWarPointMsg(castle, zoneindex);
 }
-#endif // #ifdef ENABLE_WAR_CASTLE
 
-#ifdef ENABLE_PET
-void ProcDeathPet(CPet* pet, const char* attackerType, int attackerIndex, const char* attackerName)
+void DropWarCastleTokenDeadPC(CCharacter* df)
 {
-	DelAttackList(pet);
+	if(!IS_PC(df))
+		return ;
 
-	CNetMsg rmsg;
+	CPC* dpc = TO_PC(df);
 
-	CPC* owner = pet->GetOwner();
-	const char* ownerName = "NO OWNER";
-	const char* ownerNick = "NO OWNER";
-	const char* ownerID = "NO OWNER";
-	if (owner)
+	int zoneindex=df->m_pZone->m_index;
+	CWarCastle* castle = CWarCastle::GetCastleObject(zoneindex);
+	if(castle == NULL)
+		return ;
+
+	if(castle->GetState() == WCSF_NORMAL)
+		return ;
+
+	if( dpc->GetJoinFlag(zoneindex) == WCJF_NONE  )
+		return ;
+
+	if ( !castle->IsInInnerCastle(dpc) )
+		return ;
+
+	// 확률 계산
+	if(GetRandom(1, 100) > 5)
+		return ;
+
+	int maxdamage = 0;
+	CAttackChar* p = NULL;
+	CAttackChar* pNext = dpc->m_attackList;
+
+	CCharacter* preference = NULL;
+	while( (p = pNext) )
 	{
-		ownerNick = (owner->IsNick()) ? owner->GetName() : ownerNick;
-		ownerName = owner->m_name;
-		ownerID = owner->m_desc->m_idname;
+		pNext = pNext->m_next;
+		if(!p->ch)
+			continue;
+		if(!IS_PC(p->ch))
+			continue;
+
+		if ((p->ch->m_pZone->m_index != df->m_pZone->m_index) ||
+				(p->ch->m_pArea->m_index != df->m_pArea->m_index) ||
+				!CheckInNearCellExt(p->ch, dpc))
+			continue ;
+
+		if(maxdamage <= p->m_damage)
+		{
+			maxdamage = p->m_damage;
+			preference = p->ch;
+		}
+
+		//	p = p->m_next;
 	}
 
-	// TODO : petlog
-	GAMELOG << init("PET DEAD")
-			<< "PET" << delim
-			<< pet->GetPetTypeGrade() << delim
-			<< "INDEX" << delim
-			<< pet->m_index << delim
-			<< "LEVEL" << delim
-			<< pet->m_level << delim
-			<< "OWNER" << delim
-			<< ownerName << delim
-			<< ownerNick << delim
-			<< ownerID << delim
-			<< "ATTACKER" << delim
-			<< "TYPE" << delim
-			<< attackerType << delim
-			<< "INDEX" << delim
-			<< attackerIndex << delim
-			<< "NAME" << delim
-			<< attackerName << delim
+	if(preference == NULL)
+		return ;
+
+	CItem* pItem = gserver->m_itemProtoList.CreateItem(6653, -1, 0, 0, 1);
+	if (!pItem)
+		return ;
+
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		pItem->m_preferenceIndex = preference->m_index;
+		dpc->m_pArea->DropItem(pItem, dpc);
+		ItemDropMsg(rmsg, dpc, pItem);
+		pItem->m_pArea->SendToCell(rmsg, dpc, true);
+	}
+
+	// 7. 게임 로그
+	GAMELOG << init("WARCASTLE_TOKEN_DROP_DEAD_PC", dpc)
+			<< "ITEM" << delim
+			<< itemlog(pItem)
 			<< end;
-
-	// TODO : DELETE
-//	// 펫 사망시 아이템 지급
-//	DropPetItem(pet);
-//	const int nHorseDropList = 8;
-//	const int nDragonDropList = 12;
-//	int horseDropList[nHorseDropList][2] = {
-//		{886, 25},			// 말굽
-//		{888, 10},			// 말의갈기
-//		{889, 25},			// 말총
-//		{890, 10},			// 말의등뼈
-//		{891, 25},			// 말의어금니
-//		{892, 25},			// 말의피
-//		{893, 10},			// 말가죽
-//		{894, 50}			// 말의힘줄
-//	};
-//	int dragonDropList[nDragonDropList][2] = {
-//		{895, 20},			// 발톱
-//		{896, 20},			// 날개
-//		{897, 20},			// 송곳니
-//		{898, 20},			// 눈알
-//		{899, 20},			// 뿔
-//		{900, 20},			// 힘줄
-//		{901, 20},			// 가죽
-//		{902, 20},			// 꼬리
-//		{903, 20},			// 피
-//		{904, 20},			// 심장
-//		{905, 20},			// 루비
-//		{906, 20},			// 등뼈
-//	};
-//
-//	// 펫 종류에 따라 드롭 테이블 변경
-//	bool bNoDrop = true;
-//	int i;
-//	int prob = GetRandom(1, 10000);
-//	int selIndex = 0;	// 아이템 인덱스
-//
-//	if (owner)
-//	{
-//		switch (pet->GetPetType())
-//		{
-//		case PET_TYPE_HORSE:
-//			for (i = 0; i < nHorseDropList; i++)
-//			{
-//				horseDropList[i][1] = horseDropList[i][1] * pet->m_level / 2;
-//				if (i > 0)
-//					horseDropList[i][1] += horseDropList[i - 1][1];
-//
-//				if (prob <= horseDropList[i][1])
-//				{
-//					selIndex = horseDropList[i][0];
-//					bNoDrop = false;
-//					break;
-//				}
-//			}
-//			break;
-//		case PET_TYPE_DRAGON:
-//			for (i = 0; i < nDragonDropList; i++)
-//			{
-//				dragonDropList[i][1] = dragonDropList[i][1] * pet->m_level / 2;
-//				if (i > 0)
-//					dragonDropList[i][1] += dragonDropList[i - 1][1];
-//
-//				if (prob <= dragonDropList[i][1])
-//				{
-//					selIndex = dragonDropList[i][0];
-//					bNoDrop = false;
-//					break;
-//				}
-//			}
-//			break;
-//		default:
-//			bNoDrop = true;
-//		}
-//	}
-//
-//	if (!bNoDrop)
-//	{
-//		CItem* dropItem = gserver.m_itemProtoList.CreateItem(selIndex, -1, 0, 0, 1);
-//		if (dropItem)
-//		{
-//			bool bDrop = false;
-//			if (!AddToInventory(owner, dropItem, true, true))
-//			{
-//				pet->m_pArea->DropItem(dropItem, pet);
-//				dropItem->m_preferenceIndex = owner->m_index;
-//				ItemDropMsg(rmsg, pet, dropItem);
-//				pet->m_pArea->SendToCell(rmsg, GET_YLAYER(dropItem), dropItem->m_cellX, dropItem->m_cellZ);
-//				bDrop = true;
-//			}
-//			else
-//			{
-//				if (dropItem->tab() < 0)
-//				{
-//					int r, c;
-//					if (owner->m_invenNormal.FindItem(&r, &c, dropItem->m_itemProto->m_index, 0, 0))
-//					{
-//						CItem* prev = owner->m_invenNormal.GetItem(r, c);
-//						ItemUpdateMsg(rmsg, prev, 1);
-//						SEND_Q(rmsg, owner->m_desc);
-//					}
-//					delete dropItem;
-//				}
-//				else
-//				{
-//					ItemAddMsg(rmsg, dropItem);
-//					SEND_Q(rmsg, owner->m_desc);
-//				}
-//			}
-//
-//			GAMELOG << init("PET ITEM DROP")
-//					<< "PET" << delim
-//					<< pet->GetPetTypeGrade() << delim
-//					<< "INDEX" << delim
-//					<< pet->m_index << delim
-//					<< "LEVEL" << delim
-//					<< pet->m_level << delim
-//					<< "OWNER" << delim
-//					<< ownerName << delim
-//					<< ownerNick << delim
-//					<< ownerID << delim
-//					<< "ITEM INDEX" << delim
-//					<< dropItem->m_itemProto->m_index << delim
-//					<< "ITEM NAME" << delim
-//					<< dropItem->m_itemProto->m_name << delim
-//					<< ((bDrop) ? "DROP" : "GIVE")
-//					<< end;
-//		}
-//	}
-
-	// 060221 : bs : 애완동물 사망시 착용 해제하고 이후 일정 시간동안 착용 불능
-	if (owner)
-	{
-		// 착용 해제
-		ItemWearMsg(rmsg, WEARING_PET, NULL, NULL);
-		do_ItemWear(owner, rmsg);
-		// 사망 설정
-		pet->SetRemainRebirthTime();
-		// 펫 상태 보냄
-		ExPetStatusMsg(rmsg, pet);
-		SEND_Q(rmsg, owner->m_desc);
-	}
-
-//	if (owner)
-//		owner->DelPet(pet->m_index);
-
-// TODO : DELETE
-//	CPC* pc = pet->GetOwner();
-//	int ownerIndex = 0;
-//	if (pc)
-//		ownerIndex = pc->m_index;
-//
-//	if (IS_RUNNING_HELPER)
-//	{
-//		HelperPetDeleteReqMsg(rmsg, pet->m_index, ownerIndex);
-//		SEND_Q(rmsg, gserver.m_helper);
-//		if (pc)
-//			pc->m_desc->WaitHelperReply(true);
-//	}
-//	else
-//	{
-//		if (pc)
-//			pc->DelPet(pet->m_index);
-//		else
-//			delete pet;
-//	}
 }
 
-#endif // #ifdef ENABLE_PET
+void DropWarCastleToken(CNPC* npc, CPC* pc, CPC* tpc, int level)
+{
+	if (!tpc || !npc)
+		return ;
+
+	if(!npc->m_proto->CheckFlag( (1 << 6) | (1 << 9) ))
+		return ;
+
+	CWarCastle* castle = CWarCastle::GetCastleObject(npc->m_pZone->m_index);
+	if(!castle)
+		return ;
+
+	if(castle->GetState() == WCSF_NORMAL)
+		return ;
+
+	if(tpc->GetJoinFlag(castle->GetZoneIndex()) != WCJF_NONE)
+	{
+		// 확률 수정
+		if(GetRandom(1, 100) <= 5)
+		{
+			CItem* pItem = gserver->m_itemProtoList.CreateItem(6653, -1, 0, 0, 1);
+			if (!pItem)
+				return ;
+
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				pItem->m_preferenceIndex = tpc->m_index;
+				npc->m_pArea->DropItem(pItem, npc);
+				ItemDropMsg(rmsg, npc, pItem);
+				pItem->m_pArea->SendToCell(rmsg, GET_YLAYER(pItem), pItem->m_cellX, pItem->m_cellZ);
+			}
+
+			// 7. 게임 로그
+			GAMELOG << init("WARCASTLE_TOKEN_DROP", tpc)
+					<< "NPC" << delim
+					<< npc->m_idNum << delim
+					<< npc->m_name << delim
+					<< "NPC LEVEL" << delim
+					<< npc->m_level << delim
+					<< "PC LEVEL" << delim
+					<< tpc->m_level << delim
+					<< "ITEM" << delim
+					<< itemlog(pItem)
+					<< end;
+		}
+	}
+}
 
 void ProcFollowNPC(CNPC* npc)
 {
-	CNetMsg rmsg;
-
 	// 리더 플래그 0
 	if (npc->m_proto->CheckLeaderBit(0) && npc->m_proto->m_family != -1)
 	{
@@ -2633,11 +2300,11 @@ void ProcFollowNPC(CNPC* npc)
 		int ex = npc->m_cellX + CELL_EXT;
 		int sz = npc->m_cellZ - CELL_EXT;
 		int ez = npc->m_cellZ + CELL_EXT;
-		
+
 		int x, z;
 		float dist[5] = {999.9f, 999.9f, 999.9f, 999.9f, 999.9f};
 		CNPC* ret[5] = {NULL, NULL, NULL, NULL, NULL};
-		
+
 		int i = 0;
 		// 일단 다른 층은 검사 안한다
 		for (x = sx; x <= ex; x++)
@@ -2717,58 +2384,12 @@ void ProcFollowNPC(CNPC* npc)
 			{
 				ret[i]->m_hp = ret[i]->m_maxHP;
 				ret[i]->m_mp = ret[i]->m_maxMP;
+				CNetMsg::SP rmsg(new CNetMsg);
 				CharStatusMsg(rmsg, ret[i], 0);
 				ret[i]->m_pArea->SendToCell(rmsg, ret[i]);
 			}
 		}
 	} // --- 리더 플래그 0
-
-	// 리더 사망시 몹 소환
-	if (npc->m_proto->m_aileader_idx > 0 && npc->m_proto->m_aileader_count > 0)
-	{
-		int i;
-		for (i = 0; i < npc->m_proto->m_aileader_count; i++)
-		{
-			float x = 0, z = 0;
-			int j;
-			for (j = 0; j < 10; j++)
-			{
-				x = GET_X(npc) + (GetRandom(0, 1) ? -1 : 1) * GetRandom(20, 30) / 10.0f;
-				z = GET_Z(npc) + (GetRandom(0, 1) ? -1 : 1) * GetRandom(20, 30) / 10.0f;
-
-				switch (npc->m_pArea->GetAttr(GET_YLAYER(npc), x, z))
-				{
-				case MAPATT_FIELD:
-				case MAPATT_STAIR_UP:
-				case MAPATT_STAIR_DOWN:
-					j = 9999;
-					break;
-				}
-			}
-
-			CNPC* rnpc = gserver.m_npcProtoList.Create(npc->m_proto->m_aileader_idx, NULL);
-			if (!rnpc)
-				return ;
-
-			GET_X(rnpc) = x;
-			GET_YLAYER(rnpc) = GET_YLAYER(npc);
-			GET_Z(rnpc) = z;
-			GET_R(rnpc) = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
-			
-			rnpc->m_regenX = GET_X(rnpc);
-			rnpc->m_regenY = GET_YLAYER(rnpc);
-			rnpc->m_regenZ = GET_Z(rnpc);
-
-			int cx, cz;
-			npc->m_pArea->AddNPC(rnpc);
-			npc->m_pArea->PointToCellNum(GET_X(rnpc), GET_Z(rnpc), &cx, &cz);
-			npc->m_pArea->CharToCell(rnpc, GET_YLAYER(rnpc), cx, cz);
-			
-			CNetMsg appearNPCMsg;
-			AppearMsg(appearNPCMsg, rnpc, true);
-			npc->m_pArea->SendToCell(appearNPCMsg, GET_YLAYER(rnpc), cx, cz);
-		}
-	}
 }
 
 int AIComp(CNPC* base, CNPC* n1, CNPC* n2)
@@ -2806,18 +2427,14 @@ int AIComp(CNPC* base, CNPC* n1, CNPC* n2)
 // of가 df를 죽이면 PK인지 검사
 bool IsPK(CPC* of, CCharacter* df)
 {
-#ifdef DISABLE_PKPENALTY
-	return false;
-#endif // #ifdef DISABLE_PKPENALTY
-
 #ifdef MAL_DISABLE_PKPENALTY
-	if( gserver.m_bDisablePKPaenalty )
+	if( gserver->m_bDisablePKPaenalty )
 		return false;
 #endif // MAL_DISALBE_PKPENALTY
 
 #ifdef FREE_PK_SYSTEM
-		if( gserver.m_bFreePk )
-			return false;
+	if( gserver->m_bFreePk )
+		return false;
 #endif // FREE_PK_SYSTEM
 
 	bool bPvP = false;
@@ -2834,16 +2451,12 @@ bool IsPK(CPC* of, CCharacter* df)
 	case MSG_CHAR_ELEMENTAL:
 		dpc = TO_ELEMENTAL(df)->GetOwner();
 		break;
-#ifdef ATTACK_PET
 	case MSG_CHAR_APET:
 		dpc = TO_APET(df)->GetOwner();
 		break;
-#endif //ATTACK_PET
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
 	case MSG_CHAR_NPC:
 		dpc = TO_NPC(df)->GetOwner();
 		break;
-#endif  // NIGHTSHADOW_SKILL	
 	default:
 		return false;
 	}
@@ -2865,59 +2478,100 @@ bool IsPK(CPC* of, CCharacter* df)
 			// 카오가 일반을 정당방위로 죽일때 패널티를 위한 of
 			// 일반이 카오를 정당방위로 죽일때 패널티 및 성향 상승을 위한 dpc
 			// 둘다 일반이고 죽은넘이 공격했을때 m_bAttacker
-#ifdef ADULT_SERVER
-			if ( dpc->m_level <= PKMODE_LIMIT_LEVEL ||  of->m_level <= PKMODE_LIMIT_LEVEL )
-#else
-			if (raList->m_bAttacker && !dpc->IsChaotic() && !of->IsChaotic() )
-#endif
+			if (raList->m_bAttacker && !dpc->IsChaotic())
 				return false;
 
 			break;
 		}
-			raList = raList->m_next;
+		raList = raList->m_next;
 	}
 
 #ifdef LC_TLD
-		// 둘다 카오가 아니고 칼키고 있으면 태국은 성향 수치 변화없음
-		if( dpc->IsSetPlayerState(PLAYER_STATE_PKMODE) && of->IsSetPlayerState(PLAYER_STATE_PKMODE) && !of->IsChaotic() && !dpc->IsChaotic() )
-			return false;
+	// 둘다 카오가 아니고 칼키고 있으면 태국은 성향 수치 변화없음
+	if( dpc->IsSetPlayerState(PLAYER_STATE_PKMODE) && of->IsSetPlayerState(PLAYER_STATE_PKMODE) && !of->IsChaotic() && !dpc->IsChaotic() )
+		return false;
 #endif
 
 	// 길드전
 	if (of->m_guildInfo && (of->m_guildInfo->guild()->battleState() == GUILD_BATTLE_STATE_ING) &&
-		dpc->m_guildInfo && (dpc->m_guildInfo->guild()->battleState() == GUILD_BATTLE_STATE_ING))
+			dpc->m_guildInfo && (dpc->m_guildInfo->guild()->battleState() == GUILD_BATTLE_STATE_ING))
 	{
-		if (of->m_guildInfo->guild()->battleIndex() == dpc->m_guildInfo->guild()->index() && 
-			dpc->m_guildInfo->guild()->battleIndex() == of->m_guildInfo->guild()->index())
+		if (of->m_guildInfo->guild()->battleIndex() == dpc->m_guildInfo->guild()->index() &&
+				dpc->m_guildInfo->guild()->battleIndex() == of->m_guildInfo->guild()->index())
 			return false;
 	}
 
-#ifdef ENABLE_WAR_CASTLE
-		// 공성 도중 사망은 패널티 없음
-		CWarCastle* castle = CWarCastle::GetCastleObject(of->m_pZone->m_index);
-		if (castle)
+#ifdef CHANGE_WARCASTLE_SETTING
+	// 서로 적대 관계(공성, 수성)이면 페널티가 없다.
+	CPC* pDf = TO_PC(df);
+	int nZoneIdx = -1;
+	CWarCastle* castle = CWarCastle::GetCastleObject(ZONE_DRATAN);
+	if (castle && castle->GetState() != WCSF_NORMAL)
+	{
+		nZoneIdx = ZONE_DRATAN;
+	}
+	else
+	{
+		castle = CWarCastle::GetCastleObject(ZONE_MERAC);
+		if (castle && castle->GetState() != WCSF_NORMAL)
 		{
-			if (castle->GetState() != WCSF_NORMAL)
-			{
-				if (of->GetMapAttr() == MAPATT_WARZONE &&
-					df->GetMapAttr() == MAPATT_WARZONE)
-					return false;
-			}
+			nZoneIdx = ZONE_MERAC;
 		}
-#endif
+	}
+	if ( pDf && nZoneIdx > 0 )
+	{
+		if ( (IS_DEFENSE_TEAM(of->GetJoinFlag(nZoneIdx)) && IS_ATTACK_TEAM(pDf->GetJoinFlag(nZoneIdx))) ||					// 수성 vs 공성
+				(IS_ATTACK_TEAM(of->GetJoinFlag(nZoneIdx)) && pDf->GetJoinFlag(nZoneIdx) != WCJF_NONE) )						// 공성 vs 수성 or 공성
+		{
+			return false;
+		}
+#ifdef CHECK_CASTLE_AREA
+		if ((of->m_pZone->m_index == nZoneIdx && pDf->m_pZone->m_index == nZoneIdx ) &&										// 공성존이고,공성지역내에 있고, 공,수성(of) vs 3세력(df)
+				(of->GetMapAttr() & MATT_WAR || of->m_pZone->IsWarZone((int)of->m_pos.m_x, (int)of->m_pos.m_z)) &&
+				(df->GetMapAttr() & MATT_WAR || df->m_pZone->IsWarZone((int)df->m_pos.m_x, (int)df->m_pos.m_z)) &&
+				of->GetJoinFlag(nZoneIdx) != WCJF_NONE && pDf->GetJoinFlag(nZoneIdx) == WCJF_NONE)
+#else // CHECK_CASTLE_AREA
+		if ((of->m_pZone->m_index == nZoneIdx && pDf->m_pZone->m_index == nZoneIdx ) &&
+				(of->GetMapAttr() == pDf->GetMapAttr() && of->GetMapAttr() & MATT_WAR && of->GetJoinFlag(nZoneIdx) != WCJF_NONE && pDf->GetJoinFlag(nZoneIdx) == WCJF_NONE) )
+#endif // CHECK_CASTLE_AREA
+		{
+			return false;
+		}
+	}
+#else // CHANGE_WARCASTLE_SETTING
+	// 공성 도중 사망은 패널티 없음
+	CWarCastle* castle = CWarCastle::GetCastleObject(of->m_pZone->m_index);
+	if (castle)
+	{
+		if (castle->GetState() != WCSF_NORMAL)
+		{
+#ifdef CHECK_CASTLE_AREA
+			if ( (of->GetMapAttr() & MATT_WAR || of->m_pZone->IsWarZone((int)of->m_pos.m_x, (int)of->m_pos.m_z)) &&
+					(df->GetMapAttr() & MATT_WAR || df->m_pZone->IsWarZone((int)df->m_pos.m_x, (int)df->m_pos.m_z)) &&
+					(of->GetJoinFlag(of->m_pZone->m_index) != WCJF_NONE ))
+				return false;
+#else
+			if (of->GetMapAttr() & MATT_WAR &&
+					df->GetMapAttr() & MATT_WAR)
+				return false;
+#endif // CHECK_CASTLE_AREA
+		}
+	}
+#endif // CHANGE_WARCASTLE_SETTING
+//#endif
 
 	/////////////////////////////////////////////
 	// BANGWALL : 2005-07-18 오전 11:27:24
 	// Comment : freepkzone 패널티 없음
 	// 공격자와 방어자가 모두 freepkzone에 있으면 pkpenalty 없음
-	if( of->GetMapAttr() == df->GetMapAttr() && of->GetMapAttr() == MAPATT_FREEPKZONE)
+	if( of->GetMapAttr() == df->GetMapAttr() && of->GetMapAttr() & MATT_FREEPKZONE)
 		return false;
 
 	return true;
 }
 // npc attackList중 어택 제한 Pulse 초과한 경우 어택리스트에서 삭제
 // hate 수치 가장 높은 pc 반환
-// 
+//
 CCharacter* CheckAttackPulse(CNPC* npc)
 {
 	CAttackChar* target;
@@ -2943,7 +2597,7 @@ CCharacter* CheckAttackPulse(CNPC* npc)
 			checkPulse = NPC_ATTACK_DELETE_PULSE;
 
 		// 타겟이 때린 데미지가 있고 Pulse가 초과한 경우 리스트에서 삭제
-		if (target->m_damage > 0 && gserver.m_pulse - target->m_targetPulse > checkPulse)
+		if (target->m_damage > 0 && gserver->m_pulse - target->m_targetPulse > checkPulse)
 		{
 			// target의 attackList에서 npc 삭제
 			CAttackChar* tmp;
@@ -2959,9 +2613,6 @@ CCharacter* CheckAttackPulse(CNPC* npc)
 					tmp = NULL;
 				}
 			}
-#ifndef NEW_DIVISION_EXPSP			
-			npc->m_totalDamage -= target->m_damage;
-#endif // #ifndef NEW_DIVISION_EXPSP
 
 			REMOVE_FROM_BILIST(target, npc->m_attackList, m_prev, m_next);
 			delete target;
@@ -2986,11 +2637,9 @@ CCharacter* CheckAttackPulse(CNPC* npc)
 		if (ABS(GET_YLAYER(npc) - GET_YLAYER(target->ch)) > 1 && ABS(GET_H(npc) - GET_H(target->ch)) > 5.0f)
 			continue ;
 
-#ifdef NO_TARGET_IN_PEACEZONE
 		// 피스존 안에서는 타겟이 될 수 없다
 		if (target->ch->IsInPeaceZone(false))
 			continue ;
-#endif // NO_TARGET_IN_PEACEZONE
 
 		if (hate <= target->m_targetHate && target->m_targetHate != 0)
 		{
@@ -3036,52 +2685,118 @@ CCharacter* CheckAttackPulse(CNPC* npc)
 	}
 }
 
-#ifdef EVENT_TEACH_2007
-bool IsTeachAndStudent( CParty* pParty )
+int CalcNewDamage(CCharacter* of, CCharacter* df, int damage)
 {
-	bool bTeachAndStudent = false;
-
-	CPC* pBoss = gserver.m_playerList.Find( pParty->GetBossIndex() );
-	if( pBoss == NULL )
-		return false;
-	if( pBoss->m_teachType == MSG_TEACH_TEACHER_TYPE )
+	if( IS_PC(of) && IS_PC(df) )
 	{
-		for( int i = 1; i < MAX_PARTY_MEMBER; i++ )
+		CPC* of_pc = TO_PC(of);
+		CPC* df_pc = TO_PC(df);
+
+		if(of_pc->IsChaotic() || df_pc->IsChaotic())
 		{
-			int partyCharidx = pParty->GetMemberCharIndex( i );
-			if( partyCharidx == -1 )
-				continue;
-
-			CPC* pPartyMember = gserver.m_playerList.Find( partyCharidx );
-			if( pPartyMember == NULL )
-				continue;
-
-			if( pPartyMember->m_teachType != MSG_TEACH_STUDENT_TYPE )
+			//공격자 처리
+			if(of_pc->IsChaotic() == true)
 			{
-				bTeachAndStudent = false;
-				break;
+				damage = damage - (damage * of_pc->m_pkPenalty / 1000 / 100 * (-1.5));
 			}
-			else 
+			else
 			{
-				for( int num =  0; num < TEACH_MAX_STUDENTS; num++ )
+				damage = damage + (damage * of_pc->m_pkPenalty / 1000 / 100 * 3.5);
+			}
+		}
+
+		//방어구강화에 따른 수정
+		{
+			damage = damage - (df_pc->m_wearInventory.getWearItemPlusSumCount() * damage / (df_pc->m_wearInventory.getWearItemPlusSumCount() + 310));
+		}
+	}
+	
+	return damage;
+}
+
+void CalcNewHitProb(CCharacter* of, CCharacter* df, float& hit, float& avoid)
+{
+	if( IS_PC(of) && IS_PC(df) )
+	{
+		CPC* of_pc = TO_PC(of);
+		CPC* df_pc = TO_PC(df);
+
+		//무기에 따른 명중률 계산
+		CItem* item_weapon = of_pc->m_wearInventory.getWearItem(WEARING_WEAPON);
+		if(item_weapon != NULL)
+		{
+			hit = hit + ( item_weapon->getPlus() * ( (of_pc->m_level + 900) / df_pc->m_level ) );
+		}
+
+		//카오 모드 일 경우의 PVP 회피 감소
+		if(df_pc->IsChaotic() == true)
+		{
+			avoid = avoid + ((df_pc->m_pkPenalty / (of_pc->m_level + df_pc->m_level)) - of_pc->m_level * 3);
+		}
+	}
+}
+bool checkPvPProtect( CPC* pc, CCharacter* tch )
+{
+	CPC* tpc = NULL;
+	if(IS_PC(tch))
+		tpc = TO_PC(tch);
+	else if(IS_APET(tch))
+		tpc = TO_APET(tch)->GetOwner();
+	else if(IS_PET(tch))
+		tpc = TO_PET(tch)->GetOwner();
+	else if(IS_ELEMENTAL(tch))
+		tpc = TO_ELEMENTAL(tch)->GetOwner();
+	else if(IS_NPC(tch))
+		tpc = TO_NPC(tch)->GetOwner();
+
+	if(tpc == NULL)
+		return true;
+
+	if(tpc == pc)
+		return true;
+
+	if(tpc->m_assist.FindBySkillIndex(PVP_PROTECT_SKILL_INDEX) != 0)
+	{
+		//공성중인 경우에
+		if(tpc->GetJoinFlag(tpc->m_pZone->m_index) != 0)
+		{
+			if ( tpc->GetMapAttr() & MATT_WAR || tpc->m_pZone->IsWarZone(GET_X(tpc), GET_Z(tpc)) == true ) 
+			{
+				return true;
+			}
+			else
+			{
+				//이외에는 공격 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysMsg(rmsg, MSG_SYS_DO_NOT_ATTACK_PROTECT_PVP);
+				SEND_Q(rmsg, pc->m_desc);
+				return false;
+			}
+		}
+		else
+		{
+			switch(tpc->m_pArea->m_zone->m_index)
+			{
+			case ZONE_AKAN_TEMPLE:
+			case ZONE_EGEHA_PK:
+			case ZONE_PK_TOURNAMENT:
+			case ZONE_EXTREME_CUBE:
+			case ZONE_ROYAL_RUMBLE:
+			case ZONE_RVR:
+				break;
+			default:
+				// 공격 불가
+				if ( !(tpc->GetMapAttr() & MATT_FREEPKZONE) )
 				{
-					if( pBoss->m_teachIdx[num] == partyCharidx )
-						bTeachAndStudent = true;
-					else
-					{
-						bTeachAndStudent = false;
-						break;
-					}
+					//아레나등 지역에서는 공격 불가
+					CNetMsg::SP rmsg(new CNetMsg);
+					SysMsg(rmsg, MSG_SYS_DO_NOT_ATTACK_PROTECT_PVP);
+					SEND_Q(rmsg, pc->m_desc);
+					return false;
 				}
 				break;
 			}
-
-		
 		}
 	}
-	if( !bTeachAndStudent )
-		return false;
-
 	return true;
 }
-#endif //EVENT_TEACH_2007

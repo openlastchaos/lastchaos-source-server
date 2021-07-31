@@ -1,6 +1,0 @@
-
-void BillConnectMsg(CNetMsg& msg);
-
-void BillBalanceReqMsg(CNetMsg& msg, int userindex, const char* idname);
-void BillCanbuyReqMsg(CNetMsg& msg, int userindex, const char* idname, char count, int ctid[], int requestCash = -1);
-void BillBuyReqMsg(CNetMsg& msg, int userindex, const char* userid, int serial, char count, int ctid[], const char* ip);

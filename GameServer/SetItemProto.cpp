@@ -1,9 +1,8 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "SetItemProto.h"
-#include "DBCmd.h"
-
-#ifdef SET_ITEM
+#include "../ShareLib/DBCmd.h"
 
 ///////////////////
 // CSetItemProto
@@ -25,11 +24,12 @@ void CSetItemProto::InitData(int nPos, int nIndex, int nJob, int nOptionCnt, int
 	m_nJob	= nJob;
 	m_nOptionCnt = nOptionCnt;
 
-	for (int i = 0; i < MAX_WEARING; i++)
+	int i = 0;
+	for (i = 0; i < MAX_WEARING; i++)
 	{
 		m_nItemIdx[i] = pItemIdx[i];
 	}
-	
+
 	for (i = 0; i < MAX_SET_ITEM_OPTION; i++)
 	{
 		m_option[i].nWearCnt	= pOption[i].nWearCnt;
@@ -59,19 +59,23 @@ CSetItemProtoList::~CSetItemProtoList()
 
 CSetItemProto* CSetItemProtoList::Find(int nIndex)
 {
-	CSetItemProto key;
-	key.SetIndex(nIndex);
-	//key.m_nIndex = nIndex;
-	return (CSetItemProto*)bsearch(&key, m_listSetItem, m_nCount, sizeof(CSetItemProto), CompIndex);
+	map_t::iterator it = map_.find(nIndex);
+	return (it != map_.end()) ? it->second : NULL;
 }
 
 bool CSetItemProtoList::Load()
 {
 	CDBCmd cmd;
-	cmd.Init(&gserver.m_dbdata);
+	cmd.Init(&gserver->m_dbdata);
 	cmd.SetQuery("SELECT * FROM t_set_item WHERE a_enable = 1 ORDER BY a_set_idx");
 	if (!cmd.Open())
 		return false;
+
+	if (cmd.m_nrecords == 0)
+	{
+		LOG_ERROR("Set_Item table is empty.");
+		return true;
+	}
 
 	m_listSetItem = new CSetItemProto[cmd.m_nrecords];
 
@@ -135,10 +139,11 @@ bool CSetItemProtoList::Load()
 		}
 
 		m_listSetItem[m_nCount].InitData(m_nCount, a_set_idx, a_job, a_option_count, a_item_idx, option);
+
+		map_.insert(map_t::value_type(m_listSetItem[m_nCount].GetIndex(), &m_listSetItem[m_nCount]));
+
 		m_nCount++;
 	}
 
 	return true;
 }
-
-#endif // SET_ITEM

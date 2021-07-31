@@ -1,26 +1,25 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "doFunc.h"
 #include "CmdMsg.h"
 
-void do_Request(CNetMsg& msg, CDescriptor* dest)
+void do_Request(CNetMsg::SP& msg, CDescriptor* dest)
 {
-	msg.MoveFirst();
+	msg->MoveFirst();
 
 	int seq;
 	int serverno, subno, zone;
 	unsigned char subtype;
 
-	msg >> seq
-		>> serverno >> subno >> zone
-		>> subtype;
+	RefMsg(msg) >> seq
+				>> serverno >> subno >> zone
+				>> subtype;
 
 	switch (subtype)
 	{
 	case MSG_MSGR_RECOMMEND:
-#ifdef RECOMMEND_SERVER_SYSTEM
 		do_Request_Recommend(msg);
-#endif // RECOMMEND_SERVER_SYSTEM
 		break;
 
 	case MSG_MSGR_EVENT_GOLDENBALL:
@@ -28,7 +27,7 @@ void do_Request(CNetMsg& msg, CDescriptor* dest)
 		break;
 	}
 
-	CMsgListNode* node;
+	CMsgListNode* node = NULL;
 	if (seq == -1)
 	{
 		node = gserver.m_msgList.Add(-1, false, dest, msg);
@@ -52,25 +51,39 @@ void do_Request(CNetMsg& msg, CDescriptor* dest)
 		// 그 서버에 존재하는 존이거나
 		// 모든 존이면 추가
 		if (((serverno == -1/* && pDesc->m_serverNo != LOGIN_SERVER_NUM && pDesc->m_serverNo != CONNECTOR_SERVER_NUM*/)	// 컨넥터, 로그인서버 제외한
-			|| pDesc->m_serverNo == serverno) && (subno == -1 || pDesc->m_subNo == subno) && (zone == -1 || pDesc->FindZone(zone) != -1))
-			node->Add(pDesc);
+				|| pDesc->m_serverNo == serverno) && (subno == -1 || pDesc->m_subNo == subno) && (zone == -1 || pDesc->FindZone(zone) != -1))
+		{
+			// 세션에게 메시지 전송, 처리는 각 GameServer가 담당
+			SEND_Q(msg, pDesc);
+
+			if (node->m_bReq)
+			{
+				node->Add(pDesc);
+			}
+		}
+	}
+
+	// 응답이 필요없는 메시지의 경우 저장하지 않고 바로 지움
+	if (node->m_bReq == false)
+	{
+		gserver.m_msgList.Remove(node);
 	}
 }
 
-void do_Reply(CNetMsg& msg, CDescriptor* dest)
+void do_Reply(CNetMsg::SP& msg, CDescriptor* dest)
 {
-	msg.MoveFirst();
+	msg->MoveFirst();
 
 	int seq;
 	int serverno, subno;
 	int zoneno;
 	unsigned char subtype;
 
-	msg >> seq
-		>> serverno
-		>> subno
-		>> zoneno
-		>> subtype;
+	RefMsg(msg) >> seq
+				>> serverno
+				>> subno
+				>> zoneno
+				>> subtype;
 
 	// seq를 찾고
 	CMsgListNode* node;
@@ -116,20 +129,18 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 					CLCString rname(MAX_CHAR_NAME_LENGTH + 1);
 					CLCString chat(1000);
 
-					msg	>> sidx >> sname
-						>> rname
-						>> chat;
+					RefMsg(msg)	>> sidx >> sname
+								>> rname
+								>> chat;
 
-					CNetMsg mmsg;
-					MsgrWhisperRep(mmsg, seq, serverno, subno, zoneno, sidx, sname, rname, chat);
-
-					SEND_Q(mmsg, node->m_reqServer);
+					CNetMsg::SP rmsg(new CNetMsg);
+					MsgrWhisperRep(rmsg, seq, serverno, subno, zoneno, sidx, sname, rname, chat);
+					SEND_Q(rmsg, node->m_reqServer);
 
 					// 제대로 받았으니 지워버리자
 					bAllReceived = true;
 				}
 				break ;
-
 
 			case MSG_MSGR_WHISPER_NOTFOUND:
 				if (bAllReceived)
@@ -137,17 +148,14 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 					// 다 받았는데 귓말 대상이 없었다
 					int sidx;
 					CLCString sname(MAX_CHAR_NAME_LENGTH + 1);
-					CNetMsg mmsg;
+					RefMsg(msg) >> sidx
+								>> sname;
 
-					msg >> sidx
-						>> sname;
-
-					MsgrWhisperNotfoundMsg(mmsg, seq, serverno, subno, zoneno, sidx, sname);
-
-					SEND_Q(mmsg, node->m_reqServer);
+					CNetMsg::SP rmsg(new CNetMsg);
+					MsgrWhisperNotfoundMsg(rmsg, seq, serverno, subno, zoneno, sidx, sname);
+					SEND_Q(rmsg, node->m_reqServer);
 				}
 				break ;
-
 
 			case MSG_MSGR_PLAYER_COUNT_REP:
 				{
@@ -156,17 +164,16 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 				}
 				break;
 
-
 			case MSG_MSGR_LOGOUT_REP:
 				{
 					char success;
 					CLCString id(MAX_ID_NAME_LENGTH + 1);
-					msg >> success >> id;
+					RefMsg(msg) >> success >> id;
 
-					CNetMsg rmsg;
 					if (success)
 					{
 						// 로그아웃 한 서버가 있다면 성공한 것
+						CNetMsg::SP rmsg(new CNetMsg);
 						bAllReceived = true;
 						MsgrLogoutRepMsg(rmsg, seq, serverno, subno, zoneno, (char)1, id);
 						SEND_Q(rmsg, node->m_reqServer);
@@ -174,109 +181,128 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 					else if (bAllReceived)
 					{
 						// 다 받아도 없다...
+						CNetMsg::SP rmsg(new CNetMsg);
 						MsgrLogoutRepMsg(rmsg, seq, serverno, subno, zoneno, (char)0, id);
 						SEND_Q(rmsg, node->m_reqServer);
 					}
 				}
 				break ;
 
-#ifdef NEW_DOUBLE_GM
 			case MSG_MSGR_DOUBLE_EVENT_REP:
 				{
-					CNetMsg rmsg;
 					int charindex, tserver, tsub, cmd, nas, nasget, exp, sp, produce, pronum;
-					msg >> charindex
-						>> tserver
-						>> tsub
-						>> cmd
-						>> nas
-						>> nasget
-						>> exp
-						>> sp
-						>> produce
-						>> pronum;
+					RefMsg(msg) >> charindex
+								>> tserver
+								>> tsub
+								>> cmd
+								>> nas
+								>> nasget
+								>> exp
+								>> sp
+								>> produce
+								>> pronum;
+#ifdef NEW_DOUBLE_GM_AUTO
+					int i;
+					int start[6];
+					int end[6];
+					memset(start, -1, sizeof(start));
+					memset(end, -1, sizeof(end));
+					for(i = 0; i < 6; i++)
+					{
+						RefMsg(msg) >> start[i];
+					}
+					for(i = 0; i < 6; i++)
+					{
+						RefMsg(msg) >> end[i];
+					}
 
-					//if( nas < 0 || nas > 200 )
-					//	nas = 100;
-
+					CNetMsg::SP rmsg(new CNetMsg);
+					MsgrDoubleEventRepMsg(rmsg, seq, serverno, subno, zoneno, charindex, tserver, tsub, cmd, nas, nasget, exp, sp, produce, pronum, start, end);
+					SEND_Q(rmsg, node->m_reqServer);
+#else // NEW_DOUBLE_GM_AUTO
+					CNetMsg::SP rmsg(new CNetMsg);
 					MsgrDoubleEventRepMsg(rmsg, seq, serverno, subno, zoneno, charindex, tserver, tsub, cmd, nas, nasget, exp, sp, produce, pronum);
 					SEND_Q(rmsg, node->m_reqServer);
+#endif // NEW_DOUBLE_GM_AUTO
 				}
 				break;
-#endif
 #ifdef NEW_DOUBLE_EVENT_AUTO
 			case MSG_MSGR_DOUBLE_EVENT_AUTO_REP:
 				{
-					CNetMsg rmsg;
 					int charindex, tserver, tsub;
 					char cmd, state;
-					msg >> charindex
-						>> tserver
-						>> tsub
-						>> cmd
-						>> state;
-					
+					RefMsg(msg) >> charindex
+								>> tserver
+								>> tsub
+								>> cmd
+								>> state;
+#ifdef NEW_DOUBLE_EVENT_AUTO_TIME
+					int i;
+					int start[6];
+					int end[6];
+					memset(start, -1, sizeof(start));
+					memset(end, -1, sizeof(end));
+					for(i = 0; i < 6; i++)
+					{
+						RefMsg(msg) >> start[i];
+					}
+					for(i = 0; i < 6; i++)
+					{
+						RefMsg(msg) >> end[i];
+					}
+
+					CNetMsg::SP rmsg(new CNetMsg);
+					MsgrDoubleEventAutoRepMsg(rmsg, seq, serverno, subno, zoneno, charindex, tserver, tsub, cmd, state, start, end);
+					SEND_Q(rmsg, node->m_reqServer);
+#else
+					CNetMsg::SP rmsg(new CNetMsg);
 					MsgrDoubleEventAutoRepMsg(rmsg, seq, serverno, subno, zoneno, charindex, tserver, tsub, cmd, state);
 					SEND_Q(rmsg, node->m_reqServer);
+#endif
 				}
 				break;
 #endif // NEW_DOUBLE_EVENT_AUTO
 
-#ifdef UPGRADE_EVENT
 			case MSG_MSGR_UPGRADE_EVENT_REP:
 				{
-					CNetMsg rmsg;
 					int charindex, tserver, tsub, prob;
 					char cmd;
 
-					msg >> charindex
-						>> tserver
-						>> tsub
-						>> cmd
-						>> prob;
+					RefMsg(msg) >> charindex
+								>> tserver
+								>> tsub
+								>> cmd
+								>> prob;
+#ifdef UPGRADE_EVENT_AUTO
+					long start = -1;
+					long end = -1;
+					RefMsg(msg) >> start
+								>> end;
 
+					CNetMsg::SP rmsg(new CNetMsg);
+					MsgrUpgradeEventRepMsg(rmsg, seq, serverno, subno, zoneno, charindex, tserver, tsub, cmd, prob, start, end);
+					SEND_Q(rmsg, node->m_reqServer);
+#else
+					CNetMsg::SP rmsg(new CNetMsg);
 					MsgrUpgradeEventRepMsg(rmsg, seq, serverno, subno, zoneno, charindex, tserver, tsub, cmd, prob);
 					SEND_Q(rmsg, node->m_reqServer);
+#endif
 				}
 				break;
-#endif // UPGRADE_EVENT
-				
-#ifdef CHANCE_EVENT
-			case MSG_MSGR_CHANCE_EVENT_REP:
-				{
-					CNetMsg rmsg;
-					int charindex, tserver, tsub, cmd, slevel, elevel, nas, nasget, exp, sp, produce, pronum;
-					msg >> charindex
-						>> tserver
-						>> tsub
-						>> cmd
-						>> slevel
-						>> elevel
-						>> nas
-						>> nasget
-						>> exp
-						>> sp
-						>> produce
-						>> pronum;
-					MsgrChanceEventRepMsg(rmsg, seq, serverno, subno, zoneno, charindex, tserver, tsub, cmd, slevel, elevel, nas, nasget, exp, sp, produce, pronum);
-					SEND_Q(rmsg, node->m_reqServer);
-				}
-				break;
-#endif // CHANCE_EVENT
 
 			case MSG_MSGR_DOUBLE_EXP_EVENT_REP:
 				{
-					CNetMsg rmsg;
 					int charindex, tserver, tsub, cmd, expPercent;
-					msg >> charindex
-						>> tserver
-						>> tsub
-						>> cmd
-						>> expPercent;
+					RefMsg(msg) >> charindex
+								>> tserver
+								>> tsub
+								>> cmd
+								>> expPercent;
 
 					if( expPercent < 0 || expPercent > 200 )
 						expPercent = 100;
 
+					CNetMsg::SP rmsg(new CNetMsg);
 					MsgrDoubleExpEventRepMsg(rmsg, seq, serverno, subno, zoneno, charindex, tserver, tsub, cmd, expPercent);
 					SEND_Q(rmsg, node->m_reqServer);
 				}
@@ -286,13 +312,14 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 			case MSG_MSGR_FLOWER_EVENT_REP:
 			case MSG_MSGR_MARGADUM_PVP_REP:
 				{
-					CNetMsg rmsg;
 					int charindex, tserver, tsub, cmd, drop;
-					msg >> charindex
-						>> tserver
-						>> tsub
-						>> cmd
-						>> drop;
+					RefMsg(msg) >> charindex
+								>> tserver
+								>> tsub
+								>> cmd
+								>> drop;
+
+					CNetMsg::SP rmsg(new CNetMsg);
 					MsgrEventRepMsg(rmsg, subtype, seq, serverno, subno, zoneno, charindex, tserver, tsub, cmd, drop);
 					SEND_Q(rmsg, node->m_reqServer);
 				}
@@ -306,20 +333,18 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 					CLCString rname(MAX_CHAR_NAME_LENGTH + 1);
 					CLCString chat(1000);
 
-					msg	>> sidx >> sname
-						>> rname
-						>> chat;
+					RefMsg(msg) >> sidx >> sname
+								>> rname
+								>> chat;
 
-					CNetMsg mmsg;
-					MsgrFriendChatRep(mmsg, seq, serverno, subno, zoneno, sidx, sname, rname, chat);
-
-					SEND_Q(mmsg, node->m_reqServer);
+					CNetMsg::SP rmsg(new CNetMsg);
+					MsgrFriendChatRep(rmsg, seq, serverno, subno, zoneno, sidx, sname, rname, chat);
+					SEND_Q(rmsg, node->m_reqServer);
 
 					// 제대로 받았으니 지워버리자
 					bAllReceived = true;
 				}
 				break ;
-
 
 			case MSG_MSGR_MESSENGERCHAT_NOTFOUND:
 				if (bAllReceived)
@@ -327,14 +352,12 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 					// 다 받았는데 귓말 대상이 없었다
 					int sidx;
 					CLCString sname(MAX_CHAR_NAME_LENGTH + 1);
-					CNetMsg mmsg;
+					RefMsg(msg) >> sidx
+								>> sname;
 
-					msg >> sidx
-						>> sname;
-
-					MsgrFriendChatNotfoundMsg(mmsg, seq, serverno, subno, zoneno, sidx, sname);
-
-					SEND_Q(mmsg, node->m_reqServer);
+					CNetMsg::SP rmsg(new CNetMsg);
+					MsgrFriendChatNotfoundMsg(rmsg, seq, serverno, subno, zoneno, sidx, sname);
+					SEND_Q(rmsg, node->m_reqServer);
 				}
 				break ;
 #ifdef GMTOOL
@@ -343,22 +366,13 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 					char success;
 					int charindex;
 					CLCString id(MAX_ID_NAME_LENGTH + 1);
-					msg >> success >> charindex >> id;
+					RefMsg(msg) >> success >> charindex >> id;
 
-					CNetMsg rmsg;
-			//		if (success)
-			//		{
-						// 로그아웃 한 서버가 있다면 성공한 것
-						bAllReceived = true;
-						MsgrGmToolKickIDRepMsg(rmsg, seq, serverno, subno, zoneno, success, charindex, id);
-						SEND_Q(rmsg, node->m_reqServer);
-			//		}
-			//		else if (bAllReceived)
-			//		{
-			//			// 다 받아도 없다...
-			//			MsgrGmToolKickRepMsg(rmsg, seq, serverno, subno, zoneno, (char)0, charindex, id);
-			//			SEND_Q(rmsg, node->m_reqServer);
-			//		}
+					// 로그아웃 한 서버가 있다면 성공한 것
+					bAllReceived = true;
+					CNetMsg::SP rmsg(new CNetMsg);
+					MsgrGmToolKickIDRepMsg(rmsg, seq, serverno, subno, zoneno, success, charindex, id);
+					SEND_Q(rmsg, node->m_reqServer);
 				}
 				break;
 			case MSG_MSGR_GMTOOL_KICK_REP:
@@ -366,10 +380,10 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 					char success;
 					int charindex;
 					CLCString name(MAX_CHAR_NAME_LENGTH + 1);
-					msg >> success >> charindex >> name;
+					RefMsg(msg) >> success >> charindex >> name;
 
-					CNetMsg rmsg;
 					bAllReceived = true;
+					CNetMsg::SP rmsg(new CNetMsg);
 					MsgrGmToolKickRepMsg(rmsg, seq, serverno, subno, zoneno, success, charindex, name);
 					SEND_Q(rmsg, node->m_reqServer);
 				}
@@ -379,11 +393,11 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 					char success;
 					int gmcharindex;
 					CLCString id(MAX_ID_NAME_LENGTH + 1);
-					msg >> success
-						>> gmcharindex
-						>> id;
+					RefMsg(msg) >> success
+								>> gmcharindex
+								>> id;
 
-					CNetMsg rmsg;
+					CNetMsg::SP rmsg(new CNetMsg);
 					MsgrGmToolChatMonitorRepMsg(rmsg, seq, serverno, subno, zoneno, success, gmcharindex, id);
 					SEND_Q(rmsg, node->m_reqServer);
 
@@ -396,17 +410,15 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 					CLCString chat(1000);
 					int charindex, serverno, subno, sindex;
 
-					msg >> charindex
-						>> rname
-						>> chat
-						>> serverno
-						>> subno
-						>> sindex;
+					RefMsg(msg) >> charindex
+								>> rname
+								>> chat
+								>> serverno
+								>> subno
+								>> sindex;
 
-					CNetMsg rmsg;
-
+					CNetMsg::SP rmsg(new CNetMsg);
 					MsgrGMWhisperRep(rmsg, seq, 1, 1, 0, charindex, rname, chat, serverno, subno, sindex);
-
 					SEND_Q(rmsg, node->m_reqServer);
 
 					bAllReceived = true;
@@ -418,12 +430,12 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 					CLCString chat(1000);
 					int sindex;
 
-					msg >> sindex
-						>> sname
-						>> rname
-						>> chat;
+					RefMsg(msg) >> sindex
+								>> sname
+								>> rname
+								>> chat;
 
-					CNetMsg rmsg;
+					CNetMsg::SP rmsg(new CNetMsg);
 					MsgrGMToolWhisperRep(rmsg, seq, serverno, subno, zoneno, sindex, sname, rname, chat);
 					SEND_Q(rmsg, node->m_reqServer);
 				}
@@ -431,11 +443,11 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 			case MSG_MSGR_GM_WHISPER_NOTFOUND:
 				{
 					int sindex;
-					msg >> sindex;
+					RefMsg(msg) >> sindex;
 
-					CNetMsg mmsg;
-					MsgrGMWhisperNotfoundMsg(mmsg, seq, serverno, subno, zoneno, sindex);
-					SEND_Q(mmsg, node->m_reqServer);
+					CNetMsg::SP rmsg(new CNetMsg);
+					MsgrGMWhisperNotfoundMsg(rmsg, seq, serverno, subno, zoneno, sindex);
+					SEND_Q(rmsg, node->m_reqServer);
 				}
 				break;
 			case MSG_MSGR_GMTOOL_SILENCE_REP:
@@ -445,15 +457,15 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 					int success;
 					int gmcharindex;
 
-					msg >> server
-						>> sub
-						>> success
-						>> gmcharindex
-						>> name;
+					RefMsg(msg) >> server
+								>> sub
+								>> success
+								>> gmcharindex
+								>> name;
 
-					CNetMsg mmsg;
-					MsgrGMSilenceRep(mmsg, seq, serverno, subno, zoneno, server, sub, success, gmcharindex, (const char*)name);
-					SEND_Q(mmsg, node->m_reqServer);
+					CNetMsg::SP rmsg(new CNetMsg);
+					MsgrGMSilenceRep(rmsg, seq, serverno, subno, zoneno, server, sub, success, gmcharindex, (const char*)name);
+					SEND_Q(rmsg, node->m_reqServer);
 				}
 				break;
 #endif // GMTOOL
@@ -461,17 +473,17 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 #ifdef	DOUBLE_ITEM_DROP
 			case MSG_MSGR_DOUBLE_ITEM_EVENT_REP :
 				{
-					CNetMsg rmsg;
 					int charindex, tserver, tsub, cmd, itemPercent;
-					msg >> charindex
-						>> tserver
-						>> tsub
-						>> cmd
-						>> itemPercent;
+					RefMsg(msg) >> charindex
+								>> tserver
+								>> tsub
+								>> cmd
+								>> itemPercent;
 
 					if( itemPercent < 0 || itemPercent > 200 )
 						itemPercent = 100;
 
+					CNetMsg::SP rmsg(new CNetMsg);
 					MsgrDoubleItemEventRepMsg(rmsg, seq, serverno, subno, zoneno, charindex, tserver, tsub, cmd, itemPercent);
 					SEND_Q(rmsg, node->m_reqServer);
 				}
@@ -481,36 +493,49 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 #ifdef	DOUBLE_PET_EXP
 			case MSG_MSGR_DOUBLE_PET_EXP_EVENT_REP:
 				{
-					CNetMsg rmsg;
 					int charindex, tserver, tsub, cmd, PetExpPercent;
-					msg >> charindex
-						>> tserver
-						>> tsub
-						>> cmd
-						>> PetExpPercent;
+#ifdef DOUBLE_PET_EXP_AUTO
+					long start, end;
+#endif
+					RefMsg(msg) >> charindex
+								>> tserver
+								>> tsub
+								>> cmd
+								>> PetExpPercent;
+#ifdef DOUBLE_PET_EXP_AUTO
+					RefMsg(msg) >> start
+								>> end;
+					if( PetExpPercent < 100 || PetExpPercent > 1000 )
+						PetExpPercent = 100;
 
+					CNetMsg::SP rmsg(new CNetMsg);
+					MsgrDoublePetExpEventRepMsg(rmsg, seq, serverno, subno, zoneno, charindex, tserver, tsub, cmd, PetExpPercent, start, end);
+					SEND_Q(rmsg, node->m_reqServer);
+#else
 					if( PetExpPercent < 0 || PetExpPercent > 200 )
 						PetExpPercent = 100;
 
+					CNetMsg::SP rmsg(new CNetMsg);
 					MsgrDoublePetExpEventRepMsg(rmsg, seq, serverno, subno, zoneno, charindex, tserver, tsub, cmd, PetExpPercent);
 					SEND_Q(rmsg, node->m_reqServer);
+#endif
 				}
 				break;
 #endif // DOUBLE_PET_EXP
 #ifdef DOUBLE_ATTACK
 			case MSG_MSGR_DOUBLE_ATTACK_EVENT_REP:
 				{
-					CNetMsg rmsg;
 					int charindex, tserver, tsub, cmd, AttackPercent;
-					msg >> charindex
-						>> tserver
-						>> tsub
-						>> cmd
-						>> AttackPercent;
+					RefMsg(msg) >> charindex
+								>> tserver
+								>> tsub
+								>> cmd
+								>> AttackPercent;
 
 					if( AttackPercent < 0 || AttackPercent > 200 )
 						AttackPercent = 100;
 
+					CNetMsg::SP rmsg(new CNetMsg);
 					MsgrDoubleAttackEventRepMsg(rmsg, seq, serverno, subno, zoneno, charindex, tserver, tsub, cmd, AttackPercent);
 					SEND_Q(rmsg, node->m_reqServer);
 				}
@@ -520,21 +545,21 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 #ifdef EVENT_DROPITEM
 			case MSG_MSGR_EVENT_DROPITEM_REP:
 				{
-					CNetMsg rmsg;
 					int charindex, npcidx, itemidx, prob, thisServer, thisSub;
 					char type;
 
-					msg >> charindex
-						>> type
-						>> npcidx
-						>> itemidx
-						>> prob
-						>> thisServer
-						>> thisSub;
+					RefMsg(msg) >> charindex
+								>> type
+								>> npcidx
+								>> itemidx
+								>> prob
+								>> thisServer
+								>> thisSub;
 
 					if( prob < 1 || prob > 100)
 						prob = 1;
 
+					CNetMsg::SP rmsg(new CNetMsg);
 					MsgrEventDropItemRepMsg(rmsg, seq, serverno, subno, -1, charindex, type, npcidx, itemidx, prob, thisServer, thisSub);
 					SEND_Q(rmsg, node->m_reqServer);
 				}
@@ -553,13 +578,12 @@ void do_Reply(CNetMsg& msg, CDescriptor* dest)
 	}
 }
 
-#ifdef RECOMMEND_SERVER_SYSTEM
-void do_Request_Recommend(CNetMsg& msg)
+void do_Request_Recommend(CNetMsg::SP& msg)
 {
 	int nGMCharIndex;
 	int nRecommendServer;
-	msg >> nGMCharIndex
-		>> nRecommendServer;
+	RefMsg(msg) >> nGMCharIndex
+				>> nRecommendServer;
 
 	gserver.m_nRecommendServer = nRecommendServer;
 
@@ -570,9 +594,8 @@ void do_Request_Recommend(CNetMsg& msg)
 		fclose(fp);
 	}
 }
-#endif // RECOMMEND_SERVER_SYSTEM
 
-void do_Request_EventGoldenball(CNetMsg& msg)
+void do_Request_EventGoldenball(CNetMsg::SP& msg)
 {
 	int			nSubtype;
 	int			nGMCharIndex;
@@ -589,70 +612,77 @@ void do_Request_EventGoldenball(CNetMsg& msg)
 
 	struct tm	tmEndVoteTime;
 
-	msg >> nSubtype;
+	RefMsg(msg) >> nSubtype;
 
 	switch (nSubtype)
 	{
 	case MSG_MSGR_EVENT_GOLDENBALL_VOTE:
-		// 골든볼 이벤트 응모 설정	: gmcharindex(n) team1(str) team2(str) year(n) month(n) day(n) hour(n) minute(n)
-		msg >> nGMCharIndex
-			>> strTeam1
-			>> strTeam2
-			>> nYear
-			>> nMonth
-			>> nDay
-			>> nHour
-			>> nMin;
-		gserver.m_sGoldenBallData.nStatus = GOLDENBALL_STATUS_VOTE;
-		strcpy(gserver.m_sGoldenBallData.strTeam1, strTeam1);
-		strcpy(gserver.m_sGoldenBallData.strTeam2, strTeam2);
-		gserver.m_sGoldenBallData.nTeam1Score = 0;
-		gserver.m_sGoldenBallData.nTeam2Score = 0;
-		gserver.m_sGoldenBallData.nYear = nYear;
-		gserver.m_sGoldenBallData.nMonth = nMonth;
-		gserver.m_sGoldenBallData.nDay = nDay;
-		gserver.m_sGoldenBallData.nHour = nHour;
-		gserver.m_sGoldenBallData.nMin = nMin;
-		
-		memset(&tmEndVoteTime, 0, sizeof(tmEndVoteTime));
-		tmEndVoteTime.tm_year	= nYear - 1900;
-		tmEndVoteTime.tm_mon	= nMonth - 1;
-		tmEndVoteTime.tm_mday	= nDay;
-		tmEndVoteTime.tm_hour	= nHour;
-		tmEndVoteTime.tm_min	= nMin;
-		gserver.m_sGoldenBallData.timeEndVote = mktime(&tmEndVoteTime);
+		{
+			// 골든볼 이벤트 응모 설정	: gmcharindex(n) team1(str) team2(str) year(n) month(n) day(n) hour(n) minute(n)
+			RefMsg(msg) >> nGMCharIndex
+						>> strTeam1
+						>> strTeam2
+						>> nYear
+						>> nMonth
+						>> nDay
+						>> nHour
+						>> nMin;
+			gserver.m_sGoldenBallData.nStatus = GOLDENBALL_STATUS_VOTE;
+			strcpy(gserver.m_sGoldenBallData.strTeam1, strTeam1);
+			strcpy(gserver.m_sGoldenBallData.strTeam2, strTeam2);
+			gserver.m_sGoldenBallData.nTeam1Score = 0;
+			gserver.m_sGoldenBallData.nTeam2Score = 0;
+			gserver.m_sGoldenBallData.nYear = nYear;
+			gserver.m_sGoldenBallData.nMonth = nMonth;
+			gserver.m_sGoldenBallData.nDay = nDay;
+			gserver.m_sGoldenBallData.nHour = nHour;
+			gserver.m_sGoldenBallData.nMin = nMin;
+
+			memset(&tmEndVoteTime, 0, sizeof(tmEndVoteTime));
+			tmEndVoteTime.tm_year	= nYear - 1900;
+			tmEndVoteTime.tm_mon	= nMonth - 1;
+			tmEndVoteTime.tm_mday	= nDay;
+			tmEndVoteTime.tm_hour	= nHour;
+			tmEndVoteTime.tm_min	= nMin;
+			tmEndVoteTime.tm_isdst	= -1;
+			gserver.m_sGoldenBallData.timeEndVote = mktime(&tmEndVoteTime);
+		}
 		break;
 
 	case MSG_MSGR_EVENT_GOLDENBALL_GIFT:
-		// 골든볼 이벤트 보상 설정	: gmcharindex(n) team1(str) team1score(n) team2(str) team2score(n) year(n) month(n) day(n) hour(n) minute(n) endVoteTime(n)
-		msg >> nGMCharIndex
-			>> strTeam1
-			>> nTeam1Score
-			>> strTeam2
-			>> nTeam2Score
-			>> nYear
-			>> nMonth
-			>> nDay
-			>> nHour
-			>> nMin
-			>> nEndVoteTime;
-		gserver.m_sGoldenBallData.nStatus = GOLDENBALL_STATUS_GIFT;
-		strcpy(gserver.m_sGoldenBallData.strTeam1, strTeam1);
-		strcpy(gserver.m_sGoldenBallData.strTeam2, strTeam2);
-		gserver.m_sGoldenBallData.nTeam1Score = nTeam1Score;
-		gserver.m_sGoldenBallData.nTeam2Score = nTeam2Score;
-		gserver.m_sGoldenBallData.nYear = nYear;
-		gserver.m_sGoldenBallData.nMonth = nMonth;
-		gserver.m_sGoldenBallData.nDay = nDay;
-		gserver.m_sGoldenBallData.nHour = nHour;
-		gserver.m_sGoldenBallData.nMin = nMin;
+		{
+			// 골든볼 이벤트 보상 설정	: gmcharindex(n) team1(str) team1score(n) team2(str) team2score(n) year(n) month(n) day(n) hour(n) minute(n) endVoteTime(n)
+			RefMsg(msg) >> nGMCharIndex
+						>> strTeam1
+						>> nTeam1Score
+						>> strTeam2
+						>> nTeam2Score
+						>> nYear
+						>> nMonth
+						>> nDay
+						>> nHour
+						>> nMin
+						>> nEndVoteTime;
+			gserver.m_sGoldenBallData.nStatus = GOLDENBALL_STATUS_GIFT;
+			strcpy(gserver.m_sGoldenBallData.strTeam1, strTeam1);
+			strcpy(gserver.m_sGoldenBallData.strTeam2, strTeam2);
+			gserver.m_sGoldenBallData.nTeam1Score = nTeam1Score;
+			gserver.m_sGoldenBallData.nTeam2Score = nTeam2Score;
+			gserver.m_sGoldenBallData.nYear = nYear;
+			gserver.m_sGoldenBallData.nMonth = nMonth;
+			gserver.m_sGoldenBallData.nDay = nDay;
+			gserver.m_sGoldenBallData.nHour = nHour;
+			gserver.m_sGoldenBallData.nMin = nMin;
+		}
 		break;
 
 	case MSG_MSGR_EVENT_GOLDENBALL_END:
-		// 골든볼 이벤트 종료		: gmcharindex(n)
-		msg >> nGMCharIndex;
-		memset(&gserver.m_sGoldenBallData, 0, sizeof(gserver.m_sGoldenBallData));
-		gserver.m_sGoldenBallData.nStatus = GOLDENBALL_STATUS_NOTHING;
+		{
+			// 골든볼 이벤트 종료		: gmcharindex(n)
+			RefMsg(msg) >> nGMCharIndex;
+			memset(&gserver.m_sGoldenBallData, 0, sizeof(gserver.m_sGoldenBallData));
+			gserver.m_sGoldenBallData.nStatus = GOLDENBALL_STATUS_NOTHING;
+		}
 		break;
 	}
 

@@ -1,19 +1,18 @@
 #include "stdhdrs.h"
+
 #include "Log.h"
-#include "Cmd.h"
 #include "Character.h"
 #include "Server.h"
 #include "CmdMsg.h"
 #include "doFunc.h"
 
 #ifdef EXTREME_CUBE
-void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
+void do_ExExtremeCube(CPC* ch, CNetMsg::SP& msg)
 {
-	CNetMsg rmsg;
 	unsigned char subtype;
-	msg >> subtype;
+	RefMsg(msg) >> subtype;
 
-	if(!gserver.m_extremeCube.IsExtremeCubeServer())
+	if(!gserver->m_extremeCube.IsExtremeCubeServer())
 		return ;
 
 	switch(subtype)
@@ -25,10 +24,10 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 			bool bIsAllStanding = true;
 			bool bfirst;
 			CParty* party = NULL;
-			CNetMsg rmsg;
 
-			if(gserver.m_extremeCube.IsGuildCubeTime())
+			if(gserver->m_extremeCube.IsGuildCubeTime())
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_NOT_PARTY_CUBE_TIME);
 				SEND_Q(rmsg, ch->m_desc);
 				GAMELOG << init("PARTYCUBE ERROR", ch)
@@ -37,13 +36,23 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 			}
 
 			if(!ch->IsParty())
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_CANNOT_MOVE);
+				SEND_Q(rmsg, ch->m_desc);
+				GAMELOG << init("PARTYCUBE ERROR", ch)
+					<< "GUILDCUBETIME" << end;
 				return ;
+			}
 
 			party = ch->m_party;
 			if(party->m_cubeUniqueIdx >=0)
 			{
-				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_CANNOT_MOVE);
-				SEND_Q(rmsg, ch->m_desc);
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_CANNOT_MOVE);
+					SEND_Q(rmsg, ch->m_desc);
+				}
 
 				GAMELOG << init("PARTYCUBE ERROR", ch);
 				if(!party)
@@ -60,9 +69,9 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 				return ;
 			}
 
-			int row, col;
-			if(!ch->m_invenNormal.FindItem(&row, &col, 2986, 0, 0))
+			if (ch->m_inventory.FindByDBIndex(2986, 0, 0) == NULL)
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_NOITEM);
 				SEND_Q(rmsg, ch->m_desc);
 
@@ -71,9 +80,10 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 				return ;
 			}
 
-			cubenum = gserver.m_extremeCube.GetAvailableBattleCube(bfirst);
+			cubenum = gserver->m_extremeCube.GetAvailableBattleCube(bfirst);
 			if(cubenum < 0 || cubenum > MAX_CUBESPACE - 1)
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_OVERCOUNT);
 				SEND_Q(rmsg, ch->m_desc);
 
@@ -82,9 +92,10 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 				return ;
 			}
 
-			CCubeSpace* space = gserver.m_extremeCube.GetExtremeCube(cubenum);
+			CCubeSpace* space = gserver->m_extremeCube.GetExtremeCube(cubenum);
 			if(!space || !space->IsBattleCubeSpace())
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_OVERCOUNT);
 				SEND_Q(rmsg, ch->m_desc);
 
@@ -95,8 +106,8 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 
 			CBattleSpace* cubespace = (CBattleSpace*)space;
 
-		//	CPartyCubeMemList* memlist = new CPartyCubeMemList(party, cubenum);
-			CPartyCubeMemList* memlist = gserver.m_extremeCube.GetAvailablePartyCubeMemList();
+			//	CPartyCubeMemList* memlist = new CPartyCubeMemList(party, cubenum);
+			CPartyCubeMemList* memlist = gserver->m_extremeCube.GetAvailablePartyCubeMemList();
 			if(!memlist)
 			{
 				GAMELOG << init("CANNOT CREATE PARTY MEMLIST")
@@ -112,7 +123,7 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 					memlist = NULL;
 
 					GAMELOG << init("PARTYCUBE ERROR", ch)
-							<< "FAILED SET MEMLIST" << delim 
+							<< "FAILED SET MEMLIST" << delim
 							<< end;
 				}
 				return ;
@@ -153,8 +164,13 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 				cubespace->RegenMob();
 			}
 
+#ifdef EXTREME_CUBE_VER2
+			memlist->ApplyCubeEffect();
+			memlist->SendStartCount();
+#endif // EXTREME_CUBE_VER2
+
 			GAMELOG << init("PARTYCUBE START", ch)
-					<< "UniqueIdx" << delim 
+					<< "UniqueIdx" << delim
 					<< memlist->GetUniqueIdx() << delim
 					<< "AreaIdx" << delim
 					<< cubespace->m_area->m_index
@@ -163,8 +179,9 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 		break;
 	case MSG_EX_EXTREME_CUBE_PARTY_PERSON:
 		{
-			if(gserver.m_extremeCube.IsGuildCubeTime())
+			if(gserver->m_extremeCube.IsGuildCubeTime())
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_NOT_PARTY_CUBE_TIME);
 				SEND_Q(rmsg, ch->m_desc);
 				GAMELOG << init("PARTYCUBE ERROR PERSONAL", ch)
@@ -174,6 +191,7 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 
 			if(!ch->IsParty())
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_CANNOT_MOVE);
 				SEND_Q(rmsg, ch->m_desc);
 
@@ -183,9 +201,9 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 				return ;
 			}
 
-	
 			if(ch->m_party->m_cubeUniqueIdx == -1)
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_CANNOT_MOVE);
 				SEND_Q(rmsg, ch->m_desc);
 
@@ -196,7 +214,7 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 				return ;
 			}
 
-			CCubeMemList* memlist = gserver.m_extremeCube.FindMemList(ch->m_party->m_cubeUniqueIdx);
+			CCubeMemList* memlist = gserver->m_extremeCube.FindMemList(ch->m_party->m_cubeUniqueIdx);
 			if(!memlist)
 			{
 				GAMELOG << init("PARTYCUBE ERROR PERSONAL", ch)
@@ -210,6 +228,7 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 			int cubenum;
 			if(!memlist->GetCubeNum(cubenum))
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_CANNOT_MOVE);
 				SEND_Q(rmsg, ch->m_desc);
 
@@ -221,13 +240,10 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 				return ;
 			}
 
-
-			CCubeSpace* space = gserver.m_extremeCube.GetExtremeCube(cubenum);
+			CCubeSpace* space = gserver->m_extremeCube.GetExtremeCube(cubenum);
 			if(!space || !space->IsBattleCubeSpace())
 			{
-				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_OVERCOUNT);
-				SEND_Q(rmsg, ch->m_desc);
-
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_OVERCOUNT);
 				SEND_Q(rmsg, ch->m_desc);
 
@@ -241,6 +257,9 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 
 			if(!cubespace->IsAvailableJoinPersonal())
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_CANNOT_MOVE);
+				SEND_Q(rmsg, ch->m_desc);
 				GAMELOG << init("CANT MOVE CUBE PERSONAL", ch)
 						<< "CUBESTATE" << delim << (int)(cubespace->GetState())
 						<< end;
@@ -250,7 +269,7 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 			memlist->JoinCube(ch, cubespace->m_extra);
 
 			GAMELOG << init("ENTER PARTYCUBE PERSONAL", ch)
-					<< "UniqueIdx" << delim 
+					<< "UniqueIdx" << delim
 					<< memlist->GetUniqueIdx() << delim
 					<< "AreaIdx" << delim
 					<< cubespace->m_area->m_index
@@ -264,11 +283,11 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 			int cubenum;
 			bool bIsAllStanding = false;
 			bool bfirst;
-			CNetMsg rmsg;
-			
-			if(!gserver.m_extremeCube.IsGuildCubeTime())
+
+			if(!gserver->m_extremeCube.IsGuildCubeTime())
 			{
 				// 길드큐브타임
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_NOT_GUILD_CUBE_TIME);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
@@ -276,14 +295,15 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 
 			if(!ch->m_guildInfo || !ch->m_guildInfo->guild())
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_CANNOT_MOVE);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
 			}
 
-			int row, col;
-			if(!ch->m_invenNormal.FindItem(&row, &col, 2987, 0, 0))
+			if (ch->m_inventory.FindByDBIndex(2987, 0, 0) == NULL)
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_NOITEM);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
@@ -291,37 +311,40 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 
 			if(ch->m_guildInfo->guild()->m_cubeUniqueIdx >= 0)
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_CANNOT_MOVE);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
 			}
 
-			cubenum = gserver.m_extremeCube.GetAvailableBattleCube(bfirst);
+			cubenum = gserver->m_extremeCube.GetAvailableBattleCube(bfirst);
 			if(cubenum < 0 || cubenum > MAX_CUBESPACE - 1)
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_OVERCOUNT);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
 			}
 
-			CCubeSpace* space = gserver.m_extremeCube.GetExtremeCube(cubenum);
+			CCubeSpace* space = gserver->m_extremeCube.GetExtremeCube(cubenum);
 			if(!space || !space->IsBattleCubeSpace())
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_OVERCOUNT);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
 			}
 			CBattleSpace* cubespace = (CBattleSpace*)space;
 
-	//		CGuildCubeMemList* memlist = new CGuildCubeMemList(ch->m_guildInfo->guild(), cubenum);
-			CGuildCubeMemList* memlist = gserver.m_extremeCube.GetAvailableGuildCubeMemList();
+			//		CGuildCubeMemList* memlist = new CGuildCubeMemList(ch->m_guildInfo->guild(), cubenum);
+			CGuildCubeMemList* memlist = gserver->m_extremeCube.GetAvailableGuildCubeMemList();
 			memlist->Enable(ch->m_guildInfo->guild(), cubenum);
 
 			if(!cubespace->SetMemList(memlist))
 			{
 				if(memlist)
 				{
-				//	delete memlist;
+					//	delete memlist;
 					memlist->Disable();
 					memlist = NULL;
 				}
@@ -346,7 +369,7 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 			{
 				if(memlist)
 				{
-				//	delete memlist;
+					//	delete memlist;
 					memlist->Disable();
 					memlist = NULL;
 				}
@@ -358,8 +381,13 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 				cubespace->RegenMob();
 			}
 
+#ifdef EXTREME_CUBE_VER2
+			memlist->ApplyCubeEffect();
+			memlist->SendStartCount();
+#endif // EXTREME_CUBE_VER2
+
 			GAMELOG << init("Enter GuildExCube", ch)
-					<< "UniqueIdx" << delim 
+					<< "UniqueIdx" << delim
 					<< memlist->GetUniqueIdx() << delim
 					<< "AreaIdx" << delim
 					<< cubespace->m_area->m_index
@@ -368,8 +396,9 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 		break;
 	case MSG_EX_EXTREME_CUBE_GUILD_PERSON:
 		{
-			if(!gserver.m_extremeCube.IsGuildCubeTime())
+			if(!gserver->m_extremeCube.IsGuildCubeTime())
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_NOT_GUILD_CUBE_TIME);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
@@ -377,6 +406,7 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 
 			if(!ch->m_guildInfo || !ch->m_guildInfo->guild())
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_CANNOT_MOVE);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
@@ -384,14 +414,16 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 
 			if(ch->m_guildInfo->guild()->m_cubeUniqueIdx == -1)
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_CANNOT_MOVE);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
 			}
 
-			CCubeMemList* memlist = gserver.m_extremeCube.FindMemList(ch->m_guildInfo->guild()->m_cubeUniqueIdx);
+			CCubeMemList* memlist = gserver->m_extremeCube.FindMemList(ch->m_guildInfo->guild()->m_cubeUniqueIdx);
 			if(!memlist)
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_CANNOT_MOVE);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
@@ -400,14 +432,16 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 			int cubenum;
 			if(!memlist->GetCubeNum(cubenum))
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_OVERCOUNT);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
 			}
 
-			CCubeSpace* space = gserver.m_extremeCube.GetExtremeCube(cubenum);
+			CCubeSpace* space = gserver->m_extremeCube.GetExtremeCube(cubenum);
 			if(!space || !space->IsBattleCubeSpace())
 			{
+				CNetMsg::SP rmsg(new CNetMsg);
 				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_OVERCOUNT);
 				SEND_Q(rmsg, ch->m_desc);
 				return ;
@@ -416,12 +450,17 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 			CBattleSpace* cubespace = (CBattleSpace*)space;
 
 			if(!cubespace->IsAvailableJoinPersonal())
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				ExtremeCubeErrorMsg(rmsg, MSG_EX_EXTREME_CUBE_ERROR_CANNOT_MOVE);
+				SEND_Q(rmsg, ch->m_desc);
 				return ;
+			}
 
 			if(memlist->JoinCube(ch, cubespace->m_extra))
 			{
 				GAMELOG << init("Enter GuildExCube Personal", ch)
-						<< "UniqueIdx" << delim 
+						<< "UniqueIdx" << delim
 						<< memlist->GetUniqueIdx() << delim
 						<< "AreaIdx" << delim
 						<< cubespace->m_area->m_index
@@ -431,27 +470,37 @@ void do_ExExtremeCube(CPC* ch, CNetMsg& msg)
 		break;
 	case MSG_EX_EXTREME_CUBE_STATE_REQ:
 		{
-			if (IS_RUNNING_HELPER)
 			{
-				CNetMsg rmsg;
+				CNetMsg::SP rmsg(new CNetMsg);
 				HelperCubeStateReqMsg(rmsg, ch->m_index);
-				SEND_Q(rmsg, gserver.m_helper);
+				SEND_Q(rmsg, gserver->m_helper);
 			}
 		}
 		break;
 	case MSG_EX_EXTREME_CUBE_STATE_PERSONAL_REQ:
 		{
-			if (IS_RUNNING_HELPER)
 			{
-				CNetMsg rmsg;
+				CNetMsg::SP rmsg(new CNetMsg);
 				HelperCubeStatePersonalReqMsg(rmsg, ch->m_index);
-				SEND_Q(rmsg, gserver.m_helper);
+				SEND_Q(rmsg, gserver->m_helper);
 			}
 		}
 		break;
+#ifdef EXTREME_CUBE_VER2
+	case MSG_EX_EXTREME_CUBE_REWARD_PERSONAL_REQ:	// 개인 보상 받기
+		{
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				HelperCubeRewardPersonalReqMsg(rmsg, ch->m_index);
+				SEND_Q(rmsg, gserver->m_helper);
+			}
+		}
+		break;
+#endif // EXTREME_CUBE_VER2
 	default:
 		break;
 	}
 }
 
 #endif // EXTREME_CUBE
+//

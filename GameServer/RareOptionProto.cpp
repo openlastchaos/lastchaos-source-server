@@ -1,9 +1,9 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "RareOptionProto.h"
-#include "DBCmd.h"
+#include "../ShareLib/DBCmd.h"
 
-#ifdef MONSTER_RAID_SYSTEM
 
 ///////////////////
 // CRareOptionProto
@@ -22,20 +22,22 @@ CRareOptionProto::~CRareOptionProto()
 }
 
 void CRareOptionProto::InitData(	int nIndex,
-				int nDamageUp,
-				int nDefenseUp,
-				int nMagicUp,
-				int nResistUp,
-				int optiontype[MAX_RARE_OPTION_SETTING],
-				int optionlevel[MAX_RARE_OPTION_SETTING],
-				int optionval[MAX_RARE_OPTION_SETTING],
-				int optionprob[MAX_RARE_OPTION_SETTING])
+									int nDamageUp,
+									int nDefenseUp,
+									int nMagicUp,
+									int nResistUp,
+									int nGrade,
+									int optiontype[MAX_RARE_OPTION_SETTING],
+									int optionlevel[MAX_RARE_OPTION_SETTING],
+									int optionval[MAX_RARE_OPTION_SETTING],
+									int optionprob[MAX_RARE_OPTION_SETTING])
 {
 	m_nIndex		= nIndex;
 	m_nDamageUp		= nDamageUp;
 	m_nDefenseUp	= nDefenseUp;
 	m_nMagicUp		= nMagicUp;
 	m_nResistUp		= nResistUp;
+	m_nGrade		= nGrade;
 
 	int i;
 	for (i = 0; i < MAX_RARE_OPTION_SETTING; i++)
@@ -47,7 +49,6 @@ void CRareOptionProto::InitData(	int nIndex,
 		m_rod[i].rarebit		= (1 << i);
 	}
 }
-
 
 ///////////////////////
 // CRareOptionProtoList
@@ -69,15 +70,14 @@ CRareOptionProtoList::~CRareOptionProtoList()
 
 const CRareOptionProto* CRareOptionProtoList::Find(int nIndex)
 {
-	CRareOptionProto key;
-	key.SetIndex(nIndex);
-	return (const CRareOptionProto*)bsearch(&key, m_listRareOption, m_nCount, sizeof(CRareOptionProto), CompRareOptionProto);
+	map_t::iterator it = map_.find(nIndex);
+	return (it != map_.end()) ? it->second : NULL;
 }
 
 bool CRareOptionProtoList::Load()
 {
 	CDBCmd cmd;
-	cmd.Init(&gserver.m_dbdata);
+	cmd.Init(&gserver->m_dbdata);
 	cmd.SetQuery("SELECT * FROM t_rareoption WHERE a_grade!=-1 ORDER BY a_index");
 	if (!cmd.Open())
 		return false;
@@ -85,6 +85,7 @@ bool CRareOptionProtoList::Load()
 
 	int		a_index;
 	int		a_attack;
+	int		a_grade;
 	int		a_defense;
 	int		a_magic;
 	int		a_resist;
@@ -101,6 +102,7 @@ bool CRareOptionProtoList::Load()
 		if (!cmd.GetRec("a_defense",		a_defense))			return false;
 		if (!cmd.GetRec("a_magic",			a_magic))			return false;
 		if (!cmd.GetRec("a_resist",			a_resist))			return false;
+		if (!cmd.GetRec("a_grade",			a_grade))			return false;
 		if (!cmd.GetRec("a_option_index0",	a_option_index[0]))	return false;
 		if (!cmd.GetRec("a_option_level0",	a_option_level[0]))	return false;
 		if (!cmd.GetRec("a_option_prob0",	a_option_prob[0]))	return false;
@@ -139,7 +141,7 @@ bool CRareOptionProtoList::Load()
 				optionvalues[i] = 0;
 			else
 			{
-				COptionProto* pOptionProto = gserver.m_optionProtoList.FindProto(a_option_index[i]);
+				COptionProto* pOptionProto = gserver->m_optionProtoList.FindProto(a_option_index[i]);
 				if (pOptionProto == NULL)
 					return false;
 				optionvalues[i] = pOptionProto->m_levelValue[a_option_level[i] - 1];
@@ -147,15 +149,18 @@ bool CRareOptionProtoList::Load()
 		}
 
 		m_listRareOption[m_nCount].InitData(
-				a_index,
-				a_attack,
-				a_defense,
-				a_magic,
-				a_resist,
-				a_option_index,
-				a_option_level,
-				optionvalues,
-				a_option_prob);
+			a_index,
+			a_attack,
+			a_defense,
+			a_magic,
+			a_resist,
+			a_grade,
+			a_option_index,
+			a_option_level,
+			optionvalues,
+			a_option_prob);
+
+		map_.insert(map_t::value_type(m_listRareOption[m_nCount].GetIndex(), &m_listRareOption[m_nCount]));
 
 		m_nCount++;
 	}
@@ -163,4 +168,3 @@ bool CRareOptionProtoList::Load()
 	return true;
 }
 
-#endif // MONSTER_RAID_SYSTEM

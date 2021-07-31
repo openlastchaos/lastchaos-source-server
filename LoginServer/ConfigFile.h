@@ -12,17 +12,37 @@ class CConfigFileData
 	char m_value[256];
 
 public:
-	CConfigFileData() { m_group[0] = m_name[0] = m_value[0] = '\0'; }
-	~CConfigFileData() { m_group[0] = m_name[0] = m_value[0] = '\0'; }
+	CConfigFileData()
+	{
+		m_group[0] = m_name[0] = m_value[0] = '\0';
+	}
+	~CConfigFileData()
+	{
+		m_group[0] = m_name[0] = m_value[0] = '\0';
+	}
 
-	void Set(const char* group, const char* name, const char* value) { strcpy(m_group, group); strcpy(m_name, name); strcpy(m_value, value); }
+	void Set(const char* group, const char* name, const char* value)
+	{
+		strcpy(m_group, group);
+		strcpy(m_name, name);
+		strcpy(m_value, value);
+	}
 
-	const char* Value() { return (const char*)m_value; }
-	const char* Group() { return (const char*)m_group; }
-	const char* Name() { return (const char*)m_name; }
+	const char* Value()
+	{
+		return (const char*)m_value;
+	}
+	const char* Group()
+	{
+		return (const char*)m_group;
+	}
+	const char* Name()
+	{
+		return (const char*)m_name;
+	}
 };
 
-class CConfigFile  
+class CConfigFile
 {
 	CConfigFileData*	m_data[MAX_CONFIG_DATA];
 	int					m_cnt;
@@ -39,10 +59,9 @@ public:
 
 	const char* Find(const char* group, const char* name);
 
-	static char* NextToken(char* buf, const char* src, int& start, const char* delim = NULL);
-
 private:
 	static int Comp(const void* p1, const void* p2);
 };
 
 #endif
+//

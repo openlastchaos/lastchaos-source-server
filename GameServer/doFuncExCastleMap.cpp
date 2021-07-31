@@ -1,17 +1,14 @@
 #include "stdhdrs.h"
+
 #include "Log.h"
-#include "Cmd.h"
 #include "Server.h"
 #include "CmdMsg.h"
 #include "doFunc.h"
 #include "WarCastle.h"
 #include "DratanCastle.h"
 
-#ifdef ENABLE_WAR_CASTLE
-void do_ExCastleMapRecent(CPC* ch, CNetMsg& msg)
+void do_ExCastleMapRecent(CPC* ch, CNetMsg::SP& msg)
 {
-	CNetMsg rmsg;
-
 	CWarCastle* castle = CWarCastle::GetCastleObject(CWarCastle::GetCurSubServerCastleZoneIndex());
 	if (!castle)
 		return ;
@@ -22,24 +19,28 @@ void do_ExCastleMapRecent(CPC* ch, CNetMsg& msg)
 	{
 	case WCJF_DEFENSE_GUILD:
 	case WCJF_ATTACK_GUILD:
+	case WCJF_OWNER:
+	case WCJF_DEFENSE_CHAR:
+	case WCJF_ATTACK_CHAR:
 		break;
 
 	default:
 		return ;
 	}
 
-	ExCastleMapRecentMsg(rmsg, castle, ch);
-	SEND_Q(rmsg, ch->m_desc);
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExCastleMapRecentMsg(rmsg, castle, ch);
+		SEND_Q(rmsg, ch->m_desc);
+	}
 }
 
-void do_ExCastleMapSignal(CPC* ch, CNetMsg& msg)
+void do_ExCastleMapSignal(CPC* ch, CNetMsg::SP& msg)
 {
-	CNetMsg rmsg;
-
 	float x;
 	float z;
-	msg >> x
-		>> z;
+	RefMsg(msg) >> x
+				>> z;
 
 	if (ch->m_guildInfo == NULL)
 		return ;
@@ -75,7 +76,9 @@ void do_ExCastleMapSignal(CPC* ch, CNetMsg& msg)
 
 	ch->m_guildInfo->guild()->guildSignal(ch->m_guildInfo->pos(), ch->m_index, x, z);
 
-	ExCastleMapSignalMsg(rmsg, ch->m_guildInfo->pos(), ch, x, z);
-	ch->m_guildInfo->guild()->SendToAllInSameZone(rmsg, ch->m_pZone->m_index);
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExCastleMapSignalMsg(rmsg, ch->m_guildInfo->pos(), ch, x, z);
+		ch->m_guildInfo->guild()->SendToAllInSameZone(rmsg, ch->m_pZone->m_index);
+	}
 }
-#endif // #ifdef ENABLE_WAR_CASTLE

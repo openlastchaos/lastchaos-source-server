@@ -1,19 +1,15 @@
 #ifndef  __GAME_SHOP_H__
 #define  __GAME_SHOP_H__
 
-#if _MSC_VER > 1000
-#pragma once
-#endif // _MSC_VER > 1000
-
 class CCharacter;
 
-class CShop  
+class CShop
 {
 public:
 	// DB Info
 	//CNPC*		m_keeper;
 	int			m_keeperIdx;
-	
+
 	float		m_x;
 	float		m_z;
 	float		m_r;
@@ -58,3 +54,4 @@ public:
 };
 
 #endif // end of define header
+//

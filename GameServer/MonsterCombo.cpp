@@ -1,18 +1,20 @@
 // MonsterCombo.cpp: implementation of the CMonsterCombo class.
 //
 //////////////////////////////////////////////////////////////////////
+#include <boost/foreach.hpp>
 #include "stdhdrs.h"
-#include "DBCmd.h"
+
+#include "../ShareLib/DBCmd.h"
 #include "Server.h"
 #include "Log.h"
 #include "MonsterCombo.h"
 #include "CmdMsg.h"
 #include "doFunc.h"
 #include "Battle.h"
+#include "../ShareLib/packetType/ptype_old_do_monstercombo.h"
 
-#ifdef MONSTER_COMBO
-
-CMissionCaseProto::CMissionCaseProto() : m_name(MAX_ITEM_NAME_LENGTH + 1), m_listPanalty(NULL) 
+CMissionCaseProto::CMissionCaseProto()
+	: m_name(MAX_ITEM_NAME_LENGTH + 1)
 {
 	m_nIndex		= 0;
 	m_nNas			= 0;
@@ -29,7 +31,7 @@ CMissionCaseProto::~CMissionCaseProto()
 		m_npcRegen = NULL;
 	}
 
-	m_listPanalty.RemoveAll();
+	m_listPanalty.clear();
 }
 
 bool CMissionCaseProto::LoadProto()
@@ -38,7 +40,7 @@ bool CMissionCaseProto::LoadProto()
 	sql.Format("SELECT distinct a_step FROM t_npc_regen_combo WHERE a_enable = 1 AND a_missioncase_idx = %d ORDER BY a_step", m_nIndex);
 
 	CDBCmd cmd;
-	cmd.Init(&gserver.m_dbdata);
+	cmd.Init(&gserver->m_dbdata);
 	cmd.SetQuery(sql);
 	if(!cmd.Open())
 		return false;
@@ -46,7 +48,6 @@ bool CMissionCaseProto::LoadProto()
 	if(cmd.m_nrecords == 0)
 		return false;
 
-	
 	m_nRegenCount = cmd.m_nrecords;
 	m_npcRegen = new MOBREGEN[cmd.m_nrecords];
 	memset(m_npcRegen, 0, sizeof(m_npcRegen));
@@ -61,7 +62,7 @@ bool CMissionCaseProto::LoadProto()
 		sql2.Format("SELECT * FROM t_npc_regen_combo WHERE a_step = %d AND a_missioncase_idx = %d AND a_enable = 1", step, m_nIndex);
 
 		CDBCmd cmd2;
-		cmd2.Init(&gserver.m_dbdata);
+		cmd2.Init(&gserver->m_dbdata);
 		cmd2.SetQuery(sql2);
 		if(!cmd2.Open())
 			return false;
@@ -94,9 +95,9 @@ bool CMissionCaseProto::LoadProto()
 		while(cmd2.MoveNext())
 		{
 			cmd2.GetRec("a_skillindex", penalty.index);
-			cmd2.GetRec("a_skillLevel", penalty.level);	
+			cmd2.GetRec("a_skillLevel", penalty.level);
 
-			m_listPanalty.AddToTail(penalty);
+			m_listPanalty.push_back(penalty);
 		}
 
 		i++;
@@ -106,15 +107,13 @@ bool CMissionCaseProto::LoadProto()
 
 const MOBREGEN* CMissionCaseProto::FindMobRegen(int step)
 {
-	int i;
-	for(i = 0; i < m_nRegenCount; ++i)
+	for(int i = 0; i < m_nRegenCount; ++i)
 	{
 		if(m_npcRegen[i].step == step)
 			return &m_npcRegen[i];
 	}
 	return NULL;
 }
-
 
 CMIssionCaseList::CMIssionCaseList()
 {
@@ -137,19 +136,19 @@ bool CMIssionCaseList::LoadList()
 	sql.Format("SELECT * FROM t_missioncase WHERE a_enable = 1 ORDER BY a_index");
 
 	CDBCmd cmd;
-	cmd.Init(&gserver.m_dbdata);
+	cmd.Init(&gserver->m_dbdata);
 	cmd.SetQuery(sql);
 	if(!cmd.Open())
 		return false;
-	
+
 	if(cmd.m_nrecords == 0)
 		return false;
 
 	m_nCount = cmd.m_nrecords;
 	m_proto = new CMissionCaseProto[cmd.m_nrecords];
-	memset(m_proto, 0, sizeof(m_proto));
 
 	int i = 0;
+
 	while(cmd.MoveNext())
 	{
 		cmd.GetRec("a_index", m_proto[i].m_nIndex);
@@ -160,6 +159,8 @@ bool CMIssionCaseList::LoadList()
 		if(!m_proto[i].LoadProto())
 			return false;
 
+		map_.insert(map_t::value_type(m_proto[i].m_nIndex, &m_proto[i]));
+
 		i++;
 	}
 	return true;
@@ -167,18 +168,15 @@ bool CMIssionCaseList::LoadList()
 
 CMissionCaseProto* CMIssionCaseList::FindProto(int index)
 {
-	CMissionCaseProto proto;
-	proto.m_nIndex = index;
-
-	return (CMissionCaseProto*)bsearch(&proto, m_proto, m_nCount, sizeof(CMissionCaseProto), CompIndex);
+	map_t::iterator it = map_.find(index);
+	return (it != map_.end()) ? it->second : NULL;
 }
-
 
 /////////////////////////////////////////////////////////////////////
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
-CMonsterCombo::CMonsterCombo() : m_listEffect(NULL)
+CMonsterCombo::CMonsterCombo()
 {
 	m_bIsBattle		= false;
 	m_nExtra		= 0;
@@ -197,6 +195,10 @@ CMonsterCombo::CMonsterCombo() : m_listEffect(NULL)
 	m_nIndex	   = -1;
 
 	memset(m_effectNPC, 0, sizeof(CNPC*) * MAXEFFECT);
+
+#ifdef MONSTER_COMBO_FIX
+	m_bPartyRecall	= true;
+#endif // MONSTER_COMBO_FIX
 }
 
 CMonsterCombo::~CMonsterCombo()
@@ -207,7 +209,7 @@ CMonsterCombo::~CMonsterCombo()
 		m_case = NULL;
 	}
 	memset(m_effectNPC, 0, sizeof(CNPC*) * MAXEFFECT);
-	m_listEffect.RemoveAll();
+	m_listEffect.clear();
 }
 
 bool CMonsterCombo::Init(int count)
@@ -226,10 +228,8 @@ void CMonsterCombo::SetArea(CArea *area)
 	m_area = area;
 }
 
-
 char CMonsterCombo::Run()
 {
-	CNetMsg rmsg;
 	char ret;
 	int error;
 	int extra;
@@ -243,6 +243,9 @@ char CMonsterCombo::Run()
 	case 5:
 		break;
 	default:
+#ifdef LC_GAMIGO
+		GAMELOG << init("COMBO EXTRA ERROR") << m_nExtra << end;
+#endif // LC_GAMIGO
 		return 2;
 	}
 
@@ -250,7 +253,12 @@ char CMonsterCombo::Run()
 	ret = 1;
 
 	if(!m_area)
+	{
+#ifdef LC_GAMIGO
+		GAMELOG << init("COMBO AREA ERROR") << end;
+#endif // LC_GAMIGO
 		return 2;
+	}
 
 	if(m_bIsBattle)
 	{
@@ -263,11 +271,12 @@ char CMonsterCombo::Run()
 			// npc 모두 제거
 			DeleteAllMob();
 
-			// 미션실패했음을 알림
-			MonsterComboMsg(rmsg, MSG_EX_MONSTERCOMBO_MISSION_COMPLETE);
-			rmsg << 0;
-			rmsg << m_nStage;
-			m_area->SendToAllClient(rmsg); 
+			{
+				// 미션실패했음을 알림
+				CNetMsg::SP rmsg(new CNetMsg);
+				ResponseClient::makeMCMissionComplete(rmsg, 0, m_nStage);
+				m_area->SendToAllClient(rmsg);
+			}
 
 			// 로그찍기
 			GAMELOG << init("COMBO MISSION FAILED")
@@ -277,9 +286,8 @@ char CMonsterCombo::Run()
 					<< m_area->m_monsterCombo->m_nIndex;
 
 			PrintCharIndex();
-			
-			GAMELOG	<< end;
 
+			GAMELOG	<< end;
 		}
 		else
 		{
@@ -315,12 +323,12 @@ char CMonsterCombo::Run()
 
 						ComboNPCRegen();
 
-						// 미션 성공했음을 알림
-						MonsterComboMsg(rmsg, MSG_EX_MONSTERCOMBO_MISSION_COMPLETE);
-						rmsg << Success
-							 << Stage;
-
-						m_area->SendToAllClient(rmsg);
+						{
+							// 미션 성공했음을 알림
+							CNetMsg::SP rmsg(new CNetMsg);
+							ResponseClient::makeMCMissionComplete(rmsg, Success, Stage);
+							m_area->SendToAllClient(rmsg);
+						}
 
 						// 로그
 						if(Success == 1)
@@ -357,7 +365,7 @@ char CMonsterCombo::Run()
 								<< " NPC REGEN STEP: " << m_nRegenStep		// 몇번째 리젠인지
 								<< " TOTAL REGEN COUNT: " << m_cPlayerNum		// 리젠 총 반복 횟수
 								<< " REGEN REPEAT: " << m_cPlayerCount;		// 리젠반복 횟수
-								
+
 						if(mission)
 						{
 							GAMELOG << " CASE INDEX: "
@@ -378,14 +386,14 @@ char CMonsterCombo::Run()
 			else
 			{
 				// 불기둥 발동
-				if(gserver.m_pulse > m_pulseFirst)
+				if(gserver->m_pulse > m_pulseFirst)
 				{
-					m_pulseFirst = gserver.m_pulse + PULSE_REAL_SEC * 10;
+					m_pulseFirst = gserver->m_pulse + PULSE_REAL_SEC * 10;
 
 					FireEffectReady2();
 				}
 
-				if(gserver.m_pulse > m_pulseSecond)
+				if(gserver->m_pulse > m_pulseSecond)
 				{
 					m_pulseSecond = m_pulseFirst + PULSE_REAL_SEC * 2;
 
@@ -398,7 +406,6 @@ char CMonsterCombo::Run()
 	return ret;
 }
 
-
 void CMonsterCombo::DeleteAllMob()
 {
 	CNPC* pNext = m_area->m_npcList;
@@ -408,6 +415,9 @@ void CMonsterCombo::DeleteAllMob()
 		pNext = p->m_pNPCNext;
 		if(p->m_proto->CheckFlag(NPC_SHOPPER) == 0)
 		{
+			if( p->GetOwner() )
+				p->GetOwner()->SummonNpcRemove(p);
+
 			p->SendDisappearAllInCell(true);
 
 			DelAttackList(p);
@@ -417,9 +427,8 @@ void CMonsterCombo::DeleteAllMob()
 	}
 
 	memset(m_effectNPC, 0, sizeof(CNPC*) * MAXEFFECT);
-	m_listEffect.RemoveAll();
+	m_listEffect.clear();
 }
-
 
 // return 2:오류, 1: 리젠 0: 리젠 없음
 char CMonsterCombo::NextNPCRegen()
@@ -433,7 +442,7 @@ char CMonsterCombo::NextNPCRegen()
 
 	m_cPlayerCount++;
 
-	m_listEffect.RemoveAll();
+	m_listEffect.clear();
 
 	int centerX, centerZ;
 	centerX = (m_area->m_zone->m_zonePos[m_nExtra][1] + m_area->m_zone->m_zonePos[m_nExtra][3])/2/2;
@@ -450,21 +459,23 @@ char CMonsterCombo::NextNPCRegen()
 		{
 			for(k = 0; k < mobregen->mobtype[i].count; ++k)
 			{
-				npc = gserver.m_npcProtoList.Create(mobregen->mobtype[i].npcidx, NULL);
+				npc = gserver->m_npcProtoList.Create(mobregen->mobtype[i].npcidx, NULL);
 				if(!npc)
 					break;
-				
+
 				int nTry = 0;
-				
-				do{
+
+				do
+				{
 					GET_X(npc) = centerX + GetRandom(-20, 20);
 					GET_Z(npc) = centerZ + GetRandom(-20, 20);
 					GET_YLAYER(npc) = m_area->m_zone->m_zonePos[m_nExtra][0];
 					GET_R(npc) = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
-					if (m_area->GetAttr(GET_YLAYER(npc), GET_X(npc), GET_Z(npc)) == MAPATT_FIELD)
+					if (m_area->GetAttr(GET_YLAYER(npc), GET_X(npc), GET_Z(npc)) & MATT_WALKABLE)
 						break;
 					nTry++;
-				}while(nTry <= 10);
+				}
+				while(nTry <= 10);
 
 				if(nTry > 10)
 				{
@@ -473,23 +484,24 @@ char CMonsterCombo::NextNPCRegen()
 					GET_YLAYER(npc) = m_area->m_zone->m_zonePos[m_nExtra][0];
 					GET_R(npc) = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
 				}
-				
+
 				npc->m_regenX = GET_X(npc);
 				npc->m_regenY = GET_YLAYER(npc);
 				npc->m_regenZ = GET_Z(npc);
-				
+
 				int cx, cz;
 				m_area->AddNPC(npc);
 				m_area->PointToCellNum(GET_X(npc), GET_Z(npc), &cx, &cz);
 				m_area->CharToCell(npc, GET_YLAYER(npc), cx, cz);
-				
-				CNetMsg appearNPCMsg;
-				AppearMsg(appearNPCMsg, npc, true);
-				m_area->SendToCell(appearNPCMsg, GET_YLAYER(npc), cx, cz);
+
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					AppearMsg(rmsg, npc, true);
+					m_area->SendToCell(rmsg, GET_YLAYER(npc), cx, cz);
+				}
 			}
 		}
 		return 1;
-
 	}
 	else
 	{
@@ -499,7 +511,7 @@ char CMonsterCombo::NextNPCRegen()
 		if(m_nRegenStep <= proto->m_nRegenCount)
 		{
 			// npc 리젠
-		//	m_nRegenStep = 1;
+			//	m_nRegenStep = 1;
 			const MOBREGEN* mobregen = proto->FindMobRegen(m_nRegenStep);
 			if(!mobregen)
 				return 2;
@@ -509,21 +521,23 @@ char CMonsterCombo::NextNPCRegen()
 			{
 				for(k = 0; k < mobregen->mobtype[i].count; ++k)
 				{
-					npc = gserver.m_npcProtoList.Create(mobregen->mobtype[i].npcidx, NULL);
+					npc = gserver->m_npcProtoList.Create(mobregen->mobtype[i].npcidx, NULL);
 					if(!npc)
 						break;
-					
+
 					int nTry = 0;
-					
-					do{
+
+					do
+					{
 						GET_X(npc) = centerX + GetRandom(-20, 20);
 						GET_Z(npc) = centerZ + GetRandom(-20, 20);
 						GET_YLAYER(npc) = m_area->m_zone->m_zonePos[m_nExtra][0];
 						GET_R(npc) = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
-						if (m_area->GetAttr(GET_YLAYER(npc), GET_X(npc), GET_Z(npc)) == MAPATT_FIELD)
+						if (m_area->GetAttr(GET_YLAYER(npc), GET_X(npc), GET_Z(npc)) & MATT_WALKABLE)
 							break;
 						nTry++;
-					}while(nTry <= 10);
+					}
+					while(nTry <= 10);
 
 					if(nTry > 10)
 					{
@@ -532,19 +546,21 @@ char CMonsterCombo::NextNPCRegen()
 						GET_YLAYER(npc) = m_area->m_zone->m_zonePos[m_nExtra][0];
 						GET_R(npc) = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
 					}
-					
+
 					npc->m_regenX = GET_X(npc);
 					npc->m_regenY = GET_YLAYER(npc);
 					npc->m_regenZ = GET_Z(npc);
-					
+
 					int cx, cz;
 					m_area->AddNPC(npc);
 					m_area->PointToCellNum(GET_X(npc), GET_Z(npc), &cx, &cz);
 					m_area->CharToCell(npc, GET_YLAYER(npc), cx, cz);
-					
-					CNetMsg appearNPCMsg;
-					AppearMsg(appearNPCMsg, npc, true);
-					m_area->SendToCell(appearNPCMsg, GET_YLAYER(npc), cx, cz);
+
+					{
+						CNetMsg::SP rmsg(new CNetMsg);
+						AppearMsg(rmsg, npc, true);
+						m_area->SendToCell(rmsg, GET_YLAYER(npc), cx, cz);
+					}
 				}
 			}
 			return 1;
@@ -553,7 +569,6 @@ char CMonsterCombo::NextNPCRegen()
 
 	return 0;
 }
-
 
 const MISSION* CMonsterCombo::FindMission(int step)
 {
@@ -572,7 +587,7 @@ bool CMonsterCombo::SetMission(int step, int index)
 		return false;
 
 	CMissionCaseProto* proto = NULL;
-    proto = gserver.m_missionCaseList.FindProto(index);
+	proto = gserver->m_missionCaseList.FindProto(index);
 	if(!proto)
 		return false;
 
@@ -592,18 +607,13 @@ bool CMonsterCombo::SetMission(int step, int index)
 	return true;
 }
 
-
 void CMonsterCombo::RecallToStage()
 {
-	CNetMsg rmsg;
-
 	CCharacter* pChar;
 	CCharacter* pCharNext;
 
-//#ifdef WJKTEST
 	float x, z;
 	char ylayer;
-//#endif // WJKTEST
 
 	int i, j;
 	for(i = 0 ; i < m_area->m_size[0]; ++i)
@@ -614,41 +624,30 @@ void CMonsterCombo::RecallToStage()
 			while((pChar = pCharNext))
 			{
 				pCharNext = pChar->m_pCellNext;
-				
+
 				if (IS_PC(pChar) && !DEAD(pChar))
 				{
-#ifdef GM_GO_ZONE
 					if(TO_PC(pChar)->m_gmGoZoneType == GM_GOZONE_COMBO)
 						continue;
-#endif // GM_GO_ZONE
 
-					if( (int)(pChar->m_pos.m_x) >= gserver.m_comboZone->m_zonePos[m_nExtra + 6][1]/2 &&
-						(int)(pChar->m_pos.m_x) <= gserver.m_comboZone->m_zonePos[m_nExtra + 6][3]/2 &&
-						(int)(pChar->m_pos.m_z) >= gserver.m_comboZone->m_zonePos[m_nExtra + 6][2]/2 &&
-						(int)(pChar->m_pos.m_z) <= gserver.m_comboZone->m_zonePos[m_nExtra + 6][4]/2 &&
-						pChar->m_pos.m_yLayer == gserver.m_comboZone->m_zonePos[m_nExtra + 6][0] )
+					if( (int)(pChar->m_pos.m_x) >= gserver->m_comboZone->m_zonePos[m_nExtra + 6][1]/2 &&
+							(int)(pChar->m_pos.m_x) <= gserver->m_comboZone->m_zonePos[m_nExtra + 6][3]/2 &&
+							(int)(pChar->m_pos.m_z) >= gserver->m_comboZone->m_zonePos[m_nExtra + 6][2]/2 &&
+							(int)(pChar->m_pos.m_z) <= gserver->m_comboZone->m_zonePos[m_nExtra + 6][4]/2 &&
+							pChar->m_pos.m_yLayer == gserver->m_comboZone->m_zonePos[m_nExtra + 6][0] )
 					{
 						continue;
 					}
-//#ifdef WJKTEST
-					x = GetRandom(gserver.m_comboZone->m_zonePos[m_nExtra][1], gserver.m_comboZone->m_zonePos[m_nExtra][3]) / 2.0f;
-					z = GetRandom(gserver.m_comboZone->m_zonePos[m_nExtra][2], gserver.m_comboZone->m_zonePos[m_nExtra][4]) / 2.0f;
-					ylayer = gserver.m_comboZone->m_zonePos[m_nExtra][0];
+					x = GetRandom(gserver->m_comboZone->m_zonePos[m_nExtra][1], gserver->m_comboZone->m_zonePos[m_nExtra][3]) / 2.0f;
+					z = GetRandom(gserver->m_comboZone->m_zonePos[m_nExtra][2], gserver->m_comboZone->m_zonePos[m_nExtra][4]) / 2.0f;
+					ylayer = gserver->m_comboZone->m_zonePos[m_nExtra][0];
 					GET_R(pChar) = 0.0f;
 					GoTo(pChar, ylayer, x, z, pChar->m_pArea->GetHeight(ylayer, x, z), GET_R(pChar));
-/*
-					GoZone((CPC*)pChar, gserver.m_comboZone->m_index,
-						gserver.m_comboZone->m_zonePos[m_nExtra][0],														// ylayer
-						GetRandom(gserver.m_comboZone->m_zonePos[m_nExtra][1], gserver.m_comboZone->m_zonePos[m_nExtra][3]) / 2.0f,		// x
-						GetRandom(gserver.m_comboZone->m_zonePos[m_nExtra][2], gserver.m_comboZone->m_zonePos[m_nExtra][4]) / 2.0f);		// z
-#endif // WJKTEST
-*/
 				}
 			}
 		}
 	}
 }
-
 
 bool CMonsterCombo::StartStage()
 {
@@ -684,21 +683,29 @@ bool CMonsterCombo::StartStage()
 
 	extra = m_nExtra + 6;
 
-	m_listEffect.RemoveAll();
+	m_listEffect.clear();
 
 	// npc 초기화
 	pNext = m_area->m_npcList;
 	while((p = pNext))
 	{
 		pNext = p->m_pNPCNext;
-		
-		if(p->m_proto->m_index != 489)
+
+		if(p->m_proto->m_index != 489
+				&& !( p->GetOwner() && (
+						  p->Check_MobFlag(STATE_MONSTER_MERCENARY)
+						  || p->Check_MobFlag(STATE_MONSTER_TOTEM_BUFF)
+						  || p->Check_MobFlag(STATE_MONSTER_TOTEM_ATTK)
+						  || p->Check_MobFlag(STATE_MONSTER_TRAP)
+						  || p->Check_MobFlag(STATE_MONSTER_SUICIDE)
+					  ))
+		  )
 		{
 			p->SendDisappearAllInCell(true);
-			
+
 			DelAttackList(p);
 			m_area->CharFromCell(p, true);
-			m_area->DelNPC(p);	
+			m_area->DelNPC(p);
 		}
 	}
 
@@ -710,21 +717,23 @@ bool CMonsterCombo::StartStage()
 	{
 		for(k = 0; k < mobregen->mobtype[i].count; ++k)
 		{
-			npc = gserver.m_npcProtoList.Create(mobregen->mobtype[i].npcidx, NULL);
+			npc = gserver->m_npcProtoList.Create(mobregen->mobtype[i].npcidx, NULL);
 			if(!npc)
 				continue;
-			
+
 			int nTry = 0;
-			
-			do{
+
+			do
+			{
 				GET_X(npc) = centerX + GetRandom(-20, 20);
 				GET_Z(npc) = centerZ + GetRandom(-20, 20);
 				GET_YLAYER(npc) = m_area->m_zone->m_zonePos[m_nExtra][0];
 				GET_R(npc) = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
-				if (m_area->GetAttr(GET_YLAYER(npc), GET_X(npc), GET_Z(npc)) == MAPATT_FIELD)
+				if (m_area->GetAttr(GET_YLAYER(npc), GET_X(npc), GET_Z(npc)) & MATT_WALKABLE)
 					break;
 				nTry++;
-			}while(nTry <= 10);
+			}
+			while(nTry <= 10);
 
 			if(nTry > 10)
 			{
@@ -733,59 +742,64 @@ bool CMonsterCombo::StartStage()
 				GET_YLAYER(npc) = m_area->m_zone->m_zonePos[m_nExtra][0];
 				GET_R(npc) = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
 			}
-			
+
 			npc->m_regenX = GET_X(npc);
 			npc->m_regenY = GET_YLAYER(npc);
 			npc->m_regenZ = GET_Z(npc);
-			
+
 			int cx, cz;
 			m_area->AddNPC(npc);
 			m_area->PointToCellNum(GET_X(npc), GET_Z(npc), &cx, &cz);
 			m_area->CharToCell(npc, GET_YLAYER(npc), cx, cz);
-			
-			CNetMsg appearNPCMsg;
-			AppearMsg(appearNPCMsg, npc, true);
-			m_area->SendToCell(appearNPCMsg, GET_YLAYER(npc), cx, cz);
+
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				AppearMsg(rmsg, npc, true);
+				m_area->SendToCell(rmsg, GET_YLAYER(npc), cx, cz);
+			}
 		}
 	}
 
 	// 이펙트 npc
 	for(i = 0 ; i < MAXEFFECT; ++i)
 	{
-		npc = gserver.m_npcProtoList.Create(491, NULL);
+		npc = gserver->m_npcProtoList.Create(491, NULL);
 		if(!npc)
 			goto SKIP_START;
-		
+
 		GET_X(npc) = (m_area->m_zone->m_zonePos[m_nExtra][1] + m_area->m_zone->m_zonePos[m_nExtra][3])/2/2;
 		GET_Z(npc) = (m_area->m_zone->m_zonePos[m_nExtra][2] + m_area->m_zone->m_zonePos[m_nExtra][4])/2/2;
 		GET_YLAYER(npc) = m_area->m_zone->m_zonePos[m_nExtra][0];
 		GET_R(npc) = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
-		
+
 		npc->m_regenX = GET_X(npc);
 		npc->m_regenY = GET_YLAYER(npc);
 		npc->m_regenZ = GET_Z(npc);
-		
+
 		int cx, cz;
 		m_area->AddNPC(npc);
 		m_area->PointToCellNum(GET_X(npc), GET_Z(npc), &cx, &cz);
 		m_area->CharToCell(npc, GET_YLAYER(npc), cx, cz);
-		
-		CNetMsg appearNPCMsg;
-		AppearMsg(appearNPCMsg, npc, true);
-		m_area->SendToCell(appearNPCMsg, GET_YLAYER(npc), cx, cz);
-		
+
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			AppearMsg(rmsg, npc, true);
+			m_area->SendToCell(rmsg, GET_YLAYER(npc), cx, cz);
+		}
+
 		m_effectNPC[i] = npc;
 	}
 
 	// 패널티 적용
-	
-	pos = mission->proto->m_listPanalty.GetHead();
-	while(pos)
 	{
-		penalty = mission->proto->m_listPanalty.GetData(pos);
-		ApplyPenalty(penalty.index, penalty.level);
-
-		pos = mission->proto->m_listPanalty.GetNext(pos);
+		// goto 구문 사용으로 C2362 에러가 발생되어 {} 안으로 이동함
+		std::vector<PENALTY>::iterator pit = mission->proto->m_listPanalty.begin();
+		std::vector<PENALTY>::iterator pendit = mission->proto->m_listPanalty.end();
+		for(; pit != pendit; ++pit)
+		{
+			PENALTY& penalty = *(pit);
+			ApplyPenalty(penalty.index, penalty.level);
+		}
 	}
 
 	m_nRegenStep = 1;
@@ -799,10 +813,10 @@ bool CMonsterCombo::StartStage()
 	if(m_cPlayerNum < 1)
 		goto SKIP_START;
 
-	m_pulseFirst	= gserver.m_pulse + PULSE_REAL_SEC * 10;
+	m_pulseFirst	= gserver->m_pulse + PULSE_REAL_SEC * 10;
 	m_pulseSecond	= m_pulseFirst + PULSE_REAL_SEC * 2;
 
-	NoticeStage();	
+	NoticeStage();
 
 	GAMELOG << init("COMBO START ")
 			<< "AREA INDEX: " << m_area->m_index
@@ -814,8 +828,12 @@ bool CMonsterCombo::StartStage()
 
 	m_bIsBattle = true;
 
+#ifdef MONSTER_COMBO_FIX
+	m_bPartyRecall = false;
+#endif // MONSTER_COMBO_FIX
+
 	return true;
-	
+
 SKIP_START:
 	{
 		CNPC* pNext = m_area->m_npcList;
@@ -823,50 +841,54 @@ SKIP_START:
 		while((p = pNext))
 		{
 			pNext = p->m_pNPCNext;
-			
-			if(p->m_proto->m_index != 489)
+
+			if(p->m_proto->m_index != 489 && p->m_proto->m_index != 490 && p->m_proto->m_index != 492
+					&& !( p->GetOwner() && (
+							  p->Check_MobFlag(STATE_MONSTER_MERCENARY)
+							  || p->Check_MobFlag(STATE_MONSTER_TOTEM_BUFF)
+							  || p->Check_MobFlag(STATE_MONSTER_TOTEM_ATTK)
+							  || p->Check_MobFlag(STATE_MONSTER_TRAP)
+							  || p->Check_MobFlag(STATE_MONSTER_SUICIDE)
+						  ))
+			  )
 			{
 				p->SendDisappearAllInCell(true);
-				
+
 				DelAttackList(p);
 				m_area->CharFromCell(p, true);
-				m_area->DelNPC(p);	
+				m_area->DelNPC(p);
 			}
 		}
 	}
 	return false;
-	
 }
 
 void CMonsterCombo::NoticeStage()
 {
 	CCharacter* pChar;
 	CCharacter* pCharNext;
-	
-	CNetMsg rmsg;
-	MonsterComboMsg(rmsg, MSG_EX_MONSTERCOMBO_NOTICE_STAGE);
-	rmsg << m_nStage;
 
-	int i, j;
-	for(i = 0 ; i < m_area->m_size[0]; ++i)
+	CNetMsg::SP rmsg(new CNetMsg);
+	ResponseClient::makeMCNoticeStage(rmsg, m_nStage);
+
+	for(int i = 0 ; i < m_area->m_size[0]; ++i)
 	{
-		for(j = 0; j < m_area->m_size[1]; ++j)
+		for(int j = 0; j < m_area->m_size[1]; ++j)
 		{
 			pCharNext = m_area->m_cell[i][j].m_listChar;
 			while((pChar = pCharNext))
 			{
 				pCharNext = pChar->m_pCellNext;
-				
+
 				if (IS_PC(pChar) && !DEAD(pChar))
 				{
-					
 					int extra = m_nExtra + 6;
-					
-					if( (int)(pChar->m_pos.m_x) >= gserver.m_comboZone->m_zonePos[extra][1]/2 &&
-						(int)(pChar->m_pos.m_x) <= gserver.m_comboZone->m_zonePos[extra][3]/2 &&
-						(int)(pChar->m_pos.m_z) >= gserver.m_comboZone->m_zonePos[extra][2]/2 &&
-						(int)(pChar->m_pos.m_z) <= gserver.m_comboZone->m_zonePos[extra][4]/2 &&
-						pChar->m_pos.m_yLayer == gserver.m_comboZone->m_zonePos[extra][0] )
+
+					if( (int)(pChar->m_pos.m_x) >= gserver->m_comboZone->m_zonePos[extra][1]/2 &&
+							(int)(pChar->m_pos.m_x) <= gserver->m_comboZone->m_zonePos[extra][3]/2 &&
+							(int)(pChar->m_pos.m_z) >= gserver->m_comboZone->m_zonePos[extra][2]/2 &&
+							(int)(pChar->m_pos.m_z) <= gserver->m_comboZone->m_zonePos[extra][4]/2 &&
+							pChar->m_pos.m_yLayer == gserver->m_comboZone->m_zonePos[extra][0] )
 					{
 						SEND_Q(rmsg, TO_PC(pChar)->m_desc);
 					}
@@ -874,13 +896,12 @@ void CMonsterCombo::NoticeStage()
 			}
 		}
 	}
-	
 }
 
 void CMonsterCombo::ApplyPenalty(int skillindex, int skilllevel)
 {
 	CSkill* skill;
-	skill = gserver.m_skillProtoList.Create(skillindex, skilllevel);
+	skill = gserver->m_skillProtoList.Create(skillindex, skilllevel);
 
 	bool bApply;
 	CCharacter* pChar;
@@ -895,16 +916,16 @@ void CMonsterCombo::ApplyPenalty(int skillindex, int skilllevel)
 			while((pChar = pCharNext))
 			{
 				pCharNext = pChar->m_pCellNext;
-				
+
 				if (IS_PC(pChar) && !DEAD(pChar))
-				{	
+				{
 					int extra = m_nExtra + 6;
-					
-					if( (int)(pChar->m_pos.m_x) >= gserver.m_comboZone->m_zonePos[extra][1]/2 &&
-						(int)(pChar->m_pos.m_x) <= gserver.m_comboZone->m_zonePos[extra][3]/2 &&
-						(int)(pChar->m_pos.m_z) >= gserver.m_comboZone->m_zonePos[extra][2]/2 &&
-						(int)(pChar->m_pos.m_z) <= gserver.m_comboZone->m_zonePos[extra][4]/2 &&
-						pChar->m_pos.m_yLayer == gserver.m_comboZone->m_zonePos[extra][0] )
+
+					if( (int)(pChar->m_pos.m_x) >= gserver->m_comboZone->m_zonePos[extra][1]/2 &&
+							(int)(pChar->m_pos.m_x) <= gserver->m_comboZone->m_zonePos[extra][3]/2 &&
+							(int)(pChar->m_pos.m_z) >= gserver->m_comboZone->m_zonePos[extra][2]/2 &&
+							(int)(pChar->m_pos.m_z) <= gserver->m_comboZone->m_zonePos[extra][4]/2 &&
+							pChar->m_pos.m_yLayer == gserver->m_comboZone->m_zonePos[extra][0] )
 					{
 						ApplySkill(pChar, pChar, skill, -1, bApply);
 					}
@@ -912,11 +933,10 @@ void CMonsterCombo::ApplyPenalty(int skillindex, int skilllevel)
 			}
 		}
 	}
-	
+
 	delete skill;
 	skill = NULL;
 }
-
 
 void CMonsterCombo::ClearPenalty()
 {
@@ -940,12 +960,11 @@ void CMonsterCombo::ClearPenalty()
 	}
 }
 
-
 void CMonsterCombo::GiftMobRegen()
 {
 	if(m_nStage <= 0 || (m_nStage % 5) != 0)
 		return ;
-		
+
 	int i;
 	int count = m_area->CountPCInExtra(m_nExtra + 6, false);
 	int point = GetTotalPoint();
@@ -968,17 +987,13 @@ void CMonsterCombo::GiftMobRegen()
 	else if(point <= 120) itemidx = 2711;
 	else if(point <= 160) itemidx = 2712;
 	else if(point <= 180) itemidx = 2713;
-#if defined (MONSTER_COMBO_GOLDBOX)
 	else if(point < 280) itemidx = 2714;
 	else itemidx = 3575;
-#else
-	else				  itemidx = 2714;
-#endif // MONSTER_COMBO_GOLDBOX
 
 	giftregencount = 0;
 	for(i = 0 ; i < count; ++i)
-	{	
-		npc = gserver.m_npcProtoList.Create(npcidx, NULL);
+	{
+		npc = gserver->m_npcProtoList.Create(npcidx, NULL);
 		if(!npc)
 		{
 			return ;
@@ -989,15 +1004,17 @@ void CMonsterCombo::GiftMobRegen()
 
 		int nTry = 0;
 
-		do{
+		do
+		{
 			GET_X(npc) = centerX + (GetRandom(0, 1) ? -1 : 1) * GetRandom(1, 10);
 			GET_Z(npc) = centerZ + (GetRandom(0, 1) ? -1 : 1) * GetRandom(1, 10);
 			GET_YLAYER(npc) = m_area->m_zone->m_zonePos[m_nExtra][0];
 			GET_R(npc) = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
-			if (m_area->GetAttr(GET_YLAYER(npc), GET_X(npc), GET_Z(npc)) == MAPATT_FIELD)
+			if (m_area->GetAttr(GET_YLAYER(npc), GET_X(npc), GET_Z(npc)) & MATT_WALKABLE)
 				break;
 			nTry++;
-		}while(nTry <= 10);
+		}
+		while(nTry <= 10);
 
 		if( nTry > 10 )
 		{
@@ -1016,9 +1033,11 @@ void CMonsterCombo::GiftMobRegen()
 		m_area->PointToCellNum(GET_X(npc), GET_Z(npc), &cx, &cz);
 		m_area->CharToCell(npc, GET_YLAYER(npc), cx, cz);
 
-		CNetMsg appearNPCMsg;
-		AppearMsg(appearNPCMsg, npc, true);
-		m_area->SendToCell(appearNPCMsg, GET_YLAYER(npc), cx, cz);
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			AppearMsg(rmsg, npc, true);
+			m_area->SendToCell(rmsg, GET_YLAYER(npc), cx, cz);
+		}
 
 		giftregencount++;
 	}
@@ -1046,86 +1065,6 @@ int CMonsterCombo::GetTotalPoint()
 	return total;
 }
 
-void CMonsterCombo::FireEffectReady()
-{
-	int centerX, centerZ;
-	int effectCount;
-	int extra;
-
-	extra = m_nExtra + 6;
-	m_listEffect.RemoveAll();
-	centerX = (m_area->m_zone->m_zonePos[m_nExtra][1] + m_area->m_zone->m_zonePos[m_nExtra][3])/2/2;
-	centerZ = (m_area->m_zone->m_zonePos[m_nExtra][2] + m_area->m_zone->m_zonePos[m_nExtra][4])/2/2;
-
-	effectCount = GetRandom(1, MAXEFFECT);
-
-	int*   tempNPC = NULL;
-	float* tempX = NULL;
-	float* tempZ = NULL;
-	float* tempH = NULL;
-
-
-	EFFECTPOS effectpos;
-
-	tempNPC = new int[effectCount];
-	tempX = new float[effectCount];
-	tempZ = new float[effectCount];
-	tempH = new float[effectCount];
-
-	int i;
-	for(i = 0; i < effectCount; ++i)
-	{
-		float x, z, h;
-		char ylayer = 0;
-		int nTry = 0;
-
-		if(m_effectNPC[i] == NULL)
-			continue;
-
-		do{
-			x = centerX + GetRandom(-30, 30);
-			z = centerZ + GetRandom(-30, 30);
-			h = m_area->GetHeight(ylayer, x, z);
-		
-			if (m_area->GetAttr(ylayer, x, z) == MAPATT_FIELD)
-				break;
-			nTry++;
-			
-		}while(nTry <= 10);
-		
-		if( nTry > 10 )
-		{
-			x		= centerX;
-			z		= centerZ;
-			h = m_area->GetHeight(ylayer, x, z);
-		}
-
-		effectpos.npc = m_effectNPC[i];
-		effectpos.x	  = x;
-		effectpos.z	  = z;
-		effectpos.h	  = h;
-
-		m_listEffect.AddToTail(effectpos);
-
-		tempNPC[i] = m_effectNPC[i]->m_index;
-		tempX[i]  = x;
-		tempZ[i]  = z;
-		tempH[i]  = h;
-	}
-	
-	if(effectCount > 0 && tempNPC && tempX && tempZ && tempH)
-	{
-		CNetMsg rmsg;
-		EffectFireReadyMsg(rmsg, m_nExtra, effectCount, tempNPC, tempX, tempZ, tempH);
-		m_area->SendToAllClient(rmsg);
-	}
-
-	if(tempNPC) delete[] tempNPC;
-	if(tempX) delete[] tempX;
-	if(tempZ) delete[] tempZ;
-	if(tempH) delete[] tempH;
-}
-
 void CMonsterCombo::FireEffectReady2()
 {
 	int i, j;
@@ -1151,7 +1090,7 @@ void CMonsterCombo::FireEffectReady2()
 	{
 		if(m_effectNPC[i] == NULL)
 		{
-			m_listEffect.RemoveAll();
+			m_listEffect.clear();
 			GAMELOG << init("MONSTER COMBO FIREREADY ERROR: ")
 					<< i
 					<< end;
@@ -1160,7 +1099,7 @@ void CMonsterCombo::FireEffectReady2()
 	}
 
 	extra = m_nExtra + 6;
-	m_listEffect.RemoveAll();
+	m_listEffect.clear();
 	centerX = (m_area->m_zone->m_zonePos[m_nExtra][1] + m_area->m_zone->m_zonePos[m_nExtra][3])/2/2;
 	centerZ = (m_area->m_zone->m_zonePos[m_nExtra][2] + m_area->m_zone->m_zonePos[m_nExtra][4])/2/2;
 
@@ -1191,12 +1130,12 @@ void CMonsterCombo::FireEffectReady2()
 						continue;
 
 					if( ((int)(pChar->m_pos.m_x) >= pChar->m_pZone->m_zonePos[extra][1]/2) && ((int)(pChar->m_pos.m_x) <= pChar->m_pZone->m_zonePos[extra][3]/2) &&
-						((int)(pChar->m_pos.m_z) >= pChar->m_pZone->m_zonePos[extra][2]/2) && ((int)(pChar->m_pos.m_z) <= pChar->m_pZone->m_zonePos[extra][4]/2) &&
-						((int)(pChar->m_pos.m_yLayer) == pChar->m_pZone->m_zonePos[extra][0]))
+							((int)(pChar->m_pos.m_z) >= pChar->m_pZone->m_zonePos[extra][2]/2) && ((int)(pChar->m_pos.m_z) <= pChar->m_pZone->m_zonePos[extra][4]/2) &&
+							((int)(pChar->m_pos.m_yLayer) == pChar->m_pZone->m_zonePos[extra][0]))
 					{
 						pc[pccount] = TO_PC(pChar);
 						pccount++;
-						
+
 						if( pccount >= MAX_PARTY_MEMBER )
 							break;
 					}
@@ -1220,8 +1159,8 @@ void CMonsterCombo::FireEffectReady2()
 		randDistance = GetRandom(0, 10);
 		randDir = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
 
-		x = GET_X(pc[rand]) + (float)randDistance * (float)cos(randDir);
-		z = GET_Z(pc[rand]) + (float)randDistance * (float)sin(randDir);
+		x = GET_X(pc[rand]) + (float)randDistance * (float)cos((float)randDir);
+		z = GET_Z(pc[rand]) + (float)randDistance * (float)sin((float)randDir);
 		h = m_area->GetHeight(ylayer, x, z);
 
 		effectpos.npc = m_effectNPC[i];
@@ -1229,17 +1168,17 @@ void CMonsterCombo::FireEffectReady2()
 		effectpos.z	  = z;
 		effectpos.h	  = h;
 
-		m_listEffect.AddToTail(effectpos);
+		m_listEffect.push_back(effectpos);
 
 		tempNPC[i] = m_effectNPC[i]->m_index;
 		tempX[i]  = x;
 		tempZ[i]  = z;
 		tempH[i]  = h;
 	}
- 
+
 	if(effectCount > 0 && tempNPC && tempX && tempZ && tempH)
 	{
-		CNetMsg rmsg;
+		CNetMsg::SP rmsg(new CNetMsg);
 		EffectFireReadyMsg(rmsg, m_nExtra, effectCount, tempNPC, tempX, tempZ, tempH);
 		m_area->SendToAllClient(rmsg);
 	}
@@ -1249,7 +1188,7 @@ void CMonsterCombo::FireEffectReady2()
 	if(tempZ) delete[] tempZ;
 	if(tempH) delete[] tempH;
 	memset(pc, 0, sizeof(CPC*) * MAX_PARTY_MEMBER);
-	
+
 	return;
 
 SKIP:
@@ -1258,23 +1197,21 @@ SKIP:
 	if(tempZ) delete[] tempZ;
 	if(tempH) delete[] tempH;
 	memset(pc, 0, sizeof(CPC*) * MAX_PARTY_MEMBER);
-	m_listEffect.RemoveAll();
+	m_listEffect.clear();
 }
 
 void CMonsterCombo::FireEffectAct()
 {
-	CNetMsg rmsg;
-
 	int i, j;
 	CCharacter* tch;
 	CCharacter* tchNext;
 	EFFECTPOS effect;
-	
+
 	for(i = 0 ; i < MAXEFFECT ; ++i)
 	{
 		if(m_effectNPC[i] == NULL)
 		{
-			m_listEffect.RemoveAll();
+			m_listEffect.clear();
 			GAMELOG << init("MONSTER COMBO FIREACT ERROR: ")
 					<< i
 					<< end;
@@ -1282,10 +1219,11 @@ void CMonsterCombo::FireEffectAct()
 		}
 	}
 
-	void* pos = m_listEffect.GetHead();
-	while(pos)
+	vec_effectpos_t::iterator it = m_listEffect.begin();
+	vec_effectpos_t::iterator endit = m_listEffect.end();
+	for(; it != endit; ++it)
 	{
-		effect = (EFFECTPOS)(m_listEffect.GetData(pos));
+		EFFECTPOS& effect = *(it);
 
 		for(i = 0 ; i < m_area->m_size[0]; ++i)
 		{
@@ -1295,42 +1233,52 @@ void CMonsterCombo::FireEffectAct()
 				while((tch = tchNext))
 				{
 					tchNext = tch->m_pCellNext;
-					if (IS_PC(tch) && !DEAD(tch))
+					if ( (IS_PC(tch) && !DEAD(tch))
+							|| (IS_NPC(tch) && TO_NPC(tch)->GetOwner() )
+					   )
 					{
 						// Immortal 혹은 Visible 이면 데미지 안먹음
-						if( TO_PC(tch)->m_bVisible == false || TO_PC(tch)->m_bImmortal)
+						if( IS_PC(tch) && (TO_PC(tch)->m_bVisible == false || TO_PC(tch)->m_bImmortal) )
 							continue;
-						
+
 						// tch 데미지 적용
 						if(GetDistance(effect.x, effect.z, effect.h, tch) < 4.0f)
 						{
 							int damage;
 							damage = (int)(tch->m_maxHP * 0.1);
-							
+							if( IS_NPC(tch) && TO_NPC(tch)->GetOwner() && damage == 0)
+							{
+								damage = 1;
+							}
+
 							if(effect.npc && damage > 0)
 							{
 								tch->m_hp -= damage;
 								if(tch->m_hp <= 0)
 									tch->m_hp = 0;
 
-								if (DEAD(tch))
+								if (IS_PC(tch) && DEAD(tch))
 									ProcDead(TO_PC(tch), effect.npc);
 
+								if (IS_NPC(tch) && DEAD(tch))
+									ProcDead(TO_NPC(tch), effect.npc);
+
 								((CPC*)tch)->m_bChangeStatus = true;
-								
-								DamageMsg(rmsg, effect.npc, tch, MSG_DAMAGE_COMBO, -1, damage, HITTYPE_NORMAL);							
-								m_area->SendToCell(rmsg, tch, true);
+
+								{
+									CNetMsg::SP rmsg(new CNetMsg);
+									DamageMsg(rmsg, effect.npc, tch, MSG_DAMAGE_COMBO, -1, damage, HITTYPE_NORMAL, -1);
+									m_area->SendToCell(rmsg, tch, true);
+								}
 							}
 						}
 					}
 				}
 			}
 		}
-
-		pos = m_listEffect.GetNext(pos);
 	}
 
-	m_listEffect.RemoveAll();
+	m_listEffect.clear();
 }
 
 int CMonsterCombo::GetTotalNas()
@@ -1352,12 +1300,12 @@ void CMonsterCombo::ComboNPCRegen(/*char bContinue*/)
 	extra = m_nExtra;
 
 	CNPC* npc;
-	npc = gserver.m_npcProtoList.Create(490, NULL);
+	npc = gserver->m_npcProtoList.Create(490, NULL);
 	if(!npc)
 	{
 		return ;
 	}
-	
+
 	int centerX, centerZ;
 	centerX = (m_area->m_zone->m_zonePos[extra][1] + m_area->m_zone->m_zonePos[extra][3])/2/2;
 	centerZ = (m_area->m_zone->m_zonePos[extra][2] + m_area->m_zone->m_zonePos[extra][4])/2/2;
@@ -1370,15 +1318,17 @@ void CMonsterCombo::ComboNPCRegen(/*char bContinue*/)
 	npc->m_regenX = GET_X(npc);
 	npc->m_regenY = GET_YLAYER(npc);
 	npc->m_regenZ = GET_Z(npc);
-	
+
 	int cx, cz;
 	m_area->AddNPC(npc);
 	m_area->PointToCellNum(GET_X(npc), GET_Z(npc), &cx, &cz);
 	m_area->CharToCell(npc, GET_YLAYER(npc), cx, cz);
-	
-	CNetMsg appearNPCMsg;
-	AppearMsg(appearNPCMsg, npc, true);
-	m_area->SendToCell(appearNPCMsg, GET_YLAYER(npc), cx, cz);
+
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		AppearMsg(rmsg, npc, true);
+		m_area->SendToCell(rmsg, GET_YLAYER(npc), cx, cz);
+	}
 }
 
 void CMonsterCombo::SetNextVar()
@@ -1392,7 +1342,7 @@ void CMonsterCombo::SetNextVar()
 
 	m_cPlayerCount = 1;
 	m_cPlayerNum = 1;
-	m_listEffect.RemoveAll();
+	m_listEffect.clear();
 }
 
 void CMonsterCombo::InitStageVar()
@@ -1401,7 +1351,7 @@ void CMonsterCombo::InitStageVar()
 	m_nRegenStep = 1;
 	m_cPlayerCount = 1;
 	m_cPlayerNum = 1;
-	m_listEffect.RemoveAll();
+	m_listEffect.clear();
 }
 
 void CMonsterCombo::SetVirtualIndex()
@@ -1410,13 +1360,12 @@ void CMonsterCombo::SetVirtualIndex()
 	m_nIndex = m_virtualIndex;
 }
 
-
 void CMonsterCombo::PrintCharIndex()
 {
 	int i, j;
 	CCharacter* tch;
 	CCharacter* tchNext;
-	
+
 	GAMELOG << " CharIndex: ";
 	for(i = 0 ; i < m_area->m_size[0]; ++i)
 	{
@@ -1449,13 +1398,17 @@ void CMonsterCombo::InitAllVar()
 	m_cPlayerNum   = 1;
 	m_nIndex = -1;
 	memset(m_effectNPC, 0, sizeof(CNPC*) * MAXEFFECT);
-	m_listEffect.RemoveAll();
+	m_listEffect.clear();
 
 	if(m_case)
 	{
 		delete [] m_case;
 		m_case = NULL;
 	}
+
+#ifdef MONSTER_COMBO_FIX
+	m_bPartyRecall	= true;
+#endif // MONSTER_COMBO_FIX
 }
 
 bool CMonsterCombo::SetMonsterCombo(CPC* pc)
@@ -1471,7 +1424,7 @@ bool CMonsterCombo::SetMonsterCombo(CPC* pc)
 		return false;
 
 	// 설정할 미션케이스 개수 검사
-	count = pc->m_listSaveComboData.GetCount();
+	count = pc->m_listSaveComboData.size();
 	if(count < 1 || count > 20)
 		return false;
 
@@ -1484,14 +1437,12 @@ bool CMonsterCombo::SetMonsterCombo(CPC* pc)
 		InitAllVar();
 		return false;
 	}
-	
-	void* pos;	
-	void* nextpos = pc->m_listSaveComboData.GetHead();
-	MONSTER_COMBO_DATA data;
-	while((pos = nextpos))
+
+	vec_monster_combo_data_t::iterator it = pc->m_listSaveComboData.begin();
+	vec_monster_combo_data_t::iterator endit = pc->m_listSaveComboData.end();
+	for(; it != endit; ++it)
 	{
-		nextpos = pc->m_listSaveComboData.GetNext(pos);
-		data = pc->m_listSaveComboData.GetData(pos);
+		MONSTER_COMBO_DATA& data = *(it);
 		if(!SetMission((data.nStep + 1), data.nIndex))
 		{
 			InitAllVar();
@@ -1504,6 +1455,439 @@ bool CMonsterCombo::SetMonsterCombo(CPC* pc)
 	return true;
 }
 
+#ifdef MONSTER_COMBO_FIX
+bool CMonsterCombo::IsAllCharLive()
+{
+	int i, j;
+	for(i = 0 ; i < m_area->m_size[0]; ++i)
+	{
+		for(j = 0; j < m_area->m_size[1]; ++j)
+		{
+			CCharacter* pChar;
+			CCharacter* pCharNext;
+
+			pCharNext = m_area->m_cell[i][j].m_listChar;
+			while((pChar = pCharNext))
+			{
+				pCharNext = pChar->m_pCellNext;
+
+				if (IS_PC(pChar) && DEAD(pChar))
+				{
+					return false;
+				}
+			}
+		}
+	}
+	return true;
+}
+#endif // MONSTER_COMBO_FIX
+
 int CMonsterCombo::m_virtualIndex = 0;
 
-#endif // MONSTER_COMBO
+CGroundEffect2::CGroundEffect2()
+{
+	m_area = NULL;
+	memset(m_effectNPC, 0, sizeof(CNPC*) * MAX_GROUND_EFFECT2_NPC_NUM);
+//	m_extra = 0;
+	m_pulseFirst = 0;
+	m_pulseSecond = 0;
+	m_zonenum = 0;
+	m_bEffectStart = false;
+//	m_guildindex1 = -1;
+//	m_guildindex2 = -1;
+}
+
+CGroundEffect2::~CGroundEffect2()
+{
+}
+
+void CGroundEffect2::Clean()
+{
+	m_bEffectStart = false;
+	m_listEffect.clear();
+	m_pulseFirst = 0;
+	m_pulseSecond = 0;
+//	m_guildindex1 = -1;
+//	m_guildindex2 = -1;
+}
+CArea* CGroundEffect2::GetArea()
+{
+	return m_area;
+}
+bool CGroundEffect2::Init(int zone, CArea* area)
+{
+	int i;
+
+	m_zonenum = zone;
+	m_area = area;
+
+	// 이펙트 npc
+	CNPC* npc;
+	for(i = 0 ; i < MAX_GROUND_EFFECT2_NPC_NUM; ++i)
+	{
+		npc = gserver->m_npcProtoList.Create(491, NULL);
+		if(!npc)
+			return false;
+		if(m_area->m_zone->m_index == ZONE_AKAN_TEMPLE)
+		{
+			GET_X(npc) = (m_area->m_zone->m_zonePos[2][1] + m_area->m_zone->m_zonePos[2][3])/4;
+			GET_Z(npc) = (m_area->m_zone->m_zonePos[2][2] + m_area->m_zone->m_zonePos[2][4])/4;
+			GET_YLAYER(npc) = m_area->m_zone->m_zonePos[2][0];;
+			GET_R(npc) = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
+		}
+		else if(m_area->m_zone->m_index == ZONE_DUNGEON4)
+		{
+			//GET_X(npc) = 0;
+			//GET_Z(npc) = 0;
+			//GET_YLAYER(npc) = 0;
+			//GET_R(npc) = 0;
+			//GET_X(npc) = (m_area->m_zone->m_zonePos[0][1] + m_area->m_zone->m_zonePos[0][3])/4;
+			//GET_Z(npc) = (m_area->m_zone->m_zonePos[0][2] + m_area->m_zone->m_zonePos[0][4])/4;
+			//GET_YLAYER(npc) = m_area->m_zone->m_zonePos[0][0];;
+			//GET_R(npc) = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
+			GET_X(npc) = GetRandom(258, 272);
+			GET_Z(npc) = GetRandom(620, 695);
+			GET_YLAYER(npc) = 0;
+			GET_R(npc) = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
+		}
+		else
+		{
+			GET_X(npc) = 0;
+			GET_Z(npc) = 0;
+			GET_YLAYER(npc) = 0;
+			GET_R(npc) = 0;
+		}
+
+		npc->m_regenX = GET_X(npc);
+		npc->m_regenY = GET_YLAYER(npc);
+		npc->m_regenZ = GET_Z(npc);
+
+		int cx, cz;
+		m_area->AddNPC(npc);
+		m_area->PointToCellNum(GET_X(npc), GET_Z(npc), &cx, &cz);
+		m_area->CharToCell(npc, GET_YLAYER(npc), cx, cz);
+
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			AppearMsg(rmsg, npc, true);
+			m_area->SendToCell(rmsg, GET_YLAYER(npc), cx, cz);
+		}
+
+		m_effectNPC[i] = npc;
+	}
+
+	Clean();
+	return true;
+}
+
+void CGroundEffect2::Start()
+{
+	// 변수 초기화
+	// 이펙트 타임세팅
+//	CGuild *guild1, *guild2;
+//	guild1 = gserver->m_guildlist.findguild(gindex1);
+//	if(!guild1)
+//		return ;
+
+//	guild2 = gserver->m_guildlist.findguild(gindex2);
+//	if(!guild2)
+//		return ;
+
+//	if(guild1 == guild2)
+//		return ;
+
+	Clean();
+	m_bEffectStart	= true;
+	if(m_zonenum == ZONE_AKAN_TEMPLE)
+	{
+		m_pulseFirst	= gserver->m_pulse + PULSE_REAL_SEC * 10;
+		m_pulseSecond	= m_pulseFirst + PULSE_REAL_SEC * 2;
+	}
+	else if(m_zonenum == ZONE_DUNGEON4)
+	{
+		m_pulseFirst	= gserver->m_pulse + PULSE_REAL_SEC * 3;
+		m_pulseSecond	= m_pulseFirst + PULSE_REAL_SEC * 2;
+	}
+	else
+	{
+		m_pulseFirst	= gserver->m_pulse + PULSE_REAL_SEC * 10;
+		m_pulseSecond	= m_pulseFirst + PULSE_REAL_SEC * 2;
+	}
+
+//	m_guildindex1 = gindex1;
+//	m_guildindex2 = gindex2;
+}
+
+void CGroundEffect2::Stop()
+{
+	Clean();
+}
+
+void CGroundEffect2::Activity()
+{
+	if(m_bEffectStart)
+	{
+		if(gserver->m_pulse > m_pulseFirst)
+		{
+			if(m_zonenum == ZONE_AKAN_TEMPLE)
+			{
+				m_pulseFirst = gserver->m_pulse + PULSE_REAL_SEC * 10;
+			}
+			else if(m_zonenum == ZONE_DUNGEON4)
+			{
+				m_pulseFirst = gserver->m_pulse + PULSE_REAL_SEC * 3;
+			}
+			else
+			{
+				m_pulseFirst = gserver->m_pulse + PULSE_REAL_SEC * 10;
+			}
+			if(!EffectReady())
+			{
+				Clean();
+			}
+			else
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SendRaidScenePadoxSkillAction(rmsg);
+				m_area->SendToAllClient(rmsg);
+			}
+		}
+
+		if(gserver->m_pulse > m_pulseSecond)
+		{
+			if(m_zonenum == ZONE_AKAN_TEMPLE)
+			{
+				m_pulseSecond = m_pulseFirst + PULSE_REAL_SEC * 2;
+			}
+			else if(m_zonenum == ZONE_DUNGEON4)
+			{
+				m_pulseSecond = m_pulseFirst + PULSE_REAL_SEC * 2;
+			}
+			else
+			{
+				m_pulseSecond = m_pulseFirst + PULSE_REAL_SEC * 2;
+			}
+			if(!EffectFire())
+			{
+				Clean();
+			}
+		}
+	}
+}
+
+bool CGroundEffect2::EffectReady()
+{
+	int effectCount;
+	int effectKind;
+
+	m_listEffect.clear();					// 이펙트 초기화
+	effectKind = GetRandom(1, 5);				// 이펙트 종류
+	if(m_zonenum == ZONE_AKAN_TEMPLE)
+	{
+		effectCount = GetRandom(5, MAX_GROUND_EFFECT2_NPC_NUM);				// 이펙트 개수
+	}
+	else if(m_zonenum == ZONE_DUNGEON4)
+	{
+		effectCount = MAX_GROUND_EFFECT2_NPC_NUM;
+		effectKind = 1;
+	}
+	else
+	{
+		effectCount = GetRandom(5, MAX_GROUND_EFFECT2_NPC_NUM);				// 이펙트 개수
+	}
+
+	EFFECTPOS effectpos;
+
+	boost::scoped_array<int>	tempNPC(new int[effectCount]);
+	boost::scoped_array<float>	tempX(new float[effectCount]);
+	boost::scoped_array<float>	tempZ(new float[effectCount]);
+	boost::scoped_array<float>	tempH(new float[effectCount]);
+
+	int i;
+	float x = 0, z = 0, h = 0;
+	char ylayer = 0;
+
+	for(i = 0; i < effectCount; ++i)
+	{
+		if(m_effectNPC[i] == NULL)
+			return false;
+		if(m_zonenum == ZONE_AKAN_TEMPLE)
+		{
+			x = GetRandom(m_area->m_zone->m_zonePos[2][1], m_area->m_zone->m_zonePos[2][3])/2;
+			z = GetRandom(m_area->m_zone->m_zonePos[2][2], m_area->m_zone->m_zonePos[2][4])/2;
+		}
+		else if (m_zonenum == ZONE_DUNGEON4)
+		{
+			CArea* pArea = NULL;
+			CPC* FindPC = NULL;
+			pArea = GetArea();
+			if(pArea)
+			{
+				int cx = 0 , cz = 0;
+				// 근처 셀(Appear 받는 셀만큼)만 캐릭터 검색
+				int startx	= MAX( m_effectNPC[i]->m_cellX - CELL_EXT , 0 );
+				int endx	= MIN( m_effectNPC[i]->m_cellX + CELL_EXT , pArea->m_size[0] );
+				int startz  = MAX( m_effectNPC[i]->m_cellZ - CELL_EXT , 0 );
+				int endz	= MIN( m_effectNPC[i]->m_cellZ + CELL_EXT , pArea->m_size[1] );
+
+				for (cx = startx ; cx < endx ; cx++)
+				{
+					for (cz = startz; cz < endz ; cz++)
+					{
+						CCell& rCell = pArea->m_cell[cx][cz];
+						CCharacter* pCharNext = rCell.m_listChar;
+						CCharacter* pChar;
+						while ((pChar = pCharNext))
+						{
+							pCharNext = pCharNext->m_pCellNext;
+
+							if ( IS_PC(pChar) )
+							{
+								// 어치피 ZONE_DUNGEON4은 플레이어 혼자 들어가는 곳이라 한명만 찾으면 된다.
+								FindPC = TO_PC(pChar);
+								break;
+							}
+						}
+					}
+				}
+				if(FindPC)
+				{
+					bool bSetPos = false;
+					float px, pz;
+					char py;
+
+					while(bSetPos != true)
+					{
+						py = GET_YLAYER(FindPC);
+						px = GET_X(FindPC);
+						pz = GET_Z(FindPC);
+						ylayer = py;
+						x = (float)GetRandom((int)(px - 7.0f), (int)(px + 7.0f));
+						z = (float)GetRandom((int)(pz - 20.0f), (int)(pz + 20.0f));
+						if( !(pArea->GetAttr(ylayer, x, z) & MATT_UNWALKABLE) )
+							bSetPos = true;
+					}
+				}
+			}
+		}
+		else
+		{
+			x = 0;
+			z = 0;
+		}
+		h = m_area->GetHeight(ylayer, x, z);
+
+		effectpos.npc = m_effectNPC[i];
+		effectpos.x	  = x;
+		effectpos.z	  = z;
+		effectpos.h	  = h;
+
+		m_listEffect.push_back(effectpos);
+
+		tempNPC[i] = m_effectNPC[i]->m_index;
+		tempX[i]  = x;
+		tempZ[i]  = z;
+		tempH[i]  = h;
+	}
+
+	if(effectCount > 0 && tempNPC && tempX && tempZ && tempH)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		EffectFireReadyMsg(rmsg, effectKind, effectCount, tempNPC.get(), tempX.get(), tempZ.get(), tempH.get());
+		m_area->SendToAllClient(rmsg);
+	}
+
+	return true;
+}
+
+bool CGroundEffect2::EffectFire()
+{
+	CCharacter* pChar = NULL;
+	CPC* ch = NULL;
+
+	int i;
+	EFFECTPOS effect;
+
+	for(i = 0 ; i < MAX_GROUND_EFFECT2_NPC_NUM ; ++i)
+	{
+		if(m_effectNPC[i] == NULL)
+		{
+			GAMELOG << init("GROUND EFFECT FIRE ERROR")
+					<< i
+					<< end;
+			return false;
+		}
+	}
+
+	vec_effectpos_t::iterator it = m_listEffect.begin();
+	vec_effectpos_t::iterator endit = m_listEffect.end();
+	for(; it != endit; ++it)
+	{
+		EFFECTPOS& effect = *(it);
+
+		int cx, cz;
+		if( m_zonenum == ZONE_AKAN_TEMPLE
+				|| m_zonenum == ZONE_DUNGEON4
+		  )
+		{
+			for(cx = 0; cx < m_area->m_size[0]; cx++)
+			{
+				for(cz = 0; cz < m_area->m_size[1]; cz++)
+				{
+					pChar = m_area->m_cell[cx][cz].m_listChar;
+					while (pChar)
+					{
+						if(IS_PC(pChar))
+						{
+							ch = TO_PC(pChar);
+
+							if( !DEAD(ch) &&
+									(ch->m_pArea == m_area) &&
+									(GetDistance(effect.x, effect.z, effect.h, ch) < 8.0f) )
+							{
+								int damage;
+								damage = GetRandom(80, 120);
+
+								if(effect.npc && damage > 0)
+								{
+									ch->m_hp -= damage;
+
+									if( ch->m_pZone->m_index == ZONE_DUNGEON4
+											&& ch->m_hp < 0 )
+									{
+										ch->m_hp = 0;
+										if(DEAD(ch))
+											ProcDead(ch, effect.npc);
+									}
+									else if(ch->m_hp < 0)
+									{
+										ch->m_hp = 1;
+									}
+
+									ch->m_bChangeStatus = true;
+
+									{
+										CNetMsg::SP rmsg(new CNetMsg);
+										DamageMsg(rmsg, effect.npc, ch, MSG_DAMAGE_COMBO, -1, damage, HITTYPE_NORMAL, -1);
+										m_area->SendToCell(rmsg, ch, true);
+									}
+								}
+							}
+						}
+						pChar = pChar->m_pCellNext;
+					}
+				}
+			}
+		}
+	}
+
+	m_listEffect.clear();
+	return true;
+}
+
+bool CGroundEffect2::IsStarted()
+{
+	return m_bEffectStart;
+}
+
+

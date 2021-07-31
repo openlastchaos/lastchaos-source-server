@@ -1,4 +1,5 @@
 #include "stdhdrs.h"
+
 #include "CmdMsg.h"
 #include "Server.h"
 #include "Exp.h"
@@ -7,10 +8,27 @@
 #include "hardcoding.h"
 #include "WarCastle.h"
 
+/* att def */
+const float nAttrTbl[7][7] =
+{
+	/*		NONE	FIRE	WATER	EARTH	WIND	DARK	LIGHT */
+	/* NONE */	{ 1.0f,	0.7f,	0.7f,	0.7f,	0.7f,	0.8f,	0.8f },
+	/* FIRE */	{ 1.3f,	1.0f,	0.8f,	1.2f,	1.0f,	1.1f,	0.9f },
+	/* WATER */	{ 1.3f,	1.2f,	1.0f,	1.0f,	0.8f,	1.1f,	0.9f },
+	/* EARTH */	{ 1.3f,	0.8f,	1.0f,	1.0f,	1.2f,	1.1f,	0.9f },
+	/* WIND */	{ 1.3f,	1.0f,	1.2f,	0.8f,	1.0f,	1.1f,	0.9f },
+	/* DARK */	{ 1.2f,	1.1f,	1.1f,	1.1f,	1.1f,	0.9f,	0.8f },
+	/* LIGHT */	{ 1.2f,	0.9f,	0.9f,	0.9f,	0.9f,	1.5f,	1.0f },
+};
+
+const float fMCTProb[11] =
+{
+	0.f, 0.25f, 0.40f, 0.50f, 0.57f, 0.63f, 0.67f, 0.70f, 0.73f, 0.75f, 0.77f
+};
 ////////////////////
 // Function name	: GetHitType
 // Description	    : 공격 타입 결정
-// Return type		: char 
+// Return type		: char
 //                  : 가능한 공격 타입 비트 필드
 // Argument         : CCharacter* of
 //                  : 공격자
@@ -18,10 +36,8 @@
 //                  : 방어자
 char GetHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
 {
-#ifdef ADULT_SERVER_NEW_BALANCE
 	if (of && df)
 		return GetHitType_Adult(of, df, type);
-#endif // ADULT_SERVER_NEW_BALANCE
 
 	// 펙터에 따른 값들
 	int ret = 0;
@@ -34,7 +50,7 @@ char GetHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
 	case MSG_DAMAGE_MELEE:
 	case MSG_DAMAGE_RANGE:
 		switch (of->m_type)
-		{		
+		{
 		case MSG_CHAR_NPC:
 			prob = 145 * (10 + of->m_level) * of->m_dex / (10 + df->m_level) / (of->m_dex + df->m_dex);
 			break;
@@ -75,6 +91,12 @@ char GetHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
 				case JOB_MAGE:
 				case JOB_ROGUE:
 				case JOB_SORCERER:
+#ifdef EX_ROGUE
+				case JOB_EX_ROGUE:
+#endif // EX_ROGUE
+#ifdef EX_MAGE
+				case JOB_EX_MAGE:
+#endif // EX_MAGE
 					prob = 200 * (10 + of->m_level) * of->m_dex / (10 + df->m_level) / (of->m_dex + df->m_dex);
 					break;
 				}
@@ -122,13 +144,13 @@ char GetHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
 		}
 
 		prob *= 100;
-		
+
 		prob2 = of->m_avPassiveAddition.hitrate + (prob * of->m_avPassiveRate.hitrate / SKILL_RATE_UNIT);
 		prob2 += of->m_assist.m_avAddition.hitrate + (prob * of->m_assist.m_avRate.hitrate / SKILL_RATE_UNIT);
-		
+
 		prob3 = df->m_avPassiveAddition.avoid + (prob * df->m_avPassiveRate.avoid / SKILL_RATE_UNIT);
 		prob3 += df->m_assist.m_avAddition.avoid + (prob * df->m_assist.m_avRate.avoid / SKILL_RATE_UNIT);
-		
+
 		prob += prob2 - prob3;
 
 		break;
@@ -155,10 +177,10 @@ char GetHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
 
 		prob2 = of->m_avPassiveAddition.magichitrate + (prob * of->m_avPassiveRate.magichitrate / SKILL_RATE_UNIT);
 		prob2 += of->m_assist.m_avAddition.magichitrate + (prob * of->m_assist.m_avRate.magichitrate / SKILL_RATE_UNIT);
-		
+
 		prob3 = df->m_avPassiveAddition.magicavoid + (prob * df->m_avPassiveRate.magicavoid / SKILL_RATE_UNIT);
 		prob3 += df->m_assist.m_avAddition.magicavoid + (prob * df->m_assist.m_avRate.magicavoid / SKILL_RATE_UNIT);
-		
+
 		prob += prob2 - prob3;
 
 		break;
@@ -207,11 +229,6 @@ char GetHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
 			prob = prob * ((of->m_level - df->m_level) * 10 + 100) / 100;
 	}
 
-#ifdef LIMIT_AVOID
-	if (prob < LIMIT_AVOID)
-		prob = LIMIT_AVOID;
-#endif // LIMIT_AVOID
-
 	if (GetRandom(1, 10000)  > prob)
 		ret = HITTYPE_MISS;
 	else
@@ -219,9 +236,6 @@ char GetHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
 
 	return ret;
 }
-
-
-
 
 ////////////////////
 // Function name	: SelectHitType
@@ -233,95 +247,140 @@ char SelectHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, char fl
 #endif // ENABLE_ROGUE_SKILL125_BRZ
 {
 #define SAFEDIV(a, b)		{ if ((b) < 1) a /= 1; else a /= (b); }		// a = a / b, b가 0이면 1로 간주
-
 	if (magic && magiclevel && magic->m_hittype == MHT_CONSTANT)
 	{
 		int hitrate = magiclevel->m_nHitrateValue;
-		if (magic->m_type == MT_ATTACK)
+
+		if(IS_NPC(of) && TO_NPC(of)->GetOwner() && TO_NPC(of)==TO_NPC(of)->GetOwner()->GetSummonNpc(SUMMON_NPC_TYPE_MERCENARY) )
 		{
-			int levdiff = of->GetAttackLevel() - of->m_level;
-			if (levdiff > 20)
-				hitrate = hitrate * 20 / 100;
-			else if (levdiff > 15)
-				hitrate = hitrate * 55 / 100;
-			else if (levdiff > 10)
-				hitrate = hitrate * 70 / 100;
-			else if (levdiff > 5)
-				hitrate = hitrate * 85 / 100;
+			hitrate = 6000;
 		}
+		else
+		{
+			if (magic->m_type == MT_ATTACK)
+			{
+				int levdiff = of->GetAttackLevel() - of->m_level;
+				if (levdiff > 20)
+					hitrate = hitrate * 20 / 100;
+				else if (levdiff > 15)
+					hitrate = hitrate * 55 / 100;
+				else if (levdiff > 10)
+					hitrate = hitrate * 70 / 100;
+				else if (levdiff > 5)
+					hitrate = hitrate * 85 / 100;
+			}
+
+			if( magic->m_type == MT_OTHER && ( magic->m_subtype == MST_OTHER_ITEMDROP || magic->m_subtype == MST_OTHER_SKILL ) )
+				return (char)HITTYPE_CRITICAL;
+
 #ifdef ENABLE_ROGUE_SKILL125_BRZ
-		if(magic->m_type == MT_ASSIST && magic->m_subtype == MST_ASSIST_HOLD)
-		{
-			int diffLevel = df->m_level - of->m_level;
-			if(diffLevel > 5)		// 빨간색 몹
+			if(magic->m_type == MT_ASSIST && magic->m_subtype == MST_ASSIST_HOLD)
 			{
-				switch(skillLevel)
+				int diffLevel = df->m_level - of->m_level;
+				if(diffLevel > 5)		// 빨간색 몹
 				{
-				case 1:		hitrate = 1000;  break;
-				case 2:		hitrate = 1500;  break;
-				case 3:		hitrate = 2000;  break;
-				case 4:		hitrate = 2500;  break;
-				case 5:		hitrate = 3000;  break;
-				default:	hitrate = 1000;  break;
+					switch(skillLevel)
+					{
+					case 1:
+						hitrate = 1000;
+						break;
+					case 2:
+						hitrate = 1500;
+						break;
+					case 3:
+						hitrate = 2000;
+						break;
+					case 4:
+						hitrate = 2500;
+						break;
+					case 5:
+						hitrate = 3000;
+						break;
+					default:
+						hitrate = 1000;
+						break;
+					}
+				}
+				else if(diffLevel > 2)				// 주황색 몹
+				{
+					switch(skillLevel)
+					{
+					case 1:
+						hitrate = 3000;
+						break;
+					case 2:
+						hitrate = 3500;
+						break;
+					case 3:
+						hitrate = 4000;
+						break;
+					case 4:
+						hitrate = 4500;
+						break;
+					case 5:
+						hitrate = 5000;
+						break;
+					default:
+						hitrate = 3000;
+						break;
+					}
 				}
 			}
-			else if(diffLevel > 2)				// 주황색 몹
-			{
-				switch(skillLevel)
-				{
-				case 1:		hitrate = 3000;  break;
-				case 2:		hitrate = 3500;  break;
-				case 3:		hitrate = 4000;  break;
-				case 4:		hitrate = 4500;  break;
-				case 5:		hitrate = 5000;  break;
-				default:	hitrate = 3000;  break;
-				}
-			}
-		}
 #endif // ENABLE_ROGUE_SKILL125_BRZ
 
-// 050228 : bs : 보스, 중간보스 스턴 확률 1/10으로 감소
-		if (IS_NPC(df) && (TO_NPC(df)->m_flag & (NPC_BOSS | NPC_MBOSS)) && magic->m_type == MT_ASSIST && magic->m_subtype == MST_ASSIST_STURN)
-		{
-			hitrate /= 10;
+			// 050331 : bs : pvp에서 명중률 증감
+			// 050402 : bs : 시전, 대상의 파라미터 추가
+			hitrate = hitrate * CalcSkillParam(of, df, magic->m_hsp, magic->m_htp) / 100;
 			if (hitrate < 1)
 				hitrate = 1;
-		}
-// --- 050228 : bs : 보스, 중간보스 스턴 확률 1/10으로 감소
 
-// 050331 : bs : pvp에서 명중률 증감
-// 050402 : bs : 시전, 대상의 파라미터 추가
-		hitrate = hitrate * CalcSkillParam(of, df, magic->m_hsp, magic->m_htp) / 100;
-		if (hitrate < 1)
-			hitrate = 1;
+			bool bIsPCof = (IS_PC(of) || IS_PET(of) || IS_ELEMENTAL(of));
+			bool bIsPCdf = (IS_PC(df) || IS_PET(df) || IS_ELEMENTAL(df));
+			if (bIsPCof && bIsPCdf && nothelp)
+				hitrate = ((of->m_level - df->m_level) * 5 + 100) * hitrate / 100;
 
-		bool bIsPCof = (IS_PC(of) || IS_PET(of) || IS_ELEMENTAL(of));
-		bool bIsPCdf = (IS_PC(df) || IS_PET(df) || IS_ELEMENTAL(df));
-		if (bIsPCof && bIsPCdf && nothelp)
-			hitrate = ((of->m_level - df->m_level) * 5 + 100) * hitrate / 100;
+			hitrate += of->m_avPassiveAddition.hitrate_skill
+					   +  hitrate * of->m_avPassiveRate.hitrate_skill / SKILL_RATE_UNIT
+					   +  of->m_assist.m_avAddition.hitrate_skill
+					   +  hitrate * of->m_assist.m_avRate.hitrate_skill / SKILL_RATE_UNIT;
 
-		hitrate += of->m_avPassiveAddition.hitrate_skill
-				+  hitrate * of->m_avPassiveRate.hitrate_skill / SKILL_RATE_UNIT
-				+  of->m_assist.m_avAddition.hitrate_skill
-				+  hitrate * of->m_assist.m_avRate.hitrate_skill / SKILL_RATE_UNIT;
-
-		if (IS_PC(df) && magic->m_type == MT_ASSIST)
-		{
-			int nDecreaseHitrate = 0;
-			CPC* pPCDefense = TO_PC(df);
-			switch (magic->m_subtype)
+			if (IS_PC(df) && magic->m_type == MT_ASSIST)
 			{
-			case MST_ASSIST_STONE:		nDecreaseHitrate = pPCDefense->m_opResistStone;		break;
-			case MST_ASSIST_STURN:		nDecreaseHitrate = pPCDefense->m_opResistSturn;		break;
-			case MST_ASSIST_SILENT:		nDecreaseHitrate = pPCDefense->m_opResistSilent;	break;
+				int nDecreaseHitrate = 0;
+				CPC* pPCDefense = TO_PC(df);
+				switch (magic->m_subtype)
+				{
+				case MST_ASSIST_STONE:
+					nDecreaseHitrate = pPCDefense->m_opResistStone;
+					break;
+				case MST_ASSIST_STURN:
+					nDecreaseHitrate = pPCDefense->m_opResistSturn;
+					break;
+				case MST_ASSIST_SILENT:
+					nDecreaseHitrate = pPCDefense->m_opResistSilent;
+					break;
+				}
+				if (nDecreaseHitrate > 0)
+					hitrate -= hitrate * nDecreaseHitrate / 100;
+				if (hitrate < 1)
+					hitrate = 1;
 			}
-			if (nDecreaseHitrate > 0)
-				hitrate -= hitrate * nDecreaseHitrate / 100;
-			if (hitrate < 1)
-				hitrate = 1;
 		}
 
-		if (GetRandom(1, 10000) <= hitrate)
+		if (IS_NPC(df))
+		{
+			CNPC* npc = TO_NPC(df);
+			//엔피시의 m_ct 값이 0보다 크고, npc의 면역 플래그에 해당되는 스킬이 들어왔을 경우
+			if( npc->m_ctCount > 0 )
+			{
+				if( npc->m_proto->CheckStateFlag( (1 << magic->m_subtype) ) )
+				{
+					hitrate = (hitrate * 3) / ( 3 + fMCTProb[npc->m_ctCount] );
+				}
+			}
+		}
+
+		if (GetRandom(1, 10000) <= hitrate || magic->m_index == 1584 )
 		{
 			char ret = (char)HITTYPE_NORMAL;
 			if (magic->m_type == MT_ATTACK)
@@ -362,9 +421,7 @@ char SelectHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, char fl
 			return (char)HITTYPE_MISS;
 	}
 
-#ifdef ADULT_SERVER_NEW_BALANCE
 	return SelectHitType_Adult(of, df, type, flag, magic, magiclevel, nothelp);
-#endif // ADULT_SERVER_NEW_BALANCE
 
 	int hitprob = 0;
 	int maxprob = 10000;
@@ -372,7 +429,6 @@ char SelectHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, char fl
 
 	if (flag & HITTYPE_MISS)
 		return HITTYPE_MISS;
-
 
 	// 각 타입별 확률 : 미스, 노멀을 제외하고 순서대로 [0위크 1스트롱 2하드 3크리티컬 4데들리]
 	// pc attack 기준
@@ -428,18 +484,28 @@ char SelectHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, char fl
 	}
 // --- 050401 : bs : plus에 따른 추가 효과
 
-	// PC : 크리티컬, 데들리 상승
+	// PC : 크리티컬, 데들리 상승 , 하드 추가
+	// - 패시브
+	prob_t[2] += of->m_avPassiveAddition.hard
+				 + prob_t[2] * of->m_avPassiveRate.hard / SKILL_RATE_UNIT;
 	prob_t[3] += of->m_avPassiveAddition.critical
-			+  prob_t[3] * of->m_avPassiveRate.critical / SKILL_RATE_UNIT;
+				 +  prob_t[3] * of->m_avPassiveRate.critical / SKILL_RATE_UNIT;
 	prob_t[4] += of->m_avPassiveAddition.deadly
-			+  prob_t[4] * of->m_avPassiveRate.deadly / SKILL_RATE_UNIT;
+				 +  prob_t[4] * of->m_avPassiveRate.deadly / SKILL_RATE_UNIT;
+	// - 액티브
+	prob_t[2] += of->m_assist.m_avAddition.hard
+				 +  prob_t[2] * of->m_assist.m_avRate.hard / SKILL_RATE_UNIT;
 	prob_t[3] += of->m_assist.m_avAddition.critical
-			+  prob_t[3] * of->m_assist.m_avRate.critical / SKILL_RATE_UNIT;
+				 +  prob_t[3] * of->m_assist.m_avRate.critical / SKILL_RATE_UNIT;
 	prob_t[4] += of->m_assist.m_avAddition.deadly
-			+  prob_t[4] * of->m_assist.m_avRate.deadly / SKILL_RATE_UNIT;
+				 +  prob_t[4] * of->m_assist.m_avRate.deadly / SKILL_RATE_UNIT;
 
 	// 크리 최대 확률 : 레인저 제외
+#ifdef EX_ROGUE
+	if (!IS_PC(of) || (TO_PC(of)->m_job != JOB_ROGUE && TO_PC(of)->m_job != JOB_EX_ROGUE) || (TO_PC(of)->m_job2 != JOB_2ND_RANGER && TO_PC(of)->m_job2 != JOB_2ND_EX_RANGER))
+#else
 	if (!IS_PC(of) || TO_PC(of)->m_job != JOB_ROGUE || TO_PC(of)->m_job2 != JOB_2ND_RANGER)
+#endif // EX_ROGUE
 	{
 		if (prob_t[3] > 2000)
 			prob_t[3] = 2000;
@@ -454,7 +520,6 @@ char SelectHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, char fl
 	if (prob_t[4] > 1000)
 		prob_t[4] = 1000;
 
-#ifdef ENABLE_WAR_CASTLE
 	if (IS_NPC(df))
 	{
 		CNPC* npc = TO_NPC(df);
@@ -465,7 +530,6 @@ char SelectHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, char fl
 			prob_t[4] = 0;		// 데들리		: 0%
 		}
 	}
-#endif
 
 	for (i = 1; i < 5; i++)
 		prob_t[i] += prob_t[i - 1];
@@ -488,7 +552,7 @@ char SelectHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, char fl
 ////////////////////
 // Function name	: GetDamage
 // Description	    : 대미지를 얻음
-// Return type		: int 
+// Return type		: int
 //                  : 얻어진 대미지
 // Argument         : CCharacter* of
 //                  : 공격자
@@ -502,31 +566,21 @@ char SelectHitType(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, char fl
 //                  : 사용 효과
 // Argument         : const CMagicLevelProto* magiclevel
 //                  : 사용 효과 레벨
-int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, char flag, const CMagicProto* magic, const CMagicLevelProto* magiclevel)
+int GetDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, char flag, const CMagicProto* magic, const CMagicLevelProto* magiclevel, bool &isCharge)
 {
 	double damFactor = 5;
 	int statFactor = 15;
-	
+	unsigned char attratt;
+	unsigned char attrdef;
+
 	if (IS_PC(df))
 	{
 //		((CPC*)of)->SetPlayerState(PLAYER_STATE_PKMODE);
 //		((CPC*)of)->CancelInvisible();
-#ifdef ADULT_SERVER
-		if( IS_PC(of) )
-		{
-			if( IsRaList( (CPC*)df, (CPC*)of ) )
-			{
-				if( ((CPC*)df)->m_raList->m_bAttacker == true )
-					damFactor = 3.5;
-			}
-		}
-#endif // ADULT_SERVER
 		damFactor = 3.5;
 	}
 
 	int ret = 0;
-
-#ifdef NEW_BALANCE
 	const int nPvPSkillFactor = 3;
 	int minDamage = 1;		// 최소 대미지
 	int deadlyDamage = 0;
@@ -534,9 +588,9 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 	// 스킬없는 데들리 데미지를 구한다
 	if (magic != NULL)
 	{
-		deadlyDamage = GetDamage(of, df, of->GetAttackType(NULL), HITTYPE_DEADLY, NULL, NULL);
+		bool empty;
+		deadlyDamage = GetDamage(of, df, of->GetAttackType(NULL), HITTYPE_DEADLY, NULL, NULL, empty);
 	}
-#endif // #ifdef NEW_BALANCE
 
 	int nMagicPowerAddition = 0;
 	int nMagicPowerRate = 0;
@@ -544,13 +598,11 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 	if (flag == HITTYPE_MISS)
 		return 0;
 
-#ifdef ENABLE_PET
 	if (IS_PET(df))
 	{
 		return 1;
 	}
-#endif
-	
+
 	if (magic)
 	{
 		int nMagicPowerValue = magiclevel->m_nPowerValue;
@@ -563,23 +615,24 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 		bool bIsPCof = (IS_PC(of) || IS_PET(of) || IS_ELEMENTAL(of));
 		bool bIsPCdf = (IS_PC(df) || IS_PET(df) || IS_ELEMENTAL(df));
 		if (bIsPCof && bIsPCdf)
+		{
+			int nJewelMaginAttack = 0;
 			nMagicPowerValue = ((of->m_level - df->m_level) * 5 + 100) * nMagicPowerValue / 100;
+			if (IS_APET(of))
+			{
+				if (nJewelMaginAttack = (TO_APET(of)->m_nJewelMagicAttack) > 0)
+					nMagicPowerValue += nJewelMaginAttack;
+			}
+			else if(IS_ELEMENTAL(of))
+			{
+				if(nJewelMaginAttack = (TO_ELEMENTAL(of)->GetOwner()->m_opJewelElementMagicAttUP) > 0)
+					nMagicPowerValue += nJewelMaginAttack;
+			}
+		}
 
 		if (nMagicPowerValue < 1)
 			nMagicPowerValue = 1;
 // --- 050331 : bs : pvp에서는 데미지가 증감함
-
-		switch (magic->m_attribute)
-		{
-		case AT_FIRE:
-		case AT_WATER:
-		case AT_EARTH:
-		case AT_WIND:
-		case AT_DARK:
-		case AT_LIGHT:
-			nMagicPowerValue = nMagicPowerValue * (100 - df->m_attribute.GetValue(magic->m_attribute)) / 100;
-			break;
-		}
 
 		if (magiclevel)
 		{
@@ -588,7 +641,6 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 			case MDT_ONLYPOWER:
 #ifdef LC_JPN_SKILL_CRITICAL
 
-#ifdef NEW_BALANCE
 				switch (flag)
 				{
 				case HITTYPE_STRONG:
@@ -603,9 +655,6 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 					return nMagicPowerValue;
 				}
 				break;
-#else // #ifdef NEW_BALANCE
-				return nMagicPowerValue;
-#endif // #ifdef NEW_BALANCE
 
 #else // LC_JPN_SKILL_CRITICAL
 
@@ -622,13 +671,61 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 			}
 		}
 		else
+		{
 			return 0;
+		}
+		attratt = of->m_attratt;
+	}
+	else
+	{
+		if (IS_PC(of) || IS_NPC(of))
+		{
+			if (of->m_assist.m_avAddition.attratt > 0 || of->m_assist.m_avAddition.attratt_item > 0)
+			{
+				attratt = of->m_assist.getAttrAtt();
+			}
+			else
+			{
+				if (IS_PC(of))
+				{
+					CPC *pc = TO_PC(of);
+					attratt = pc->m_opAttratt;
+				}
+				else
+				{
+					/* NPC */
+					CNPC *npc = TO_NPC(of);
+					attratt = npc->m_proto->m_attratt;
+				}
+			}
+		}
+	}
+
+	if (IS_PC(df) || IS_NPC(df))
+	{
+		if (df->m_assist.m_avAddition.attrdef > 0 || df->m_assist.m_avAddition.attrdef_item > 0)
+		{
+			attrdef = df->m_assist.getAttrDef();
+		}
+		else
+		{
+			if (IS_PC(df))
+			{
+				CPC *pc = TO_PC(df);
+				attrdef = pc->m_opAttrdef;
+			}
+			else
+			{
+				/* NPC */
+				CNPC *npc = TO_NPC(df);
+				attrdef = npc->m_proto->m_attrdef;
+			}
+		}
 	}
 
 	// 아이템 페널티 관련
 	int adef = of->GetAttackLevel() - of->m_level;
 	int ddef = df->GetDefenseLevel() - df->m_level;
-
 
 // 050311 : bs : 물리 공격 종류(근접,원거리)과 스탯을 분리
 	int usingstat = 0;
@@ -640,6 +737,8 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 	case USING_DEX:
 		usingstat = of->m_dex;
 		break;
+	case USING_INT:
+		usingstat = of->m_int;
 	}
 // --- 050311 : bs : 물리 공격 종류(근접,원거리)과 스탯을 분리
 
@@ -654,7 +753,6 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 	int DoubleAttackRate = 0;
 #endif //DOUBLE_ATTACK
 
-#ifdef ENABLE_WAR_CASTLE
 	CWarCastle* castle = CWarCastle::GetCastleObject(of->m_pZone->m_index);
 
 	if (castle && castle->GetState() != WCSF_NORMAL)
@@ -663,54 +761,51 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 		if (IS_PC(of))
 		{
 			pc = TO_PC(of);
-			if (IS_ATTACK_TEAM(pc->GetJoinFlag(pc->m_pZone->m_index)) 
-				&& castle->IsInRegenPoint(pc, true))	
+			if (IS_ATTACK_TEAM(pc->GetJoinFlag(pc->m_pZone->m_index))
+					&& castle->IsInRegenPoint(pc, true))
 			{
 				warBonusAttack = 120;
 			}
 		}
 
-#ifdef DRATAN_CASTLE
 		if( IS_PC(of) )
 		{
 			pc = TO_PC(of);
 			if( castle->IsInInnerCastle( pc ) )
 				warBonusAttack = 50;
 		}
-#endif // DRATAN_CASTLE
 
 		if (IS_PC(df))
 		{
 			pc = TO_PC(df);
-			if (IS_ATTACK_TEAM(pc->GetJoinFlag(pc->m_pZone->m_index)) 
-				&& castle->IsInRegenPoint(pc, true) 
-				|| IS_DEFENSE_TEAM(pc->GetJoinFlag(pc->m_pZone->m_index))
-				&& castle->IsInRegenPoint(pc, false))
+			if ((IS_ATTACK_TEAM(pc->GetJoinFlag(pc->m_pZone->m_index))
+					&& castle->IsInRegenPoint(pc, true))
+					|| (IS_DEFENSE_TEAM(pc->GetJoinFlag(pc->m_pZone->m_index))
+						&& castle->IsInRegenPoint(pc, false)))
 			{
 				warBonusDefense = 120;
 			}
 		}
 	}
-#endif
+//#endif
 
-
-#ifdef DYNAMIC_DUNGEON
-	int nCharRate[10][3] = {	// 공격력, 방어력, 이동 속도
-			{-20, -20, 0},
-			{-10, -10, 0},
-			{0, 0, 0},
-			{3, 3, 0},
-			{5, 5, 0},
-			{7, 7, 0},
-			{10, 10, 0},
-			{13, 13, 0},
-			{16, 16, 0},
-			{20, 20, 10},
-		};
+	int nCharRate[10][3] =  	// 공격력, 방어력, 이동 속도
+	{
+		{-20, -20, 0},
+		{-10, -10, 0},
+		{0, 0, 0},
+		{3, 3, 0},
+		{5, 5, 0},
+		{7, 7, 0},
+		{10, 10, 0},
+		{13, 13, 0},
+		{16, 16, 0},
+		{20, 20, 10},
+	};
 
 	CDratanCastle * pCastle = CDratanCastle::CreateInstance();
 	int cidx = -1;
-	if( pCastle != 0 && pCastle->m_dvd.GetZone() != 0)
+	if( pCastle->m_dvd.GetZone() != 0)
 	{
 		cidx = pCastle->m_dvd.GetEnvRate()/10;
 		if(cidx > 9)
@@ -718,60 +813,61 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 			cidx = 9;
 		}
 	}
-	
-#endif // DYNAMIC_DUNGEON
+
 
 	switch (type)
 	{
 	case MSG_DAMAGE_MELEE:
 		{
 			int awdamage	= of->m_eqMelee
-							+ of->m_opMelee;
+							  + of->m_opMelee;
 
-#ifdef ATTACK_PET
 			if( IS_APET(of) )
 			{
 				CAPet* apet = TO_APET(of);
-				awdamage += apet->m_nAttack;
+				awdamage += (apet->m_nAttack + apet->m_nJewelAttack);
 			}
-#endif //ATTACK_PET
 
 			awdamage	+= of->m_avPassiveAddition.attack
-						+  awdamage * of->m_avPassiveRate.attack / SKILL_RATE_UNIT
-						+  of->m_avPassiveAddition.attack_dam_melee
-						+  awdamage * of->m_avPassiveRate.attack_dam_melee / SKILL_RATE_UNIT;
+						   +  awdamage * of->m_avPassiveRate.attack / SKILL_RATE_UNIT
+						   +  of->m_avPassiveAddition.attack_dam_melee
+						   +  awdamage * of->m_avPassiveRate.attack_dam_melee / SKILL_RATE_UNIT;
 			addattack80 = of->m_avPassiveAddition.attack80;
 			rateattack80 = awdamage * of->m_avPassiveRate.attack80 / SKILL_RATE_UNIT;
-				if (addattack80 > 80)
-					addattack80 = 80;
-				if (rateattack80 > 80)
-					rateattack80 = 80;
-				awdamage += addattack80 + rateattack80;
+			if (addattack80 > 80)
+				addattack80 = 80;
+			if (rateattack80 > 80)
+				rateattack80 = 80;
+			awdamage += addattack80 + rateattack80;
 			awdamage		+= of->m_assist.m_avAddition.attack
-							+  awdamage * of->m_assist.m_avRate.attack / SKILL_RATE_UNIT
-							+  of->m_assist.m_avAddition.attack_dam_melee
-							+  awdamage * of->m_assist.m_avRate.attack_dam_melee / SKILL_RATE_UNIT;
-#ifdef NEW_BALANCE
+							   +  awdamage * of->m_assist.m_avRate.attack / SKILL_RATE_UNIT
+							   +  of->m_assist.m_avAddition.attack_dam_melee
+							   +  awdamage * of->m_assist.m_avRate.attack_dam_melee / SKILL_RATE_UNIT;
 			addattack80 = of->m_assist.m_avAddition.attack80;
-#else
-			addattack80 = of->m_assist.m_avRate.attack80;
-#endif // #ifdef NEW_BALANCE
 			rateattack80 = awdamage * of->m_assist.m_avRate.attack80 / SKILL_RATE_UNIT;
 			if (addattack80 > 80)
 				addattack80 = 80;
 			if (rateattack80 > 80)
 				rateattack80 = 80;
 			awdamage += addattack80 + rateattack80;
-			if (nMagicPowerAddition)
-				awdamage	+= nMagicPowerAddition;
-			if (nMagicPowerRate)
-				awdamage	+= awdamage * nMagicPowerRate / SKILL_RATE_UNIT;
+			/*if (nMagicPowerAddition)
+				awdamage	+= nMagicPowerAddition;*/
+			/*if (nMagicPowerRate)
+				awdamage	+= awdamage * nMagicPowerRate / SKILL_RATE_UNIT;*/
+
+			awdamage += of->m_assist.m_avAddition.npcAttack + awdamage * of->m_assist.m_avRate.npcAttack / SKILL_RATE_UNIT;
+
+			if(nMagicPowerAddition)
+			{
+				//awdamage = awdamage * ((float)(100 + of->m_level) / 100) + nMagicPowerAddition;
+				awdamage = (awdamage * ((float)(100 + of->m_level) / 100)) + ( nMagicPowerAddition * (1 + (nMagicPowerRate / SKILL_RATE_UNIT) ));
+			}
 
 
 #ifdef DOUBLE_ATTACK
-			if( gserver.m_bDoubleAttackEvent )
+			if( gserver->m_bDoubleAttackEvent )
 			{
-				DoubleAttackRate = awdamage * gserver.m_AttackPercent / SKILL_RATE_UNIT;
+				DoubleAttackRate = awdamage * gserver->m_AttackPercent / SKILL_RATE_UNIT;
 				if( DoubleAttackRate > 200 )
 					DoubleAttackRate = 100;
 				awdamage += DoubleAttackRate;
@@ -781,32 +877,29 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 			int ddefense	= df->m_eqDefense;
 			int ddefense2	= df->m_opDMelee;
 
-#ifdef ATTACK_PET
 			if( IS_APET(df) )
 			{
 				CAPet* apet = TO_APET(df);
 				ddefense += apet->m_nDefence;
 			}
-#endif //ATTACK_PET
 
 			ddefense	+= ddefense * df->m_avPassiveRate.defense / SKILL_RATE_UNIT;
 			ddefense2	+= df->m_avPassiveAddition.defense
-						+  ddefense2 * df->m_avPassiveRate.defense / SKILL_RATE_UNIT;
+						   +  ddefense2 * df->m_avPassiveRate.defense / SKILL_RATE_UNIT;
 			ddefense		+= ddefense * df->m_assist.m_avRate.defense / SKILL_RATE_UNIT;
 			ddefense2		+= df->m_assist.m_avAddition.defense
-							+  ddefense2 * df->m_assist.m_avRate.defense / SKILL_RATE_UNIT;
+							   +  ddefense2 * df->m_assist.m_avRate.defense / SKILL_RATE_UNIT;
 
-#ifdef ENABLE_CHANGEJOB
+			if(IS_PC(df))
+			{
+				if(TO_PC(df)->isWarZone() == true)
+				{
+					ddefense2 += df->m_assist.m_avAddition.war_defence;
+				}
+			}
+
 			awdamage		+= of->GetMeleeLevelBonus();
 			ddefense2		+= df->GetDefenseLevelBonus();
-#endif
-
-#ifdef ADULT_SERVER
-			if( IS_PC(of) )
-				awdamage	+= awdamage * TO_PC(of)->m_pkLevelAttack / 100;
-			if( IS_PC(df) )
-				ddefense2	+= ddefense2 * TO_PC(df)->m_pkLevelDefence / 100;
-#endif // ADULT_SERVER
 
 			// 무기 레벨과 유저 레벨 차이에 의한 페널티 적용
 			if (adef >= 5 && adef <= 8)
@@ -841,7 +934,7 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 			if (IS_PC(df))
 			{
 				CPC* pc = TO_PC(df);
-				switch (pc->m_evocationType)
+				switch (pc->m_evocationIndex)
 				{
 				case EVOCATION_HELLOUND:
 					ddefense = ddefense * 10 / 11;
@@ -854,7 +947,6 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 				}
 			}
 
-#ifdef ADULT_SERVER_NEW_BALANCE
 			if (IS_PC(of))
 			{
 				switch (TO_PC(of)->m_job)
@@ -866,10 +958,8 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 					break;
 				}
 			}
-#endif // ADULT_SERVER_NEW_BALANCE
-		
-#ifdef DYNAMIC_DUNGEON
-			if(cidx != -1) 
+
+			if(cidx != -1)
 			{
 				if(IS_PC(of) && of->m_pZone->m_index == ZONE_DRATAN_CASTLE_DUNGEON)
 				{
@@ -880,12 +970,10 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 				{
 					ddefense += ddefense * nCharRate[cidx][1] / 100;
 					ddefense2 += ddefense2 * nCharRate[cidx][1] / 100;
-				}				
+				}
 			}
-#endif // DYNAMIC_DUNGEON
 
 			// 잠수함 : 명중패치
-#if defined ADULT_SERVER_NEW_BALANCE
 			if( IS_PC(of) )
 			{
 				float fHit = ((CCharacter*)of)->GetFinalHitRate();
@@ -893,6 +981,7 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 				awdamage = (int) ( awdamage * ( 1 + ( fHit / ( fHit + fAvoid ) ) ) );
 				minDamage = usingstat / 3;
 			}
+
 			switch (flag)
 			{
 			case HITTYPE_WEAK:
@@ -914,59 +1003,21 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 				ret = (int)(usingstat *  10 / statFactor + (awdamage * 25 / 10) - (ddefense + ddefense2) / damFactor);
 				break;
 			}
-#elif defined NEW_BALANCE
-			switch (flag)
-			{
-			case HITTYPE_WEAK:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 8 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_NORMAL:
-				ret = (int)(usingstat * 10 / statFactor + awdamage - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_STRONG:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 13 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_HARD:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 15 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_CRITICAL:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 20 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_DEADLY:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 25 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			}
-			minDamage = usingstat / 3;
 
-#else // #ifdef NEW_BALANCE
-			switch (flag)
-			{
-			case HITTYPE_WEAK:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 5 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_NORMAL:
-				ret = (int)(usingstat * 10 / statFactor + awdamage - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_STRONG:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 13 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_HARD:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 16 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_CRITICAL:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 16 / 10) - ddefense2 / damFactor);
-				break;
-			case HITTYPE_DEADLY:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 2) - ddefense2 / damFactor);
-				break;
-			}
-#endif
 			if (GetRandom(1, 10000) <= df->m_avPassiveAddition.reduceMeleeProb)
 				ret = ret - df->m_avPassiveAddition.reduceMelee - ret * df->m_avPassiveRate.reduceMelee / SKILL_RATE_UNIT;
 			if (GetRandom(1, 10000) <= df->m_assist.m_avAddition.reduceMeleeProb)
 				ret = ret - df->m_assist.m_avAddition.reduceMelee - ret * df->m_assist.m_avRate.reduceMelee / SKILL_RATE_UNIT;
 
-#ifdef NEW_CASHITEM_USA_2008
+			if(IS_PC(df))
+			{
+				if(TO_PC(df)->isWarZone() == true)
+				{
+					if (GetRandom(1, 10000) <= df->m_assist.m_avAddition.war_reduce_melee_prob)
+						ret = ret - df->m_assist.m_avAddition.war_reduce_melee - ret * df->m_assist.m_avRate.war_reduce_melee / SKILL_RATE_UNIT;
+				}
+			}
+			
 			if(IS_PC(of))
 			{
 				CPC* pc = TO_PC(of);
@@ -974,59 +1025,80 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 				{
 					ret = ret * pc->m_assist.m_avAddition.charge_attack / SKILL_RATE_UNIT;
 					pc->m_assist.CureByItemIndex(2875);
+					isCharge = true;
+				}
+
+				if(pc->isWarZone() == true)
+				{
+					if(!pc->m_currentSkill && pc->m_assist.m_avAddition.war_tower_attack)
+					{
+						if(IS_NPC(df) == true)
+						{
+							CNPC * p = TO_NPC(df);
+							if (p->m_proto->CheckFlag(NPC_CASTLE_TOWER) != 0
+								&& p->m_proto->CheckFlag(NPC_WARCASTLE) == 0)
+							{
+								ret = ret * pc->m_assist.m_avAddition.war_tower_attack / SKILL_RATE_UNIT;
+								pc->m_assist.CureByItemIndex(10804);
+							}
+						}
+					}
 				}
 			}
-#endif // NEW_CASHITEM_USA_2008
 		}
 		break;
 
 	case MSG_DAMAGE_RANGE:
 		{
 			int awdamage	= of->m_eqRange
-							+ of->m_opRange;
-#ifdef ATTACK_PET
+							  + of->m_opRange;
 			if( IS_APET(of) )
 			{
 				CAPet* apet = TO_APET(of);
 				awdamage += apet->m_nAttack;
 			}
-#endif // ATTACK_PET
 
 			awdamage	+= of->m_avPassiveAddition.attack
-						+  awdamage * of->m_avPassiveRate.attack / SKILL_RATE_UNIT
-						+  of->m_avPassiveAddition.attack_dam_range
-						+  awdamage * of->m_avPassiveRate.attack_dam_range / SKILL_RATE_UNIT;
+						   +  awdamage * of->m_avPassiveRate.attack / SKILL_RATE_UNIT
+						   +  of->m_avPassiveAddition.attack_dam_range
+						   +  awdamage * of->m_avPassiveRate.attack_dam_range / SKILL_RATE_UNIT;
 			addattack80 = of->m_avPassiveAddition.attack80;
 			rateattack80 = awdamage * of->m_avPassiveRate.attack80 / SKILL_RATE_UNIT;
-				if (addattack80 > 80)
-					addattack80 = 80;
-				if (rateattack80 > 80)
-					rateattack80 = 80;
-				awdamage += addattack80 + rateattack80;
+			if (addattack80 > 80)
+				addattack80 = 80;
+			if (rateattack80 > 80)
+				rateattack80 = 80;
+			awdamage += addattack80 + rateattack80;
 			awdamage		+= of->m_assist.m_avAddition.attack
-							+  awdamage * of->m_assist.m_avRate.attack / SKILL_RATE_UNIT
-							+  of->m_assist.m_avAddition.attack_dam_range
-							+  awdamage * of->m_assist.m_avRate.attack_dam_range / SKILL_RATE_UNIT;
-#ifdef NEW_BALANCE
+							   +  awdamage * of->m_assist.m_avRate.attack / SKILL_RATE_UNIT
+							   +  of->m_assist.m_avAddition.attack_dam_range
+							   +  awdamage * of->m_assist.m_avRate.attack_dam_range / SKILL_RATE_UNIT;
 			addattack80 = of->m_assist.m_avAddition.attack80;
-#else
-			addattack80 = of->m_assist.m_avRate.attack80;
-#endif // #ifdef NEW_BALANCE
 			rateattack80 = awdamage * of->m_assist.m_avRate.attack80 / SKILL_RATE_UNIT;
 			if (addattack80 > 80)
 				addattack80 = 80;
 			if (rateattack80 > 80)
 				rateattack80 = 80;
 			awdamage += addattack80 + rateattack80;
-			if (nMagicPowerAddition)
-				awdamage	+= nMagicPowerAddition;
-			if (nMagicPowerRate)
-				awdamage	+= awdamage * nMagicPowerRate / SKILL_RATE_UNIT;
+			/*if (nMagicPowerAddition)
+				awdamage	+= nMagicPowerAddition;*/
+			/*if (nMagicPowerRate)
+				awdamage	+= awdamage * nMagicPowerRate / SKILL_RATE_UNIT;*/
+
+
+			awdamage += of->m_assist.m_avAddition.npcAttack + awdamage * of->m_assist.m_avRate.npcAttack / SKILL_RATE_UNIT;
+
+			if(nMagicPowerAddition)
+			{
+				//awdamage = awdamage * ((float)(100 + of->m_level) / 100) + nMagicPowerAddition;
+				awdamage = (awdamage * ((float)(100 + of->m_level) / 100)) + ( nMagicPowerAddition * (1 + (nMagicPowerRate / SKILL_RATE_UNIT) ));
+			}
+
 
 #ifdef DOUBLE_ATTACK
-			if( gserver.m_bDoubleAttackEvent )
+			if( gserver->m_bDoubleAttackEvent )
 			{
-				DoubleAttackRate = awdamage * gserver.m_AttackPercent / SKILL_RATE_UNIT;
+				DoubleAttackRate = awdamage * gserver->m_AttackPercent / SKILL_RATE_UNIT;
 				if( DoubleAttackRate > 200 )
 					DoubleAttackRate = 100;
 				awdamage += DoubleAttackRate;
@@ -1036,32 +1108,29 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 			int ddefense	= df->m_eqDefense;
 			int ddefense2	= df->m_opDRange;
 
-#ifdef ATTACK_PET
 			if( IS_APET(df) )
 			{
 				CAPet* apet = TO_APET(df);
 				ddefense += apet->m_nDefence;
 			}
-#endif //ATTACK_PET
 
 			ddefense	+= ddefense * df->m_avPassiveRate.defense / SKILL_RATE_UNIT;
 			ddefense2	+= df->m_avPassiveAddition.defense
-						+  ddefense2 * df->m_avPassiveRate.defense / SKILL_RATE_UNIT;
+						   +  ddefense2 * df->m_avPassiveRate.defense / SKILL_RATE_UNIT;
 			ddefense		+= ddefense * df->m_assist.m_avRate.defense / SKILL_RATE_UNIT;
 			ddefense2		+= df->m_assist.m_avAddition.defense
-							+  ddefense2 * df->m_assist.m_avRate.defense / SKILL_RATE_UNIT;
+							   +  ddefense2 * df->m_assist.m_avRate.defense / SKILL_RATE_UNIT;
 
-#ifdef ENABLE_CHANGEJOB
+			if(IS_PC(df))
+			{
+				if(TO_PC(df)->isWarZone() == true)
+				{
+					ddefense2 += df->m_assist.m_avAddition.war_defence;
+				}
+			}
+
 			awdamage		+= of->GetRangeLevelBonus();
 			ddefense2		+= df->GetDefenseLevelBonus();
-#endif
-			
-#ifdef ADULT_SERVER
-			if( IS_PC(of) )
-				awdamage	+= awdamage * TO_PC(of)->m_pkLevelAttack / 100;
-			if( IS_PC(df) )
-				ddefense2	+= ddefense2 * TO_PC(df)->m_pkLevelDefence / 100;
-#endif // ADULT_SERVER
 
 			if (adef >= 5 && adef <= 8)
 				awdamage /= 2;
@@ -1095,7 +1164,7 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 			if (IS_PC(df))
 			{
 				CPC* pc = TO_PC(df);
-				switch (pc->m_evocationType)
+				switch (pc->m_evocationIndex)
 				{
 				case EVOCATION_HELLOUND:
 					ddefense = ddefense * 10 / 11;
@@ -1108,8 +1177,7 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 				}
 			}
 
-#ifdef DYNAMIC_DUNGEON
-			if(cidx != -1) 
+			if(cidx != -1)
 			{
 				if(IS_PC(of) && of->m_pZone->m_index == ZONE_DRATAN_CASTLE_DUNGEON)
 				{
@@ -1120,12 +1188,10 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 				{
 					ddefense += ddefense * nCharRate[cidx][1] / 100;
 					ddefense2 += ddefense2 * nCharRate[cidx][1] / 100;
-				}				
+				}
 			}
-#endif // DYNAMIC_DUNGEON
 
 			// 잠수함 : 명중패치
-#if defined ADULT_SERVER_NEW_BALANCE
 			if( IS_PC(of) )
 			{
 				float fHit = ((CCharacter*)of)->GetFinalHitRate();
@@ -1154,59 +1220,21 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 				ret = (int)(usingstat *  10 / statFactor + (awdamage * 25 / 10) - (ddefense + ddefense2) / damFactor);
 				break;
 			}
-#elif defined NEW_BALANCE
-			switch (flag)
-			{
-			case HITTYPE_WEAK:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 8 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_NORMAL:
-				ret = (int)(usingstat * 10 / statFactor + awdamage - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_STRONG:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 13 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_HARD:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 15 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_CRITICAL:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 20 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_DEADLY:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 25 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			}
-			minDamage = usingstat / 3;
-#else // #ifdef NEW_BALANCE
-			switch (flag)
-			{
-			case HITTYPE_WEAK:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 5 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_NORMAL:
-				ret = (int)(usingstat * 10 / statFactor + awdamage - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_STRONG:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 13 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_HARD:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 16 / 10) - (ddefense + ddefense2) / damFactor);
-				break;
-			case HITTYPE_CRITICAL:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 16 / 10) - ddefense2 / damFactor);
-				break;
-			case HITTYPE_DEADLY:
-				ret = (int)(usingstat * 10 / statFactor + (awdamage * 2) - ddefense2 / damFactor);
-				break;
-			}
-#endif // #ifdef NEW_BALANCE
 
 			if (GetRandom(1, 10000) <= df->m_avPassiveAddition.reduceRangeProb)
 				ret = ret - df->m_avPassiveAddition.reduceRange - ret * df->m_avPassiveRate.reduceRange / SKILL_RATE_UNIT;
 			if (GetRandom(1, 10000) <= df->m_assist.m_avAddition.reduceRangeProb)
 				ret = ret - df->m_assist.m_avAddition.reduceRange - ret * df->m_assist.m_avRate.reduceRange / SKILL_RATE_UNIT;
 
-#ifdef NEW_CASHITEM_USA_2008
+			if(IS_PC(df))
+			{
+				if(TO_PC(df)->isWarZone() == true)
+				{
+					if (GetRandom(1, 10000) <= df->m_assist.m_avAddition.war_reduce_range_prob)
+						ret = ret - df->m_assist.m_avAddition.war_reduce_range - ret * df->m_assist.m_avRate.war_reduce_range / SKILL_RATE_UNIT;
+				}
+			}
+
 			if(IS_PC(of))
 			{
 				CPC* pc = TO_PC(of);
@@ -1214,9 +1242,26 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 				{
 					ret = ret * pc->m_assist.m_avAddition.charge_attack / SKILL_RATE_UNIT;
 					pc->m_assist.CureByItemIndex(2875);
+					isCharge = true;
+				}
+
+				if(pc->isWarZone() == true)
+				{
+					if(!pc->m_currentSkill && pc->m_assist.m_avAddition.war_tower_attack)
+					{
+						if(IS_NPC(df) == true)
+						{
+							CNPC * p = TO_NPC(df);
+							if (p->m_proto->CheckFlag(NPC_CASTLE_TOWER) != 0
+								&& p->m_proto->CheckFlag(NPC_WARCASTLE) == 0)
+							{
+								ret = ret * pc->m_assist.m_avAddition.war_tower_attack / SKILL_RATE_UNIT;
+								pc->m_assist.CureByItemIndex(10804);
+							}
+						}
+					}
 				}
 			}
-#endif // NEW_CASHITEM_USA_2008
 		}
 		break;
 
@@ -1224,32 +1269,34 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 		{
 			int aint		= of->m_int;
 			int awdamage	= of->m_eqMagic
-							+ of->m_opMagic;
-#ifdef ATTACK_PET
+							  + of->m_opMagic;
 			if( IS_APET(of) )
 			{
 				CAPet* apet = TO_APET(of);
 				awdamage += apet->m_nMagicAttack;
 			}
-#endif // ATTACK_PET
-
-#ifndef ADULT_SERVER_NEW_BALANCE
-			int ahitrate	= of->m_opMagicHitRate;
-#endif // ADULT_SERVER_NEW_BALANCE
 
 			awdamage	+= of->m_avPassiveAddition.magic
-						+  awdamage * of->m_avPassiveRate.magic / SKILL_RATE_UNIT;
+						   +  awdamage * of->m_avPassiveRate.magic / SKILL_RATE_UNIT;
 			awdamage		+= of->m_assist.m_avAddition.magic
-							+  awdamage * of->m_assist.m_avRate.magic / SKILL_RATE_UNIT;
-			if (nMagicPowerAddition)
-				awdamage	+= nMagicPowerAddition;
-			if (nMagicPowerRate)
-				awdamage	+= awdamage * nMagicPowerRate / SKILL_RATE_UNIT;
+							   +  awdamage * of->m_assist.m_avRate.magic / SKILL_RATE_UNIT;
+			/*if (nMagicPowerAddition)
+				awdamage	+= nMagicPowerAddition;*/
+			/*if (nMagicPowerRate)
+				awdamage	+= awdamage * nMagicPowerRate / SKILL_RATE_UNIT;*/
+
+			awdamage += of->m_assist.m_avAddition.npcMagic + awdamage * of->m_assist.m_avRate.npcMagic / SKILL_RATE_UNIT;
+
+			if(nMagicPowerAddition)
+			{
+				//awdamage = awdamage * ((float)(100 + of->m_level) / 100) + nMagicPowerAddition;
+				awdamage = (awdamage * ((float)(100 + of->m_level) / 100)) + ( nMagicPowerAddition * (1 + (nMagicPowerRate / SKILL_RATE_UNIT) ));
+			}
 
 #ifdef DOUBLE_ATTACK
-			if( gserver.m_bDoubleAttackEvent )
+			if( gserver->m_bDoubleAttackEvent )
 			{
-				DoubleAttackRate = awdamage * gserver.m_AttackPercent / SKILL_RATE_UNIT;
+				DoubleAttackRate = awdamage * gserver->m_AttackPercent / SKILL_RATE_UNIT;
 				if( DoubleAttackRate > 200 )
 					DoubleAttackRate = 100;
 				awdamage += DoubleAttackRate;
@@ -1258,35 +1305,29 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 
 			int dresist		= df->m_eqResist;
 			int dresist2	= df->m_opResist;
-#ifndef ADULT_SERVER_NEW_BALANCE
-			int davoid		= df->m_opResistAvoid;
-#endif // ADULT_SERVER_NEW_BALANCE
 
-#ifdef ATTACK_PET
 			if( IS_APET(df) )
 			{
 				CAPet* apet = TO_APET(df);
 				dresist += apet->m_nMagicDefence;
 			}
-#endif //ATTACK_PET
 			dresist		+= dresist * df->m_avPassiveRate.resist / SKILL_RATE_UNIT;
 			dresist2	+= df->m_avPassiveAddition.resist
-						+  dresist2 * df->m_avPassiveRate.resist / SKILL_RATE_UNIT;
+						   +  dresist2 * df->m_avPassiveRate.resist / SKILL_RATE_UNIT;
 			dresist			+= dresist * df->m_assist.m_avRate.resist / SKILL_RATE_UNIT;
 			dresist2		+= df->m_assist.m_avAddition.resist
-							+  dresist2 * df->m_assist.m_avRate.resist / SKILL_RATE_UNIT;
+							   +  dresist2 * df->m_assist.m_avRate.resist / SKILL_RATE_UNIT;
 
-#ifdef ENABLE_CHANGEJOB
+			if(IS_PC(df))
+			{
+				if(TO_PC(df)->isWarZone() == true)
+				{
+					dresist2 += df->m_assist.m_avAddition.war_defence;
+				}
+			}
+
 			awdamage		+= of->GetMagicLevelBonus();
 			dresist2		+= df->GetResistLevelBonus();
-#endif
-
-#ifdef ADULT_SERVER
-			if( IS_PC(of) )
-				awdamage	+= awdamage * TO_PC(of)->m_pkLevelAttack / 100;
-			if( IS_PC(df) )
-				dresist2	+= dresist2 * TO_PC(df)->m_pkLevelDefence / 100;
-#endif // ADULT_SERVER
 
 			if (adef >= 5 && adef <= 8)
 				awdamage /= 2;
@@ -1320,7 +1361,7 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 			if (IS_PC(of))
 			{
 				CPC* pc = TO_PC(of);
-				switch (pc->m_evocationType)
+				switch (pc->m_evocationIndex)
 				{
 				case EVOCATION_HELLOUND:
 					awdamage = awdamage;
@@ -1336,7 +1377,7 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 			if (IS_PC(df))
 			{
 				CPC* pc = TO_PC(df);
-				switch (pc->m_evocationType)
+				switch (pc->m_evocationIndex)
 				{
 				case EVOCATION_HELLOUND:
 					dresist = dresist;
@@ -1349,7 +1390,6 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 				}
 			}
 
-#ifdef ADULT_SERVER_NEW_BALANCE
 			if (IS_PC(of))
 			{
 				switch (TO_PC(of)->m_job)
@@ -1361,10 +1401,8 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 					break;
 				}
 			}
-#endif // ADULT_SERVER_NEW_BALANCE
 
-#ifdef DYNAMIC_DUNGEON
-			if(cidx != -1) 
+			if(cidx != -1)
 			{
 				if(IS_PC(of) && of->m_pZone->m_index == ZONE_DRATAN_CASTLE_DUNGEON)
 				{
@@ -1376,11 +1414,8 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 					dresist += dresist * nCharRate[cidx][1] / 100;
 					dresist2 += dresist2 * nCharRate[cidx][1] / 100;
 				}
-				
 			}
-#endif // DYNAMIC_DUNGEON
 
-#if defined ADULT_SERVER_NEW_BALANCE
 			if( IS_PC(of) )
 			{
 				float fHit = ((CCharacter*)of)->GetFinalHitRate();
@@ -1409,59 +1444,21 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 				ret = aint * 10 / 15 + ((awdamage * 25 / 10) - (dresist + dresist2));// * (100 + ahitrate - davoid) / 100;
 				break;
 			}
-#elif defined NEW_BALANCE
-			switch (flag)
-			{
-			case HITTYPE_WEAK:
-				ret = aint * 10 / 15 + ((awdamage * 8 / 10) - (dresist + dresist2)) * (100 + ahitrate - davoid) / 100;
-				break;
-			case HITTYPE_NORMAL:
-				ret = aint * 10 / 15 + (awdamage - (dresist + dresist2)) * (100 + ahitrate - davoid) / 100;
-				break;
-			case HITTYPE_STRONG:
-				ret = aint * 10 / 15 + ((awdamage * 13 / 10) - (dresist + dresist2)) * (100 + ahitrate - davoid) / 100;
-				break;
-			case HITTYPE_HARD:
-				ret = aint * 10 / 15 + ((awdamage * 15 / 10) - (dresist + dresist2)) * (100 + ahitrate - davoid) / 100;
-				break;
-			case HITTYPE_CRITICAL:
-				ret = aint * 10 / 15 + ((awdamage * 20 / 10) - (dresist + dresist2)) * (100 + ahitrate - davoid) / 100;
-				break;
-			case HITTYPE_DEADLY:
-				ret = aint * 10 / 15 + ((awdamage * 25 / 10) - (dresist + dresist2)) * (100 + ahitrate - davoid) / 100;
-				break;
-			}
-			minDamage = aint / 3;
-#else // #ifdef NEW_BALANCE
-			switch (flag)
-			{
-			case HITTYPE_WEAK:
-				ret = aint * 10 / 15 + ((awdamage * 5 / 10) - (dresist + dresist2)) * (100 + ahitrate - davoid) / 100;
-				break;
-			case HITTYPE_NORMAL:
-				ret = aint * 10 / 15 + (awdamage - (dresist + dresist2)) * (100 + ahitrate - davoid) / 100;
-				break;
-			case HITTYPE_STRONG:
-				ret = aint * 10 / 15 + ((awdamage * 13 / 10) - (dresist + dresist2)) * (100 + ahitrate - davoid) / 100;
-				break;
-			case HITTYPE_HARD:
-				ret = aint * 10 / 15 + ((awdamage * 16 / 10) - (dresist + dresist2)) * (100 + ahitrate - davoid) / 100;
-				break;
-			case HITTYPE_CRITICAL:
-				ret = aint * 10 / 15 + ((awdamage * 16 / 10) - dresist2) * (100 + ahitrate - davoid) / 100;
-				break;
-			case HITTYPE_DEADLY:
-				ret = aint * 10 / 15 + ((awdamage * 2) - dresist2) * (100 + ahitrate - davoid) / 100;
-				break;
-			}
-#endif // #ifdef NEW_BALANCE
 
 			if (GetRandom(1, 10000) <= df->m_avPassiveAddition.reduceMagicProb)
 				ret = ret - df->m_avPassiveAddition.reduceMagic - ret * df->m_avPassiveRate.reduceMagic / SKILL_RATE_UNIT;
 			if (GetRandom(1, 10000) <= df->m_assist.m_avAddition.reduceMagicProb)
 				ret = ret - df->m_assist.m_avAddition.reduceMagic - ret * df->m_assist.m_avRate.reduceMagic / SKILL_RATE_UNIT;
 
-#ifdef NEW_CASHITEM_USA_2008
+			if(IS_PC(df))
+			{
+				if(TO_PC(df)->isWarZone() == true)
+				{
+					if (GetRandom(1, 10000) <= df->m_assist.m_avAddition.war_reduce_magic_prob)
+						ret = ret - df->m_assist.m_avAddition.war_reduce_magic - ret * df->m_assist.m_avRate.war_reduce_magic / SKILL_RATE_UNIT;
+				}
+			}
+
 			if(IS_PC(of))
 			{
 				CPC* pc = TO_PC(of);
@@ -1469,9 +1466,26 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 				{
 					ret = ret * pc->m_assist.m_avAddition.charge_magic / SKILL_RATE_UNIT;
 					pc->m_assist.CureByItemIndex(2875);
+					isCharge = true;
+				}
+
+				if(pc->isWarZone() == true)
+				{
+					if(!pc->m_currentSkill && pc->m_assist.m_avAddition.war_tower_attack)
+					{
+						if(IS_NPC(df) == true)
+						{
+							CNPC * p = TO_NPC(df);
+							if (p->m_proto->CheckFlag(NPC_CASTLE_TOWER) != 0
+								&& p->m_proto->CheckFlag(NPC_WARCASTLE) == 0)
+							{
+								ret = ret * pc->m_assist.m_avAddition.war_tower_attack / SKILL_RATE_UNIT;
+								pc->m_assist.CureByItemIndex(10804);
+							}
+						}
+					}
 				}
 			}
-#endif // NEW_CASHITEM_USA_2008
 		}
 		break;
 
@@ -1482,20 +1496,12 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 	bool bIsPCof = (IS_PC(of) || IS_PET(of) || IS_ELEMENTAL(of) || IS_APET(of) );
 	bool bIsPCdf = (IS_PC(df) || IS_PET(df) || IS_ELEMENTAL(df) || IS_APET(df) );
 
-#if defined( ADULT_SERVER_NEW_BALANCE )
 	if (magic == NULL && bIsPCof && bIsPCdf)
 		ret = ret + ret * ((of->m_level - df->m_level) / (of->m_level + df->m_level));
-#else
-	if (magic == NULL && bIsPCof && bIsPCdf)
-		ret = ret * ((of->m_level - df->m_level) * 4 + 100) / 100;
-#endif
-
-#if defined (LC_JPN) || defined (LC_KOR)
-	if (IS_PC(of) && IS_PC(df))
-	{
-		ret = ret / 3;
-	}
-#endif
+//#else
+//	if (magic == NULL && bIsPCof && bIsPCdf)
+//		ret = ret * ((of->m_level - df->m_level) * 4 + 100) / 100;
+//#endif
 
 #ifdef EXTREME_CUBE
 	if( IS_PC(of) && IS_NPC(df) )
@@ -1510,7 +1516,6 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 	}
 #endif // EXTREME_CUBE
 
-#ifdef ENABLE_WAR_CASTLE
 	if (of->m_assist.m_avAddition.hcAttackTower && IS_PC(of) && IS_NPC(df))
 	{
 		CNPC* npc = TO_NPC(df);
@@ -1519,20 +1524,15 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 			ret *= 2;
 		}
 	}
-#endif
 
-#if defined (EVENT_WHITEDAY_2007) || defined (EVENT_OPEN_ADULT_SERVER)	|| defined (EVENT_MAGIC_CARD)	// 2%의 확률로 10배의 데미지
-	if (of->m_assist.m_avAddition.bRorainOfLoveMagic && IS_PC(of) && IS_NPC(df))
+	if (of->m_assist.m_avAddition.bRorainOfLoveMagic && IS_PC(of) && IS_NPC(df)
+			&& (gserver->isActiveEvent(A_EVENT_WHITE_DAY) || gserver->isActiveEvent(A_EVENT_MAGIC_CARD) ) )
 	{
 		int rate = GetRandom(0,1000);
 		if( rate < 20 )
-		{
 			ret *= 10;
-		}
 	}
-#endif // // defined (EVENT_WHITEDAY_2007) || defined (EVENT_OPEN_ADULT_SERVER) || defined (EVENT_MAGIC_CARD)
 
-#ifdef NEW_CASHITEM_USA_2008
 	if (of->m_assist.m_avAddition.hcAttackBerserker && IS_PC(of) && IS_NPC(df))	// 10% 확률로 2배의 데미지
 	{
 		int rate = GetRandom(1,1000);
@@ -1541,9 +1541,7 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 			ret *= 2;
 		}
 	}
-#endif // NEW_CASHITEM_USA_2008
-	
-#ifdef NEW_BALANCE
+
 	// 스킬 사용시
 	if (IS_PC(of) && IS_PC(df) && magic != NULL)
 	{
@@ -1554,24 +1552,9 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 			ret = deadlyDamage + (ret - deadlyDamage) / nPvPSkillFactor;
 		}
 	}
-#endif // #ifdef NEW_BALANCE
 
-#ifndef _DEBUG
-	ret += GetRandom(-7, +7);
-#endif // #ifndef _DEBUG
-
-#ifdef NEW_BALANCE
-
-#if defined( ADULT_SERVER_NEW_BALANCE ) 
 	if (ret <= minDamage)
 		ret = minDamage;
-#else
-	// 최소 대미지 +-10%
-	if (ret <= minDamage)
-		ret = minDamage - (minDamage - ret) / 5;
-#endif
-
-#endif // #ifdef NEW_BALANCE
 
 	if (IS_PC(df) && magic == NULL)
 	{
@@ -1588,18 +1571,6 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 	if (ret < 1)
 		ret = 1;
 
-#ifdef ADULT_SERVER
-	if( IS_PC(df) )
-	{
-		CPC* pc = TO_PC(df);
-		if( pc->IsSetPlayerState( PLAYER_STATE_OTHERZONE ) )		// 속성이 다른 마을에 있으면 방어력 50% 감소
-		{
-			ret += ret * 50 / 100;
-		}
-	}
-#else // ADULT_SERVER
-
-#ifdef ATTACK_PET
 	if( IS_APET(df) )		// 펫이 반항상태이면 방어도 50 하락
 	{
 		CAPet* apet = TO_APET(df);
@@ -1612,160 +1583,64 @@ int GetDamage(const CCharacter* of, const CCharacter* df, MSG_DAMAGE_TYPE type, 
 		if( apet->GetFaithLevel() > 0 )
 			ret -= ret * 50 / 100;
 	}
-#endif //ATTACK_PET
 
-	// PK 페널티 : 공격력 하락
-#ifndef DISABLE_PKPENALTY
-
-#ifdef FREE_PK_SYSTEM
-		if( !gserver.m_bFreePk )
+	if( IS_PC(of) )
+	{
+		CPC	*ns = TO_PC(of);
+		if( ns->m_job == JOB_NIGHTSHADOW )
 		{
-#endif // FREE_PK_SYSTEM
+			CSkill* nocturnal = ns->m_passiveSkillList.Find(870);		// 나이트 쉐도우 야행성
 
-#ifdef MAL_DISABLE_PKPENALTY
-	if ( !gserver.m_bDisablePKPaenalty )
-	{
-#endif // MAL_DISABLE_PKPENALTY
-	if (IS_PC(of))
-	{
-		CPC* pc = TO_PC(of);
-
-		if (pc->m_pkPenalty <= -150)				ret -= ret * 60 / 100;
-		else if (pc->m_pkPenalty <= -140)			ret -= ret * 56 / 100;
-		else if (pc->m_pkPenalty <= -130)			ret -= ret * 52 / 100;
-		else if (pc->m_pkPenalty <= -120)			ret -= ret * 48 / 100;
-		else if (pc->m_pkPenalty <= -110)			ret -= ret * 44 / 100;
-		else if (pc->m_pkPenalty <= -100)			ret -= ret * 40 / 100;
-		else if (pc->m_pkPenalty <=  -90)			ret -= ret * 36 / 100;
-		else if (pc->m_pkPenalty <=  -80)			ret -= ret * 32 / 100;
-		else if (pc->m_pkPenalty <=  -70)			ret -= ret * 28 / 100;
-		else if (pc->m_pkPenalty <=  -60)			ret -= ret * 24 / 100;
-		else if (pc->m_pkPenalty <=  -50)			ret -= ret * 20 / 100;
-		else if (pc->m_pkPenalty <=  -40)			ret -= ret * 16 / 100;
-		else if (pc->m_pkPenalty <=  -30)			ret -= ret * 12 / 100;
-		else if (pc->m_pkPenalty <=  -20)			ret -= ret *  8 / 100;
-		else if (pc->m_pkPenalty <=  -10)			ret -= ret *  4 / 100;
-	}
-
-	if (ret < 1)
-		ret = 1;
-
-	// PK 페널티 : 방어력 하락
-	if (IS_PC(df))
-	{
-		CPC* pc = TO_PC(df);
-
-		if (pc->m_pkPenalty <= -150)				ret += ret * 45 / 100;
-		else if (pc->m_pkPenalty <= -140)			ret += ret * 40 / 100;
-		else if (pc->m_pkPenalty <= -130)			ret += ret * 35 / 100;
-		else if (pc->m_pkPenalty <= -120)			ret += ret * 30 / 100;
-		else if (pc->m_pkPenalty <= -110)			ret += ret * 25 / 100;
-		else if (pc->m_pkPenalty <= -100)			ret += ret * 20 / 100;
-		else if (pc->m_pkPenalty <=  -90)			ret += ret * 15 / 100;
-		else if (pc->m_pkPenalty <=  -80)			ret += ret * 10 / 100;
-		else if (pc->m_pkPenalty <=  -70)			ret += ret *  5 / 100;
-	}
-#ifdef MAL_DISABLE_PKPENALTY
-	}
-#endif // MAL_DISABLE_PKPENALTY
-
-#ifdef FREE_PK_SYSTEM
+			struct tm *t;
+			time_t now;
+			now = time(NULL);
+			t = localtime(&now);
+			if( nocturnal && ( t->tm_hour >= 22 || t->tm_hour < 5 ) )
+			{
+				ret = ret * 110 / 100;
+			}
 		}
-#endif // FREE_PK_SYSTEM
+	}
 
-#endif // DISABLE_PKPENALTY
+	do
+	{
+		int attr_att = GET_AT_VAR(attratt);
+		int attr_attlv = GET_AT_LV(attratt);
+		int attr_def = GET_AT_VAR(attrdef);
+		int attr_deflv = GET_AT_LV(attrdef);
 
-#endif // ADULT_SERVER
+		if (attr_attlv <= 0)
+			attr_attlv = 1;
+		if (attr_deflv <= 0)
+			attr_deflv = 1;
 
-		
+		if (attr_attlv > AT_LEVELMAX)
+			break;
+		if (attr_deflv > AT_LEVELMAX)
+			break;
+		if (attr_att < 0 || attr_att > AT_LIGHT)
+			break;
+		if (attr_def < 0 || attr_def > AT_LIGHT)
+			break;
+
+		ret = (int)((float)ret * nAttrTbl[attr_att][attr_def] *
+					((float)attr_attlv / (float)attr_deflv));
+	}
+	while (0);
+
 	if (ret < 1)
 		ret = 1;
+
+	if( IS_NPC(of) && TO_NPC(of)->GetOwner() && TO_NPC(of)->GetOwner()->GetSummonNpc(SUMMON_NPC_TYPE_MERCENARY) == TO_NPC(of) && IS_PC(df) )
+		ret /= 23;
+
+	if(IS_PC(df) && TO_PC(df)->IsSetPlayerState(PLAYER_STATE_INVINCIBILITY))
+		ret = 0;
+
+	if(IS_PC(of) && IS_PC(df) && df->m_absorbPVPDamageRate > 0)
+		ret = ret - (ret * df->m_absorbPVPDamageRate / 10000);
 
 	return ret;
-}
-
-#ifdef ADULT_SERVER_NEW_BALANCE
-char GetHitType_PvP(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
-{
-	extern int nBaseHitrate[JOBCOUNT][3];
-	extern int nBaseAvoid[JOBCOUNT][3];
-	extern int levelup_stat[JOBCOUNT][4];
-	extern int levelup_stat2[JOB2COUNT][4];
-
-	const float nHitratePerDex = 1.0f;
-	const float nHitratePerInt = 1.0f;
-	const float nAvoidPerDex = 0.125f;
-	const float nAvoidPerInt = 0.125f;
-
-	if (!IS_PC(of) || !IS_PC(df))
-		return HITTYPE_MISS;
-
-	switch (type)
-	{
-	case MSG_DAMAGE_MELEE:
-	case MSG_DAMAGE_RANGE:
-	case MSG_DAMAGE_MAGIC:
-		break;
-	default:
-		return HITTYPE_MISS;
-	}
-
-	CPC* opc = TO_PC(of);
-	CPC* dpc = TO_PC(df);
-	
-#ifdef TEST_SERVER
-	if( opc->m_pos.m_yLayer - dpc->m_pos.m_yLayer >=2 || opc->m_pos.m_yLayer - dpc->m_pos.m_yLayer <= -2 )
-		return HITTYPE_MISS;
-#endif //TEST_SERVER
-
-	float fHitrate	= nBaseHitrate[opc->m_job][type] + (opc->m_level - dpc->m_level);
-	float fAvoid	= nBaseAvoid[dpc->m_job][type] + (dpc->m_level - opc->m_level);
-
-	switch (type)
-	{
-	case MSG_DAMAGE_MELEE:
-	case MSG_DAMAGE_RANGE:
-		if (opc->m_job2 == 0)
-			fHitrate += nHitratePerDex * (levelup_stat[opc->m_job][1] * (opc->m_level - 1));
-		else
-			fHitrate += nHitratePerDex * (levelup_stat2[opc->m_job * 2 + opc->m_job2][1] * (opc->m_level - JOB_2ND_LEVEL));
-		if (dpc->m_job2 == 0)
-			fAvoid += nAvoidPerDex * (levelup_stat[dpc->m_job][1] * (dpc->m_level - 1));
-		else
-			fAvoid += nAvoidPerDex * (levelup_stat2[dpc->m_job * 2 + dpc->m_job2][1] * (dpc->m_level - JOB_2ND_LEVEL));
-		break;
-	case MSG_DAMAGE_MAGIC:
-		if (opc->m_job2 == 0)
-			fHitrate += nHitratePerInt * (levelup_stat[opc->m_job][2] * (opc->m_level - 1));
-		else
-			fHitrate += nHitratePerInt * (levelup_stat2[opc->m_job * 2 + opc->m_job2][2] * (opc->m_level - JOB_2ND_LEVEL));
-		if (dpc->m_job2 == 0)
-			fAvoid += nAvoidPerInt * (levelup_stat[dpc->m_job][2] * (dpc->m_level - 1));
-		else
-			fAvoid += nAvoidPerInt * (levelup_stat2[dpc->m_job * 2 + dpc->m_job2][2] * (dpc->m_level - JOB_2ND_LEVEL));
-		break;
-	default:
-		break;
-	}
-
-#ifdef BSTEST // TODO
-#pragma message(__FILE__"(1345) : warning: TODO : SKILL")
-	/*
-	fHitrate += option + (skilladd / 10000.0f) + (fHitrate * skillrate / SKILL_RATE_UNIT);
-	fAvoid += option + (skilladd / 10000.0f) + (fAvoid * skillrate / SKILL_RATE_UNIT);
-	*/
-#endif
-
-	int nHitrate = (int)(fHitrate * 1000);
-	int nAvoid = (int)(fAvoid * 1000);
-
-	nHitrate = GetRandom(1, nHitrate);
-	nAvoid = GetRandom(1, nAvoid);
-
-	if (nHitrate > nAvoid)
-		return HITTYPE_WEAK | HITTYPE_NORMAL | HITTYPE_STRONG | HITTYPE_HARD | HITTYPE_CRITICAL | HITTYPE_DEADLY;
-	else
-		return HITTYPE_MISS;
 }
 
 char GetHitType_Adult(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
@@ -1782,11 +1657,6 @@ char GetHitType_Adult(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
 
 	float fHitrate	= of->GetHitrate(df, type);
 	float fAvoid	= df->GetAvoid(of, type);
-
-#ifdef TEST_SERVER
-	if( of->m_pos.m_yLayer - df->m_pos.m_yLayer >=2 || of->m_pos.m_yLayer - df->m_pos.m_yLayer <= -2 )
-		return HITTYPE_MISS;
-#endif //TEST_SERVER
 
 	switch (type)
 	{
@@ -1817,17 +1687,17 @@ char GetHitType_Adult(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
 	default:
 		break;
 	}
-	
-#if defined(ADULT_SERVER_NEW_BALANCE) && defined(ENABLE_CHANGEJOB)
+
 	if(of->m_type == MSG_CHAR_NPC
-		&& df->m_type == MSG_CHAR_PC)
-	{	// 31레벨 이상 전직을 한 PC가 NPC에 대한 회피도 증가
+			&& df->m_type == MSG_CHAR_PC)
+	{
+		// 31레벨 이상 전직을 한 PC가 NPC에 대한 회피도 증가
 		CPC * pPC = TO_PC(df);
-		
+
 		if(pPC->m_level >= 31 && pPC->m_job2 != 0)
 		{
 			int factA = 0;	// 직업에 의한 변수
-			int factB = 0;	// 회피에 의한 변수 
+			int factB = 0;	// 회피에 의한 변수
 			int factC = 0;	// 레벨에 의한 변수
 			int factL = pPC->m_level;	// 레벨
 
@@ -1836,73 +1706,106 @@ char GetHitType_Adult(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
 			case JOB_TITAN:
 				switch(pPC->m_job2)
 				{
-					case JOB_2ND_HIGHLANDER:	factA = 0;		break;
-					case JOB_2ND_WARMASTER:		factA = 0;		break;
+				case JOB_2ND_HIGHLANDER:
+					factA = 0;
+					break;
+				case JOB_2ND_WARMASTER:
+					factA = 0;
+					break;
 				}
 				break;
 
 			case JOB_KNIGHT:
 				switch(pPC->m_job2)
 				{
-					case JOB_2ND_ROYALKNIGHT:	factA = 6;		break;
-					case JOB_2ND_TEMPLEKNIGHT:	factA = 6;		break;
+				case JOB_2ND_ROYALKNIGHT:
+					factA = 6;
+					break;
+				case JOB_2ND_TEMPLEKNIGHT:
+					factA = 6;
+					break;
 				}
 				break;
 
 			case JOB_HEALER:
 				switch(pPC->m_job2)
 				{
-					case JOB_2ND_ARCHER:		factA = 12;		break;
-					case JOB_2ND_CLERIC:		factA = 8;		break;
+				case JOB_2ND_ARCHER:
+					factA = 12;
+					break;
+				case JOB_2ND_CLERIC:
+					factA = 8;
+					break;
 				}
 				break;
 
 			case JOB_MAGE:
+#ifdef EX_MAGE
+			case JOB_EX_MAGE:
+#endif // EX_MAGE
 				switch(pPC->m_job2)
 				{
-					case JOB_2ND_WIZARD:		factA = 10;		break;
-					case JOB_2ND_WITCH:			factA = 8;		break;
+				case JOB_2ND_WIZARD:
+					factA = 10;
+					break;
+				case JOB_2ND_WITCH:
+					factA = 8;
+					break;
 				}
 				break;
 
 			case JOB_ROGUE:
+#ifdef EX_ROGUE
+			case JOB_EX_ROGUE:
+#endif // EX_ROGUE
 				switch (pPC->m_job2)
 				{
-					case JOB_2ND_ASSASSIN:		factA = 14;		break;
-					case JOB_2ND_RANGER:		factA = 12;		break;
+				case JOB_2ND_ASSASSIN:
+					factA = 14;
+					break;
+				case JOB_2ND_RANGER:
+					factA = 12;
+					break;
 				}
 				break;
 
 			case JOB_SORCERER:
 				switch (pPC->m_job2)
 				{
-					case JOB_2ND_ELEMENTALLIST:	factA = 4;		break;
-					case JOB_2ND_SPECIALLIST:	factB = 7;		break;
+				case JOB_2ND_ELEMENTALLIST:
+					factA = 4;
+					break;
+				case JOB_2ND_SPECIALLIST:
+					factB = 7;
+					break;
 				}
 				break;
-#ifdef NIGHT_SHADOW
 			case JOB_NIGHTSHADOW:
 				switch (pPC->m_job2)
 				{
-					case JOB_2ND_NIGHTSHADOW:	factA = 10;		break;
+				case JOB_2ND_NIGHTSHADOW:
+					factA = 10;
+					break;
+				case JOB_2ND_NIGHTSHADOW2:
+					factA = 10;
+					break;
 				}
 				break;
-#endif //NIGHT_SHADOW
 			}	// end switch
 
 			int factTemp = (1 + factA) + (factL - 31);
 			if(factTemp > 44)
-			{	
+			{
 				factB = 300;
 			}
 			else if(factTemp > 30)
-			{	
+			{
 				factB = 200;
 			}
-			else 
-			{	
+			else
+			{
 				factB = 100;
-			}			
+			}
 
 			factC = (factL - 31);
 
@@ -1919,15 +1822,14 @@ char GetHitType_Adult(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
 			fAvoid += factAdd;
 		}	// end if
 	}
-#endif // ADULT_SERVER_NEW_BALANCE
 
-#ifdef ADULT_SERVER_NEW_BALANCE
+	CalcNewHitProb(of, df, fHitrate, fAvoid);
+
 	of->SetFinalHitRate( fHitrate );
 	df->SetFinalAvoidRate( fAvoid );
-#endif //ADULT_SERVER_NEW_BALANCE
 
-	int nHitrate = (int)(fHitrate * 1000);
-	int nAvoid = (int)(fAvoid * 1000);
+	LONGLONG nHitrate = (LONGLONG)(fHitrate * 1000);
+	LONGLONG nAvoid = (LONGLONG)(fAvoid * 1000);
 
 	nHitrate = GetRandom(1, nHitrate);
 	nAvoid = GetRandom(1, nAvoid);
@@ -1938,91 +1840,18 @@ char GetHitType_Adult(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type)
 		return HITTYPE_MISS;
 }
 
-char SelectHitType_PvP(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, char flag, const CMagicProto* magic, const CMagicLevelProto* magiclevel, bool nothelp)
-{
-	extern int nBaseHitTypeProb[2][6];
-	extern int base_stat[JOBCOUNT][4];
-#ifdef BSTEST
-#pragma message(__FILE__"(1435) : warning: TODO : SKILL")
-#endif //BSTEST
-	if (magic)
-		return HITTYPE_NORMAL;
-
-	CPC* opc = TO_PC(of);
-	CPC* dpc = TO_PC(df);
-	int nTypeIndex = 0;
-	int nOffenseStatBase = 0;
-	int nOffenseDexBase = 0;
-	int nDefenseDur = 0;
-	int nTypeProb[6] = {0,};
-	int nType[6] = {HITTYPE_WEAK, HITTYPE_NORMAL, HITTYPE_STRONG, HITTYPE_HARD, HITTYPE_CRITICAL, HITTYPE_DEADLY};
-	switch (type)
-	{
-	case MSG_DAMAGE_MELEE:
-	case MSG_DAMAGE_RANGE:
-		nTypeIndex = 0;
-		nDefenseDur = dpc->m_str / 3;
-		nOffenseStatBase = base_stat[opc->m_job][0];
-		nOffenseDexBase  = base_stat[opc->m_job][1];
-		memcpy(nTypeProb, nBaseHitTypeProb[nTypeIndex], sizeof(int) * 6);
-		nTypeProb[0] += (opc->m_level - 1) / 2 + nDefenseDur;
-		nTypeProb[1] += (opc->m_level - 1) + nDefenseDur;
-		nTypeProb[2] += (opc->m_str - nOffenseStatBase) * 5 / 4;
-		nTypeProb[3] += (opc->m_str - nOffenseStatBase);
-		nTypeProb[4] += (opc->m_dex - nOffenseDexBase) * 9 / 10;
-		nTypeProb[5] += (opc->m_dex - nOffenseDexBase) * 6 / 10;
-		break;
-
-	case MSG_DAMAGE_MAGIC:
-		nTypeIndex = 1;
-		nDefenseDur = dpc->m_str / 3;
-		nOffenseStatBase = base_stat[opc->m_job][2];
-		nOffenseDexBase  = base_stat[opc->m_job][1];
-		memcpy(nTypeProb, nBaseHitTypeProb[nTypeIndex], sizeof(int) * 6);
-		nTypeProb[0] += (opc->m_level - 1) / 2 + nDefenseDur;
-		nTypeProb[1] += (opc->m_level - 1) + nDefenseDur;
-		nTypeProb[2] += (opc->m_int - nOffenseStatBase) * 5 / 4;
-		nTypeProb[3] += (opc->m_str - nOffenseStatBase);
-		nTypeProb[4] += (opc->m_dex - nOffenseDexBase) * 9 / 10;
-		nTypeProb[5] += (opc->m_dex - nOffenseDexBase) * 6 / 10;
-		break;
-
-	default:
-		return HITTYPE_NORMAL;
-	}
-
-	nTypeProb[4] += nTypeProb[4] * opc->m_opAttackCritical / 100;
-
-	nTypeProb[4] += opc->m_avPassiveAddition.critical + (nTypeProb[4] * opc->m_avPassiveRate.critical);
-	nTypeProb[4] += opc->m_assist.m_avAddition.critical + (nTypeProb[4] * opc->m_assist.m_avRate.critical);
-	nTypeProb[5] += opc->m_avPassiveAddition.deadly + (nTypeProb[5] * opc->m_avPassiveRate.deadly);
-	nTypeProb[5] += opc->m_assist.m_avAddition.deadly + (nTypeProb[5] * opc->m_assist.m_avRate.deadly);
-
-	int i;
-	int nMax = 0;
-	for (i = 0; i < 6; i++)
-	{
-		nTypeProb[i] = GetRandom(1, nTypeProb[i]);
-		if (nTypeProb[i] >= nTypeProb[nMax])
-			nMax = i;
-	}
-	return nType[nMax];
-}
-
 char SelectHitType_Adult(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, char flag, const CMagicProto* magic, const CMagicLevelProto* magiclevel, bool nothelp)
 {
 	extern int nBaseHitTypeProb[2][6];
 	extern int base_stat[JOBCOUNT][4];
-	const int nBaseHitTypeProbForNPC[2][6] = {
+	const int nBaseHitTypeProbForNPC[2][6] =
+	{
 		{50, 575, 125, 100, 90, 60},
 		{50, 575, 125, 100, 90, 60}
 	};
 	const int nOffenseStrBaseForNPC = 38;
 	const int nOffenseDexBaseForNPC = 28;
 	const int nOffenseIntBaseForNPC = 28;
-#ifdef BSTEST
-#pragma message(__FILE__"(1513) : warning: TODO : SKILL")
-#endif //BSTEST
 	if (magic)
 		return HITTYPE_NORMAL;
 
@@ -2037,7 +1866,7 @@ char SelectHitType_Adult(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, c
 	case MSG_DAMAGE_MELEE:
 	case MSG_DAMAGE_RANGE:
 		nTableIndex = 0;
-		nDefenseDur = df->m_con / 3 + df->m_avPassiveAddition.stronger_skill;
+		nDefenseDur = df->m_con / 3 + df->m_avPassiveAddition.stronger_skill + df->m_opStrong;
 		switch (of->m_type)
 		{
 		case MSG_CHAR_PC:
@@ -2076,7 +1905,7 @@ char SelectHitType_Adult(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, c
 
 	case MSG_DAMAGE_MAGIC:
 		nTableIndex = 1;
-		nDefenseDur = df->m_con / 3 + df->m_avPassiveAddition.stronger_skill;
+		nDefenseDur = df->m_con / 3 + df->m_avPassiveAddition.stronger_skill + df->m_opStrong;
 		switch (of->m_type)
 		{
 		case MSG_CHAR_PC:
@@ -2117,13 +1946,17 @@ char SelectHitType_Adult(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, c
 	}
 
 	if (IS_PC(of))
+	{
+		nTypeProb[2] += TO_PC(of)->m_plusStrong;
+		nTypeProb[3] += TO_PC(of)->m_plusHard;
 		nTypeProb[4] += nTypeProb[4] * TO_PC(of)->m_opAttackCritical / 100;
+		nTypeProb[5] += nTypeProb[5] * TO_PC(of)->m_opAttackDeadly / 100;
+	}
 
-#ifdef ATTACK_PET
 	else if( IS_APET(of) )
 	{
 		CAPet* apet = TO_APET( of );
-		float stronger = df->m_con / 3 + df->m_avPassiveAddition.stronger_skill;
+		float stronger = df->m_con / 3 + df->m_avPassiveAddition.stronger_skill + df->m_opStrong;
 		switch(type)
 		{
 		case MSG_DAMAGE_MELEE:
@@ -2142,8 +1975,9 @@ char SelectHitType_Adult(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, c
 		nTypeProb[4] += (int)(apet->m_pProto->m_nCritical + (apet->m_nPlusDex*0.9) + ( apet->m_level*0.9) + ( apet->m_level - df->m_level ) );
 		nTypeProb[5] += (int)(apet->m_pProto->m_nDeadly + apet->m_level*0.6 + ( apet->m_level - df->m_level ) );
 	}
-#endif // ATTACK_PET
-	
+
+	nTypeProb[3] += of->m_avPassiveAddition.hard + (nTypeProb[3] * of->m_avPassiveRate.hard);
+	nTypeProb[3] += of->m_assist.m_avAddition.hard + (nTypeProb[3] * of->m_assist.m_avRate.hard);
 	nTypeProb[4] += of->m_avPassiveAddition.critical + (nTypeProb[4] * of->m_avPassiveRate.critical);
 	nTypeProb[4] += of->m_assist.m_avAddition.critical + (nTypeProb[4] * of->m_assist.m_avRate.critical);
 	nTypeProb[5] += of->m_avPassiveAddition.deadly + (nTypeProb[5] * of->m_avPassiveRate.deadly);
@@ -2152,7 +1986,7 @@ char SelectHitType_Adult(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, c
 	if (IS_NPC(of))
 	{
 // 050225 : bs : 보스-크리&데들리, 중간보스-크리 가능하게
-		CNPC* npc = TO_NPC(of);		
+		CNPC* npc = TO_NPC(of);
 		if( ! npc->m_proto->CheckFlag(NPC_MBOSS|NPC_BOSS) )
 		{
 			nTypeProb[4] = 0;		// 크리			: 0%
@@ -2172,4 +2006,3 @@ char SelectHitType_Adult(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE type, c
 	return nType[nMax];
 }
 
-#endif // ADULT_SERVER_NEW_BALANCE

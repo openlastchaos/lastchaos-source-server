@@ -5,11 +5,14 @@
 #if !defined(AFX_QUEST_H__0F547455_B4DB_4214_8DA3_2F5F2BE49117__INCLUDED_)
 #define AFX_QUEST_H__0F547455_B4DB_4214_8DA3_2F5F2BE49117__INCLUDED_
 
-#if _MSC_VER > 1000
-#pragma once
-#endif // _MSC_VER > 1000
+#include <vector>
+#include "../ShareLib/MemoryPoolBase.h"
 
 class CQuest;
+
+class CAffinityProto;
+
+typedef std::vector<CAffinityProto*>	vec_quest_affinityList_t;
 
 // 퀘스트 프로토 타입
 class CQuestProto
@@ -30,11 +33,14 @@ public:
 	int			m_needJob;								// 직업
 	int			m_needItemIndex[QUEST_MAX_NEED_ITEM];	// 필요아이템 인덱스 : 없으면 -1
 	int			m_needItemCount[QUEST_MAX_NEED_ITEM];	// 필요아이템 수량
-	
+
+	int			m_needRvRType;
+	int			m_needRvRGrade;
+
 	int			m_prequestNum;							//선행퀘스트 번호
 	int			m_startNpcZoneNum;						//시작 NPC 존번호
 	int			m_prizeNpcZoneNum;						//보상 NPC 존번호
-	int			m_needExp;								//필요 경험치
+	int		m_needExp;									//필요 경험치
 
 	// 수행 조건 : 퀘스트 수행 조건
 	int			m_conditionType[QUEST_MAX_CONDITION];	// 수행 종류
@@ -45,19 +51,29 @@ public:
 	// 보상 조건
 	int			m_prizeType[QUEST_MAX_PRIZE];		// 보상 종류
 	int			m_prizeIndex[QUEST_MAX_PRIZE];		// 보상 인덱스
-	int			m_prizeData[QUEST_MAX_PRIZE];		// 보상 데이타
+	LONGLONG			m_prizeData[QUEST_MAX_PRIZE];		// 보상 데이타
 
-	int			m_optPrizeType[QUEST_MAX_PRIZE];		// 선택 보상 종류
-	int			m_optPrizeIndex[QUEST_MAX_PRIZE];		// 선택 보상 인덱스
-	int			m_optPrizeData[QUEST_MAX_PRIZE];		// 선택 보상 데이타
+	int			m_optPrizeType[QUEST_MAX_OPTPRIZE];		// 선택 보상 종류
+	int			m_optPrizeIndex[QUEST_MAX_OPTPRIZE];		// 선택 보상 인덱스
+	int			m_optPrizeData[QUEST_MAX_OPTPRIZE];		// 선택 보상 데이타
+	int			m_failValue;						// 실패 값
 
+	int			m_partyScale;
 
+	vec_quest_affinityList_t m_affinityList;
+
+	int			m_StartGiveItem[QUESTITEM_MAX_ARRAYCOUNT];		// 퀘스트 시작 시 주는 아이템
+	int			m_StartGiveKindCount;							// 퀘스트 시작 시 주는 아이템 종류
+	int			m_StartGiveNumCount[QUESTITEM_MAX_ARRAYCOUNT];	// 퀘스트 시작 시 주는 아이템 획득 개수
 	CQuestProto();
 };
 
 class CQuestProtoList
 {
 public:
+	typedef std::map<int, CQuestProto*> map_t;
+
+	map_t			map_;
 	CQuestProto*	m_proto;		// 퀘스트 프로토 리스트
 	int				m_nCount;		// 퀘스트 수
 
@@ -66,30 +82,27 @@ public:
 
 	bool Load();							// DB 읽기
 	CQuestProto* FindProto(int index);		// 퀘스트 proto 찾기
+	CQuestProto* GetProtoIndexByNPC(int mobIndex );	// 몹인덱스 proto 찾기
 
-#ifdef QUEST_DATA_EXTEND
-#else
-	CQuest* Create(int index);	// Quest 생성
-#endif // QUEST_DATA_EXTEND
+private:
+	std::vector<std::string> a_need_item_str;
+	std::vector<std::string> a_need_item_count_str;
 
-	protected:
-	static int CompIndex(const void* p1, const void* p2)
-	{
-		CQuestProto* i1 = (CQuestProto*)p1;
-		CQuestProto* i2 = (CQuestProto*)p2;
+	std::vector<std::string> a_condition_type_str;
+	std::vector<std::string> a_condition_index_str;
+	std::vector<std::string> a_condition_num_str;
+	std::vector<std::string> a_condition_data_str[QUEST_MAX_CONDITION];
 
-		return i1->m_index - i2->m_index;
-	}
+	std::vector<std::string> a_prize_type_str;
+	std::vector<std::string> a_prize_index_str;
+	std::vector<std::string> a_prize_data_str;
+
+	std::vector<std::string> a_opt_prize_type_str;
+	std::vector<std::string> a_opt_prize_index_str;
+	std::vector<std::string> a_opt_prize_data_str;
 };
 
-
-
-
-
-
-#ifdef QUEST_DATA_EXTEND
-
-class CQuest
+class CQuest : public MemoryPoolBaseWithMutex<CQuest>
 {
 	friend class CQuestList;
 
@@ -102,49 +115,147 @@ class CQuest
 	CQuest*				m_pPrev;
 	CQuest*				m_pNext;
 
+	int					m_nFailValue;
+	long				m_nCompleteTime;
+
 public:
 	CQuest(const CQuestProto* pQuestProto);
 	~CQuest();
 
-	void SetPrevQuest(CQuest* pPrev)		{ m_pPrev = pPrev; }
-	void SetNextQuest(CQuest* pNext)		{ m_pNext = pNext; }
-	CQuest* GetPrevQuest()					{ return m_pPrev; }
-	CQuest* GetNextQuest()					{ return m_pNext; }
+	void SetPrevQuest(CQuest* pPrev)
+	{
+		m_pPrev = pPrev;
+	}
+	void SetNextQuest(CQuest* pNext)
+	{
+		m_pNext = pNext;
+	}
+	CQuest* GetPrevQuest()
+	{
+		return m_pPrev;
+	}
+	CQuest* GetNextQuest()
+	{
+		return m_pNext;
+	}
 
-	char GetQuestState()					{ return m_cQuestState; }
+	char GetQuestState()
+	{
+		return m_cQuestState;
+	}
 
-	const CQuestProto* GetQuestProto()		{ return m_pQuestProto; }
-	int GetQuestIndex()						{ return (m_pQuestProto) ? m_pQuestProto->m_index : -1; }
-	int GetQuestType0()						{ return (m_pQuestProto) ? m_pQuestProto->m_type[0] : -1; }
-	int GetQuestType1()						{ return (m_pQuestProto) ? m_pQuestProto->m_type[1] : -1; }
-	int GetPrizeNPCIndex()					{ return (m_pQuestProto) ? m_pQuestProto->m_prizeNPC : -1; }
-	int GetPrizeNPCZone()					{ return (m_pQuestProto) ? m_pQuestProto->m_prizeNpcZoneNum : -1; }
+	const CQuestProto* GetQuestProto()
+	{
+		return m_pQuestProto;
+	}
+	int GetQuestIndex()
+	{
+		return (m_pQuestProto) ? m_pQuestProto->m_index : -1;
+	}
+	int GetQuestType0()
+	{
+		return (m_pQuestProto) ? m_pQuestProto->m_type[0] : -1;
+	}
+	int GetQuestType1()
+	{
+		return (m_pQuestProto) ? m_pQuestProto->m_type[1] : -1;
+	}
+	int GetPrizeNPCIndex()
+	{
+		return (m_pQuestProto) ? m_pQuestProto->m_prizeNPC : -1;
+	}
+	int GetPrizeNPCZone()
+	{
+		return (m_pQuestProto) ? m_pQuestProto->m_prizeNpcZoneNum : -1;
+	}
 
-	bool IsTutorialQuest()					{ return (m_pQuestProto && m_pQuestProto->m_type[0] == QTYPE_KIND_TUTORIAL) ? true : false; }
-	bool IsPetQuest()						{
-												return (	m_pQuestProto->m_index ==  PET_HORSE_QUEST_INDEX
-														||	m_pQuestProto->m_index ==  PET_DRAGON_QUEST_INDEX
-														||	m_pQuestProto->m_index ==  PET_BLUE_HORSE_QUEST_INDEX
-														||	m_pQuestProto->m_index ==  PET_PINK_DRAGON_QUEST_INDEX
-														||	m_pQuestProto->m_index ==  PET_UNKOWN_HORSE_QUEST_INDEX
-														||	m_pQuestProto->m_index ==  PET_UNKOWN_DRAGON_QUEST_INDEX);
-											}
-	void SetComplete1(bool bComplete1)		{ m_bComplete1 = bComplete1; }
-	void SetComplete2(bool bComplete2)		{ m_bComplete2 = bComplete2; }
-	bool GetComplete1()						{ return m_bComplete1; }
-	bool GetComplete2()						{ return m_bComplete2; }
-	bool IsCompleted()						{ return (m_bComplete1 && m_bComplete2); }
+	bool IsTutorialQuest()
+	{
+		return (m_pQuestProto && m_pQuestProto->m_type[0] == QTYPE_KIND_TUTORIAL) ? true : false;
+	}
+	bool IsPetQuest()
+	{
+		return (	m_pQuestProto->m_index ==  PET_HORSE_QUEST_INDEX
+					||	m_pQuestProto->m_index ==  PET_DRAGON_QUEST_INDEX
+					||	m_pQuestProto->m_index ==  PET_BLUE_HORSE_QUEST_INDEX
+					||	m_pQuestProto->m_index ==  PET_PINK_DRAGON_QUEST_INDEX
+					||	m_pQuestProto->m_index ==  PET_UNKOWN_HORSE_QUEST_INDEX
+					||	m_pQuestProto->m_index ==  PET_UNKOWN_DRAGON_QUEST_INDEX);
+	}
+	void SetComplete1(bool bComplete1)
+	{
+		m_bComplete1 = bComplete1;
+	}
+	void SetComplete2(bool bComplete2)
+	{
+		m_bComplete2 = bComplete2;
+	}
+	bool GetComplete1()
+	{
+		return m_bComplete1;
+	}
+	bool GetComplete2()
+	{
+		return m_bComplete2;
+	}
+	bool IsCompleted()
+	{
+		return (m_bComplete1 && m_bComplete2);
+	}
 
-	void IncreaseQuestValue(int idx, int val = 1)	{ if (idx >= 0 && idx < QUEST_MAX_CONDITION) m_nQuestValue[idx] += val; }
-	void SetQuestValue(int idx, int val)				{ if (idx >= 0 && idx < QUEST_MAX_CONDITION) m_nQuestValue[idx] = val; }
-	int GetQuestValue(int idx)						{ return (idx >= 0 && idx < QUEST_MAX_CONDITION) ? m_nQuestValue[idx] : 0; }
+	void IncreaseQuestValue(int idx, int val = 1)
+	{
+		if (idx >= 0 && idx < QUEST_MAX_CONDITION) m_nQuestValue[idx] += val;
+	}
+	void SetQuestValue(int idx, int val)
+	{
+		if (idx >= 0 && idx < QUEST_MAX_CONDITION) m_nQuestValue[idx] = val;
+	}
+	int GetQuestValue(int idx)
+	{
+		return (idx >= 0 && idx < QUEST_MAX_CONDITION) ? m_nQuestValue[idx] : 0;
+	}
 
 	void QuestUpdateData(CPC* pPC, CNPC* pNPC);
+	void QuestUpdateData(CPC* pPC, CPC* tPC);
 
 	void RemoeQuestItem(CPC* pc);
 
+	void QuestUpdateDataForParty(CPC* pPC, CNPC* pNPC);
+	void QuestUpdateDataForParty(CPC* pPC, CNPC* pNPC, int questIndex);
+
+	int GetQuestType2()
+	{
+		return (m_pQuestProto) ? m_pQuestProto->m_type[1] : -1;
+	}
+	int	GetPartyScale()
+	{
+		return m_pQuestProto->m_partyScale;
+	}
+	bool CheckComplete(CPC * pc);
+
+	void SetFailValue(int values)
+	{
+		m_nFailValue = values;
+	}
+	int GetFailValue()
+	{
+		return m_nFailValue;
+	}
+	void SetCompleteTime(long time)
+	{
+		m_nCompleteTime = time;
+	}
+	long GetCompleteTime()
+	{
+		return m_nCompleteTime;
+	}
+
 private:
-	void SetQuestState(char cQuestState)	{ m_cQuestState = cQuestState; }
+	void SetQuestState(char cQuestState)
+	{
+		m_cQuestState = cQuestState;
+	}
 };
 
 class CQuestList
@@ -159,18 +270,45 @@ public:
 	CQuestList();
 	~CQuestList();
 
-	int GetCountRun()						{ return m_nCountRun; }
-	int GetCountDone()						{ return m_nCountDone; }
-	int GetCountAbandon()					{ return m_nCountAbandon; }
+	int GetCountRun()
+	{
+		return m_nCountRun;
+	}
+	int GetCountDone()
+	{
+		return m_nCountDone;
+	}
+	int GetCountAbandon()
+	{
+		return m_nCountAbandon;
+	}
 
-	void DecreaseQuestComepleteCount()		{ if (m_nCountComplete > 0) m_nCountComplete--; }
-	void IncreaseQuestComepleteCount()		{ m_nCountComplete++; }
-	int GetQuestComepleteCount()			{ return m_nCountComplete; }
-	void ResetQuestComepleteCount()			{ m_nCountComplete = 0; }
+	void DecreaseQuestComepleteCount()
+	{
+		if (m_nCountComplete > 0) m_nCountComplete--;
+	}
+	void IncreaseQuestComepleteCount()
+	{
+		m_nCountComplete++;
+	}
+	int GetQuestComepleteCount()
+	{
+		return m_nCountComplete;
+	}
+	void ResetQuestComepleteCount()
+	{
+		m_nCountComplete = 0;
+	}
 
 	CQuest* AddQuest(int nQuestIndex);
-	bool DelQuest(CPC* pPC, CQuest* pQuest);
+	void DelQuest(CPC* pPC, int questIndex);
+	bool DelQuest(CPC* pPC, CQuest* pQuest, char cQuestState = QUEST_STATE_RUN );
+	void DelQuestALL(CPC* pPC, char cQuestState);
 	CQuest* FindQuest(int nQuestIndex);
+	bool	FindQuest(int nQuestIndex, char cQuestState);
+	CQuest* FindQuestByItem(int nitemIndex);
+	CQuest* FindQuestByMob(int nMobIndex);
+
 	bool	IsQuestType0( int qType0 );		//  [2/26/2007 KwonYongDae] 현재 퀘스트 타입이 진행 중인지 확인
 
 	void SetQuestState(CQuest* pQuest, char cQuestState);
@@ -179,114 +317,8 @@ public:
 	CQuest* GetNextQuest(CQuest* pCurrentQuest, char cQuestState = QUEST_STATE_ALL);
 
 	void CheckComplete(CPC* pc);				// 퀘스트 중 Complete 되었는데 Msg 안보냈다면 보낸다 체크!
+	void clear();
+	bool isRvrQuest(CPC* pc, int questIndex);
 };
-
-#else // QUEST_DATA_EXTEND
-
-class CQuest
-{
-public:
-	CQuestProto*	m_proto;						// 퀘스트 프로토
-
-	// 수행 조건
-	int				m_currentData[QUEST_MAX_CONDITION];	// 현재 상태
-
-	CQuest(CQuestProto* proto);
-
-	void QuestUpdateData(CPC* pc, CNPC* npc);		// 진행중인 퀘스트 데이타 갱신
-	bool IsPetQuest() 
-	{ if( m_proto->m_index ==  PET_HORSE_QUEST_INDEX || m_proto->m_index ==  PET_DRAGON_QUEST_INDEX || m_proto->m_index ==  PET_BLUE_HORSE_QUEST_INDEX || m_proto->m_index ==  PET_PINK_DRAGON_QUEST_INDEX || m_proto->m_index ==  PET_UNKOWN_HORSE_QUEST_INDEX || m_proto->m_index ==  PET_UNKOWN_DRAGON_QUEST_INDEX ) return true; return false; }
-};
-
-/////////////////////
-// 캐릭터 Quest List
-class CQuestList
-{
-
-public:
-	CQuest*			m_list[QUEST_MAX_PC];				// 퀘스트 리스트
-	bool			m_bQuest[QUEST_MAX_PC];				// 퀘스트 수행중인가 (보상받아야 수행끝)
-	int				m_nCount;							// 수행중인 퀘스트 수
-
-	int				m_nComplete;						// 수행완료해서 보상 받은 퀘스트 수 : DB저장 없음 (for Single Dungeon)
-
-	bool			m_bComplete[QUEST_MAX_PC];			// 퀘스트 완료 했는가 (보상전)
-	bool			m_bComplete2[QUEST_MAX_PC];			// 퀘스트 완료 했는가 (보상전)
-
-	int				m_doneQuest[QUEST_MAX_PC_COMPLETE];	// 완료한 1회용 퀘스트 번호 모음
-
-	int				m_abandonQuest[QUEST_MAX_PC_COMPLETE];  // 포기한 퀘스트 번호 모음
-	int				m_doneCnt;								//포기 퀘스트 갯수
-	int				m_abandonCnt;							//완료 퀘스트 갯수
-
-
-	CQuestList();
-	~CQuestList();
-
-	int		AddQuest(CQuest* quest);			// Quest List에 새로운 quest insert
-	bool	DelQuest(CPC* pc, CQuest* quest);	// Quest List에 새로운 quest delete
-	int		FindQuest(int index);				// 퀘스트 리스트중 해당 퀘스트 찾아 리스트 인덱스 반환
-
-	char*	GetIndexString(char* buf);			// 수행중인 퀘스트 DB 저장 Index String 만들기
-	char*	GetValueString(char* buf);			// 수행중인 퀘스트 DB 저장 Value String 만들기
-	char*	GetCompleteIndexString(char* buf);	// 완료한 퀘스트 DB 저장 Index String 만들기
-
-	void	CheckComplete(CPC* pc);				// 퀘스트 중 Complete 되었는데 Msg 안보냈다면 보낸다 체크!
-	
-	char*	GetAbandonIndexString(char* buf); //포기한 퀘스트 DB저장할 index string 만들기.
-
-	bool SetDoneQuest(int val)
-	{
-		int i;
-		for (i = 0; i < QUEST_MAX_PC_COMPLETE; i++)
-		{
-			if (m_doneQuest[i] == -1)
-			{
-				m_doneQuest[i] = val;
-				return true;
-			}
-		}
-		return false;
-	}
-
-	int GetDoneQuest(int idx)
-	{
-		if (idx >= 0 && idx < QUEST_MAX_PC_COMPLETE)
-			return m_doneQuest[idx];
-		else
-			return -1;
-	}
-
-	bool IsCompleted(int idx)
-	{
-		if (idx >= 0 && idx < QUEST_MAX_PC)
-			return (m_bComplete[idx] && m_bComplete2[idx]);//0608
-		else
-			return false;
-	}
-
-	bool SetComplete(int idx, bool val)
-	{
-		if (idx >= 0 && idx < QUEST_MAX_PC)
-		{
-			m_bComplete[idx] = val;
-			return true;
-		}
-		else
-			return false;
-	}
-
-	bool SetComplete2(int idx, bool val)//일반 아이템 condition체크.
-	{
-		if (idx >= 0 && idx < QUEST_MAX_PC)
-		{
-			m_bComplete2[idx] = val;
-			return true;
-		}
-		else
-			return false;
-	}
-};
-#endif // QUEST_DATA_EXTEND
 
 #endif // !defined(AFX_QUEST_H__0F547455_B4DB_4214_8DA3_2F5F2BE49117__INCLUDED_)

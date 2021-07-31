@@ -1,6 +1,6 @@
 #include "stdhdrs.h"
+
 #include "Log.h"
-#include "Cmd.h"
 #include "Character.h"
 #include "Server.h"
 #include "CmdMsg.h"
@@ -8,18 +8,18 @@
 
 ////////////////////////////
 // 싱글던전 NPC Regen 요청
-void do_NPCRegen(CPC* ch, CNetMsg& msg)
+void do_NPCRegen(CPC* ch, CNetMsg::SP& msg)
 {
 	int index, dbIndex, yLayer;
 	int	entityIndex;	// 클라이언트 전용 인덱스
 	float x, z, h, r;
 
-	msg.MoveFirst();
+	msg->MoveFirst();
 
-	msg >> index
-		>> dbIndex
-		>> x >> z >> h >> r >> yLayer
-		>> entityIndex;
+	RefMsg(msg) >> index
+				>> dbIndex
+				>> x >> z >> h >> r >> yLayer
+				>> entityIndex;
 
 	// npc regen 요청이 아니면
 	if (index != -1)
@@ -38,7 +38,7 @@ void do_NPCRegen(CPC* ch, CNetMsg& msg)
 
 	CNPC* npc;
 	// npc 생성
-	npc = gserver.m_npcProtoList.Create(dbIndex, NULL);
+	npc = gserver->m_npcProtoList.Create(dbIndex, NULL);
 
 	if (!npc)	return;
 
@@ -47,18 +47,16 @@ void do_NPCRegen(CPC* ch, CNetMsg& msg)
 		// 가까운 마을로
 		int nearZone;
 		int nearZonePos;
-		int i = gserver.FindNearestZone(ch->m_pZone->m_index, GET_X(ch), GET_Z(ch), &nearZone, &nearZonePos);
-		if (i == -1)
-			return ;
-		
-		CZone* pZone = gserver.m_zones + i;
+		CZone* pZone = gserver->FindNearestZone(ch->m_pZone->m_index, GET_X(ch), GET_Z(ch), &nearZone, &nearZonePos);
+		if (pZone == NULL)
+			return;
 
 		GAMELOG << init("PD_BUG_HACK_REGEN", ch) << "ZONE" << ch->m_pZone->m_index << delim << "NPC" << delim << dbIndex << end;
-		
+
 		GoZone(ch, nearZone,
-			pZone->m_zonePos[nearZonePos][0],															// ylayer
-			GetRandom(pZone->m_zonePos[nearZonePos][1], pZone->m_zonePos[nearZonePos][3]) / 2.0f,		// x
-			GetRandom(pZone->m_zonePos[nearZonePos][2], pZone->m_zonePos[nearZonePos][4]) / 2.0f);		// z
+			   pZone->m_zonePos[nearZonePos][0],															// ylayer
+			   GetRandom(pZone->m_zonePos[nearZonePos][1], pZone->m_zonePos[nearZonePos][3]) / 2.0f,		// x
+			   GetRandom(pZone->m_zonePos[nearZonePos][2], pZone->m_zonePos[nearZonePos][4]) / 2.0f);		// z
 
 		if(npc)
 			delete npc;
@@ -80,7 +78,25 @@ void do_NPCRegen(CPC* ch, CNetMsg& msg)
 	ch->m_pArea->PointToCellNum(GET_X(npc), GET_Z(npc), &cx, &cz);
 	ch->m_pArea->CharToCell(npc, GET_YLAYER(npc), cx, cz);
 
-	CNetMsg npcRegenMsg;
-	NPCRegenMsg(npcRegenMsg, npc, entityIndex);
-	ch->m_pArea->SendToCell(npcRegenMsg, ch, true);
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		NPCRegenMsg(rmsg, npc, entityIndex);
+		ch->m_pArea->SendToCell(rmsg, ch, true);
+	}
+
+#ifdef LC_GAMIGO
+	if(ch->m_pZone->m_index == ZONE_SINGLE_DUNGEON1)
+	{
+		GAMELOG << init("NPC REGEN PD1", ch)
+				<< index << delim
+				<< dbIndex << delim
+				<< x << delim
+				<< z << delim
+				<< h << delim
+				<< r << delim
+				<< yLayer << delim
+				<< entityIndex << end;
+	}
+#endif // LC_GAMIGO
 }
+//

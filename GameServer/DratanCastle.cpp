@@ -1,10 +1,11 @@
+#include <boost/format.hpp>
 #include "stdhdrs.h"
-#include "DBCmd.h"
+
+#include "../ShareLib/DBCmd.h"
 #include "DratanCastle.h"
+#include "../ShareLib/packetType/ptype_old_do_item.h"
 
-#ifdef DRATAN_CASTLE
 
-#ifdef DYNAMIC_DUNGEON
 CDungeon::CDungeon()
 {
 	m_nEnterFeeRate = 100;
@@ -17,7 +18,6 @@ CDungeon::CDungeon()
 
 CDungeon::~CDungeon()
 {
-
 }
 
 void CDungeon::SetChangeTime(int nTime)
@@ -91,7 +91,8 @@ void CDungeon::ChangeSetting()
 		return;
 	}
 
-	int nMobRate[10][4] = {	// 공격력, 방어력, 최대체력, 시야범위
+	int nMobRate[10][4] =  	// 공격력, 방어력, 최대체력, 시야범위
+	{
 		{20, 20, 30, 0},
 		{10, 10, 15, 0},
 		{5, 5, 10, 0},
@@ -139,7 +140,7 @@ void CDungeon::ChangeSetting()
 			{
 				npc->m_eqMagic = 1;
 			}
-		}			
+		}
 
 		// 방어력 적용
 		npc->m_eqDefense = npc->m_proto->m_defense + npc->m_proto->m_defense * nMobRate[midx][1] / 100;
@@ -160,7 +161,36 @@ void CDungeon::ChangeSetting()
 		npc = npc->m_pNPCNext;
 	}
 }
-#endif // DYNAMIC_DUNGEON
+
+bool CDungeon::checkOwnerMode()
+{
+	if(GetEnvRate() <= 80 || GetMobRate() <= 80)
+		return false;
+
+	return true;
+}
+
+void CDungeon::setOwnerMode( bool ownerMode )
+{
+	m_owner_mode = ownerMode;
+
+	if(ownerMode == false)
+	{
+		setChangeNormalTime(gserver->getNowSecond());
+
+		//헬퍼로 변경 시간 업데이트
+		if(gserver->m_helper->isRun())
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			HelperDVDNormalChangeTimeMsg(rmsg, GetChangeNormalTime());
+			SEND_Q(rmsg, gserver->m_helper);
+		}
+	}
+	else
+	{
+		setChangeNormalTime(0);
+	}
+}
 
 CGuardList::CGuardList()
 {
@@ -214,7 +244,7 @@ bool CGuardList::InsertGuard(int idx, float x, float z, float h)
 	{
 		return false;
 	}
-	
+
 	m_pGardList[m_cnt].mobindex = idx;
 	m_pGardList[m_cnt].pos_x = x;
 	m_pGardList[m_cnt].pos_z = z;
@@ -249,22 +279,12 @@ int CGuardList::GetMaxCount()
 	return m_maxcnt;
 }
 
-GUARD * CGuardList::GetGuardList(int idx)
-{
-	if(idx >= m_cnt)
-	{
-		return NULL;
-	}
-
-	return  &m_pGardList[idx];
-}
-
 CDratanCastle * CDratanCastle::pInstance = 0;
 
 CDratanCastle::CDratanCastle() : CWarCastle()
 {
 	memset(m_gateNPC, 0, sizeof(CNPC*) * COUNT_DRATAN_GATE_NPC);
-	
+
 	InitMasterTower();
 	InitRespond();
 	InitReinforce();
@@ -275,23 +295,26 @@ CDratanCastle::CDratanCastle() : CWarCastle()
 	m_bLoop = true;
 
 	m_pDungeonNPC = NULL;
+	m_isNotChange = false;
 }
 
 void CDratanCastle::InitRebrithNPC()
 {
 	for(int i = 0; i < 7; i++)
 	{
-		m_pRebrithNPC[i] = NULL;	
+		m_pRebrithNPC[i] = NULL;
 		m_nRebrithGuild[i] = -1;
 		m_strRebrithGuild[i] = new char[51];
 		memset((void *)m_strRebrithGuild[i], 0, 51);
+
+		m_nRegenTimeRebirthNPC[i] = 0;
 	}
 }
 
 void CDratanCastle::ResetRebrithNPC()
 {
 	for(int i = 0; i < 7; i++)
-	{	
+	{
 		m_nRebrithGuild[i] = -1;
 		memset((void *)m_strRebrithGuild[i], 0, 51);
 	}
@@ -316,7 +339,7 @@ void CDratanCastle::InitRespond()
 	{
 		if(m_RespondMember[i] != 0)
 		{
-			CPC * pc = gserver.m_playerList.Find(m_RespondMember[i]);
+			CPC* pc = PCManager::instance()->getPlayerByCharIndex(m_RespondMember[i]);
 			if( pc != NULL)
 			{
 				pc->ResetPlayerState(PLAYER_CRISTAL_RESPOND);
@@ -331,7 +354,11 @@ void CDratanCastle::InitRespond()
 
 bool CDratanCastle::SetRespondMember(CPC * pc)
 {
+#ifdef BUGFIX_DRATAN_CRISTAL_RESPOND
+	if(m_respondCnt >= 5)
+#else
 	if(m_respondCnt > 5)
+#endif // BUGFIX_DRATAN_CRISTAL_RESPOND
 	{
 		return false;
 	}
@@ -342,6 +369,9 @@ bool CDratanCastle::SetRespondMember(CPC * pc)
 			if(m_RespondMember[i] == 0)
 			{
 				m_RespondMember[i] = pc->m_index;
+#ifdef BUGFIX_DRATAN_CRISTAL_RESPOND
+				m_respondCnt++;
+#endif // BUGFIX_DRATAN_CRISTAL_RESPOND
 				return true;
 			}
 		}
@@ -374,8 +404,8 @@ void CDratanCastle::InitMasterTower()
 
 char CDratanCastle::GetTowerStatus(int i)
 {
-	if( i < 7 
-		&& m_nMasterTower[i] <= 5)
+	if( i < 7
+			&& m_nMasterTower[i] <= 5)
 	{
 		return m_nMasterTower[i];
 	}
@@ -385,8 +415,8 @@ char CDratanCastle::GetTowerStatus(int i)
 
 bool CDratanCastle::SetTowerStatus(int i, char values)
 {
-	if( i < 7 
-		&& values <= 5)
+	if( i < 7
+			&& values <= 5)
 	{
 		m_nMasterTower[i] = values;
 		return true;
@@ -423,7 +453,7 @@ void CDratanCastle::SetNextWarTime(int nextWarTime)
 	// 현재 요일을 구함
 	struct tm curtm = NOW();
 
-#if defined (LC_KOR) || defined (LC_MAL) || defined (LC_BRZ) 
+#if defined (LC_KOR) || defined(LC_BILA) || defined (LC_GAMIGO)
 	// 다음 일요일을 구함
 	int next = 7 - curtm.tm_wday;
 	if (next < 7)
@@ -442,13 +472,8 @@ void CDratanCastle::SetNextWarTime(int nextWarTime)
 	nexttm.tm_min = 0;
 	nexttm.tm_sec = 0;
 	nexttm.tm_mday += next;
+	nexttm.tm_isdst = -1;
 	time_t nexttime = mktime(&nexttm);
-
-#ifdef LC_JPN  // 일본의 경우 드라탄 공성전 자동 셋팅 안되게~
-	// 일본은 1000일을 늘려버림..
-	nexttm.tm_mday += 1000;
-	nexttime = mktime(&nexttm);
-#endif
 
 	// 현재 시간보다 작으면 다음주로
 	if (nexttime < curtime)
@@ -470,12 +495,12 @@ void CDratanCastle::SetNextWarTime(int nextWarTime)
 
 bool CDratanCastle::IsJoinTime()
 {
-#ifndef TEST_SERVER
 	if (m_bMoveToRegen)
 		return false;
 
 	struct tm tmJoinTime;
 	GetJoinTime(&tmJoinTime, false);
+	tmJoinTime.tm_isdst = -1;
 	time_t jointime = mktime(&tmJoinTime);
 
 	// 마지막 공성시간과 비교
@@ -483,7 +508,7 @@ bool CDratanCastle::IsJoinTime()
 	time(&curtime);
 	if (m_lastWarTime < curtime && curtime < jointime)
 		return false;
-#endif // KJTEST
+
 	return true;
 }
 
@@ -500,11 +525,12 @@ void CDratanCastle::GetJoinTime(struct tm* joinTime, bool bHumanable)
 	nDay -= 1;
 
 	// 다음 공성에서 nDay일을 빼고
-	// 그 날 20시로 설정 : 7시 
+	// 그 날 20시로 설정 : 7시
 	tmNext.tm_hour = 20;
 	tmNext.tm_min = 0;
 	tmNext.tm_sec = 0;
 	tmNext.tm_mday -= nDay;
+	tmNext.tm_isdst = -1;
 	time_t tJoin = mktime(&tmNext);
 
 	*joinTime = *localtime(&tJoin);
@@ -533,14 +559,22 @@ int CDratanCastle::GetRegenPoint(int joinflag, CPC* ch)
 				if (m_nRebrithGuild[i] == ch->m_guildInfo->guild()->index())
 				{
 					switch (i)
-					{	///===
-					case 0:		return 18;
-					case 1:		return 19;
-					case 2:		return 20;
-					case 3:		return 21;
-					case 4:		return 22;
-					case 5:		return 23;
-					case 6:		return 24;
+					{
+					///===
+					case 0:
+						return 18;
+					case 1:
+						return 19;
+					case 2:
+						return 20;
+					case 3:
+						return 21;
+					case 4:
+						return 22;
+					case 5:
+						return 23;
+					case 6:
+						return 24;
 					}
 				}
 			}
@@ -568,11 +602,23 @@ void CDratanCastle::SetGateNPC(CNPC* npc)
 	{
 		switch (npc->m_proto->m_index)
 		{
-		case 388:	m_gateNPC[0] = npc;	return;		// 외성문
-		case 389:	m_gateNPC[1] = npc;	return;		// 내성문 1
-		case 404:	m_gateNPC[2] = npc;	return;		// 내성문 2
-
-		default:			return ;
+		case 388:
+			m_gateNPC[0] = npc;
+			return;		// 외성문
+		case 389:
+			m_gateNPC[1] = npc;
+			return;		// 내성문 1
+		case 404:
+			m_gateNPC[2] = npc;
+			return;		// 내성문 2
+		case 1625:
+			m_gateNPC[3] = npc;
+			return;
+		case 1626:
+			m_gateNPC[4] = npc;
+			return;
+		default:
+			return ;
 		}
 	}
 }
@@ -580,8 +626,8 @@ void CDratanCastle::SetGateNPC(CNPC* npc)
 void CDratanCastle::SetWarpNPC(CNPC* npc)
 {
 	if (npc->m_proto->CheckFlag(NPC_CASTLE_TOWER)
-		&& npc->m_proto->m_index >= 382
-		&& npc->m_proto->m_index <= 386)
+			&& npc->m_proto->m_index >= 382
+			&& npc->m_proto->m_index <= 386)
 	{
 		m_pWarpNPC[npc->m_proto->m_index - 382] = npc;
 	}
@@ -590,9 +636,9 @@ void CDratanCastle::SetWarpNPC(CNPC* npc)
 void CDratanCastle::SetRebrithNPC(CNPC* npc)
 {
 	if (npc->m_proto->CheckFlag(NPC_WARCASTLE)
-		&& npc->m_proto->CheckFlag(NPC_CASTLE_TOWER)
-		&& npc->m_proto->m_index >= 390
-		&& npc->m_proto->m_index <= 396)
+			&& npc->m_proto->CheckFlag(NPC_CASTLE_TOWER)
+			&& npc->m_proto->m_index >= 390
+			&& npc->m_proto->m_index <= 396)
 	{
 		if( m_pRebrithNPC[npc->m_proto->m_index - 390] == NULL )
 		{
@@ -609,9 +655,9 @@ void CDratanCastle::UpdateGateState(CNPC* npc)
 		if (m_gateNPC[i] == npc)
 		{
 			m_gateState |= (1 << (i + 6));
-			
+
 			GAMELOG << init("DRATAN GATE NPC DESTROY")
-				<< npc->m_proto->m_index << end;
+					<< npc->m_proto->m_index << end;
 			return;
 		}
 	}
@@ -620,7 +666,7 @@ void CDratanCastle::UpdateGateState(CNPC* npc)
 bool CDratanCastle::IsOpenGate()
 {
 	// 외성문
-	int outer = (1 << 6);
+	int outer1 = (1 << 6);
 
 	// 내성문 1
 	int inner1 = (1 << 7);
@@ -628,13 +674,25 @@ bool CDratanCastle::IsOpenGate()
 	// 내성문 2
 	int inner2 = (1 << 8);
 
-	if (GetGateState(outer) == outer)
+	// 외성문2
+	int outer2 = (1 << 9);
+	
+	// 외성문3
+	int outer3 = (1 << 10);
+
+	if (GetGateState(outer1) == outer1)
 		return true;
 
 	if (GetGateState(inner1) == inner1)
 		return true;
 
 	if (GetGateState(inner2) == inner2)
+		return true;
+
+	if (GetGateState(outer2) == outer2)
+		return true;
+
+	if (GetGateState(outer3) == outer3)
 		return true;
 
 	return false;
@@ -652,7 +710,11 @@ bool CDratanCastle::SetNextWarTime(int wday, int hour)
 		maxHour = 20;
 #else
 		minHour = 13;
+#if defined(LC_GAMIGO)
+		maxHour = 21;
+#else // LC_GAMIGO
 		maxHour = 23;
+#endif // LC_GAMIGO
 #endif // LC_USA
 		break;
 
@@ -661,8 +723,12 @@ bool CDratanCastle::SetNextWarTime(int wday, int hour)
 		minHour = 11;
 		maxHour = 23;
 #else
-		minHour = 18;
+		minHour = 17;
+#if defined(LC_GAMIGO)
+		maxHour = 21;
+#else // LC_GAMIGO
 		maxHour = 23;
+#endif // LC_GAMIGO
 #endif // LC_USA
 		break;
 
@@ -689,112 +755,43 @@ bool CDratanCastle::SetNextWarTime(int wday, int hour)
 	nexttm.tm_min = 0;
 	nexttm.tm_sec = 0;
 	nexttm.tm_mday += next;
+	nexttm.tm_isdst = -1;
 	time_t nexttime = mktime(&nexttm);
 
-	// 현재 시간보다 작으면 ?	if (nexttime < curtime)
+	// 현재 시간보다 작으면
+	if (nexttime < curtime)
 		return false;
 
-#ifdef LC_JPN  // 일본의 경우 드라탄 공성전 자동 셋팅 안되게~
-	return false;
-#else
 	m_nextWarTime = nexttime;
-#endif
 
 	return true;
 }
 
 bool CDratanCastle::GiveLordItem(CPC* pc)
 {
-	CNetMsg rmsg;
-	CItem* lordItem = NULL;
-
-	int lordItemIndex = GetLordItemIndex(pc->m_job, 1);
-	int r, c;
-	if (pc->m_invenNormal.FindItem(&r, &c, lordItemIndex, 0, 0))
-	{
-		m_bGiveLordWeapon = true;
-		return true;
-	}
-	lordItemIndex = GetLordItemIndex(pc->m_job, 2);
-	if (pc->m_invenNormal.FindItem(&r, &c, lordItemIndex, 0, 0))
-	{
-		m_bGiveLordWeapon = true;
-		return true;
-	}
-	lordItemIndex = GetLordItemIndex(pc->m_job, pc->m_job2);
-
-	if (lordItemIndex > 0)
-	{
-		lordItem = gserver.m_itemProtoList.CreateItem(lordItemIndex, -1, 0, 0, 1);
-		if (lordItem)
-		{
-			if (AddToInventory(pc, lordItem, true, true))
-			{
-				ItemAddMsg(rmsg, lordItem);
-				SEND_Q(rmsg, pc->m_desc);
-			}
-			else
-			{
-				delete lordItem;
-				lordItem = NULL;
-			}
-		}
-	}
-
-	if (lordItem == NULL)
-	{
-		GAMELOG << init("WAR CASTLE : CANT GIVE WEAPON", pc)
-				<< "ZONE" << delim
-				<< GetZoneIndex() << delim
-				<< "JOB" << delim
-				<< pc->m_job << delim
-				<< pc->m_job2
-				<< end;
-
-		return false;
-	}
-	else
-	{
-		GAMELOG << init("WAR CASTLE : GIVE WEAPON", pc)
-				<< "ZONE" << delim
-				<< GetZoneIndex() << delim
-				<< "JOB" << delim
-				<< pc->m_job << delim
-				<< pc->m_job2 << delim
-				<< "ITEM" << delim
-				<< itemlog(lordItem)
-				<< end;
-
-		m_bGiveLordWeapon = true;
-
-		return true;
-	}
+	return false; // 드라탄은 무기 지급 안함
 }
 
 bool CDratanCastle::TakeLordItem(CPC* pc)
 {
-	CNetMsg rmsg;
-	int r, c;
-	if (pc->m_invenNormal.FindItem(&r, &c, GetLordItemIndex(pc->m_job, 1), 0, 0) ||
-		pc->m_invenNormal.FindItem(&r, &c, GetLordItemIndex(pc->m_job, 2), 0, 0))
+	CItem* item = NULL;
+
+	if ((item = pc ->m_inventory.FindByDBIndex(GetLordItemIndex(pc->m_job, 1), 0, 0)) ||
+			(item = pc->m_inventory.FindByDBIndex(GetLordItemIndex(pc->m_job, 2), 0, 0)) )
 	{
-		CItem* item = pc->m_invenNormal.GetItem(r, c);
-		if (item->m_wearPos != WEARING_NONE)
+		pc->m_inventory.decreaseItemCount(item, 1);
+	}
+	else if( (item = pc->m_wearInventory.FindByDBIndex(GetLordItemIndex(pc->m_job, 1))) ||
+			 (item = pc->m_wearInventory.FindByDBIndex(GetLordItemIndex(pc->m_job, 2))) )
+	{
+		if (item->getWearPos() >= WEARING_SHOW_START && item->getWearPos() <= WEARING_SHOW_END && pc->m_pArea)
 		{
-			ItemWearMsg(rmsg, item->m_wearPos, NULL, item);
-			SEND_Q(rmsg, pc->m_desc);
-			if (item->m_wearPos >= WEARING_SHOW_START && item->m_wearPos <= WEARING_SHOW_END && pc->m_pArea)
-			{
-				WearingMsg(rmsg, pc, item->m_wearPos, -1, 0);
-				pc->m_pArea->SendToCell(rmsg, pc, true);
-			}
-			pc->m_wearing[item->m_wearPos] = NULL;
-			item->m_wearPos = WEARING_NONE;
+			CNetMsg::SP rmsg(new CNetMsg);
+			WearingMsg(rmsg, pc, item->getWearPos(), -1, 0);
+			pc->m_pArea->SendToCell(rmsg, pc, true);
 		}
 
-		ItemDeleteMsg(rmsg, item);
-		SEND_Q(rmsg, pc->m_desc);
-		RemoveFromInventory(pc, item, true, true);
+		pc->m_wearInventory.RemoveItem(item->getWearPos());
 	}
 
 	if (GetOwnerCharIndex() == pc->m_index)
@@ -813,17 +810,21 @@ int CDratanCastle::GetLordItemIndex(char job1, char job2)
 	if (job2 < 1 || job2 > 2)
 		return -1;
 
-	const int itemindex[JOBCOUNT][2] = {
+	const int itemindex[JOBCOUNT][2] =
+	{
 		{861, 862},
 		{864, 863},
 		{865, 866},
 		{868, 867},
 		{869, 870},
 		{1070, 1071},
-// NIGHT_SHADOW 공성 무기 필요
-#ifdef NIGHT_SHADOW
-		{864, 863},
-#endif //NIGHT_SHADOW
+		{7274, 7274},
+#ifdef EX_ROGUE
+		{869, 870},
+#endif // EX_ROGUE
+#ifdef EX_MAGE
+		{865, 866},
+#endif // EX_MAGE
 	};
 
 	switch (job1)
@@ -834,10 +835,14 @@ int CDratanCastle::GetLordItemIndex(char job1, char job2)
 	case JOB_MAGE:
 	case JOB_ROGUE:
 	case JOB_SORCERER:
-#ifdef NIGHT_SHADOW
 	case JOB_NIGHTSHADOW:
-#endif //NIGHT_SHADOW
-		return itemindex[job1][job2 - 1];
+#ifdef EX_ROGUE
+	case JOB_EX_ROGUE:
+#endif // EX_ROGUE
+#ifdef EX_MAGE
+	case JOB_EX_MAGE:
+#endif // EX_MAGE
+		return itemindex[(int)job1][job2 - 1];
 	default:
 		return -1;
 	}
@@ -849,7 +854,7 @@ bool CDratanCastle::IsDefenseWarpPoint(int pos)
 	{
 		return false;
 	}
-	
+
 	return true;
 }
 
@@ -861,11 +866,9 @@ void CDratanCastle::InitGateNPC()
 
 void CDratanCastle::GetInnerCastleRect(char* nYlayer, int* nX0x2, int* nZ0x2, int* nX1x2, int* nZ1x2)
 {
-	int i = gserver.FindZone(GetZoneIndex());
-	if (i == -1)
-		return ;
-
-	CZone*	pZone	= gserver.m_zones + i;
+	CZone* pZone = gserver->FindZone(GetZoneIndex());
+	if (pZone == NULL)
+		return;
 
 	*nYlayer		= (char)(pZone->m_zonePos[26][0]);
 	*nX0x2			= pZone->m_zonePos[26][1];
@@ -874,11 +877,9 @@ void CDratanCastle::GetInnerCastleRect(char* nYlayer, int* nX0x2, int* nZ0x2, in
 	*nZ1x2			= pZone->m_zonePos[26][4];
 }
 
-
-CDratanCastle::CDratanCastle(const CDratanCastle & rhs) 
-: CWarCastle()
+CDratanCastle::CDratanCastle(const CDratanCastle & rhs)
+	: CWarCastle()
 {
-
 }
 
 CDratanCastle * CDratanCastle::CreateInstance()
@@ -892,16 +893,19 @@ CDratanCastle * CDratanCastle::CreateInstance()
 }
 
 void CDratanCastle::CheckWarCastle()
-{	///=== 공성 막기 kjtest
-//#ifdef KJTEST	
-#ifdef DYNAMIC_DUNGEON
+{
+	///=== 공성 막기 kjtest
 	// 공성 던전 난이도 조정
 	CheckDVD();
-#endif // DYNAMIC_DUNGEON
+
+	SendCastleState( GetCurSubServerCastleZoneIndex() );
+
+	// 공성 NPC 처리
+	CheckWarCastleNPC();
 
 	CHECK_SUBSERVER(this);
 
-	// 마스터 타워, 부활진지 
+	// 마스터 타워, 부활진지
 	CheckCastleControlNPC();
 
 	// 공성 시작 알림
@@ -912,33 +916,24 @@ void CDratanCastle::CheckWarCastle()
 
 	// 공성 끝
 	CheckWarCastleEnd();
-
-	// 공성 NPC 처리
-	CheckWarCastleNPC();
-
+	
 	// 권좌 생성
 	RegenLordSymbol();
 
 	// 상인 생성
 	RegenShop();
-//#endif // KJTEST
+
+	// 부활진지 재생성
+	//CheckRegenRebirthNPC();
 }
 
-#ifdef DYNAMIC_DUNGEON
 void CDratanCastle::CheckDVD()
 {
-#ifdef TEST_SERVER
-	if(gserver.m_pulse - m_dvd.GetChangeTime() >= PULSE_REAL_MIN)		// 10분 마다 10% 하락
-#else //TEST_SERVER
-	#if defined(LC_KOR) || defined ( LC_BRZ ) 
-		if(gserver.m_pulse - m_dvd.GetChangeTime() >= PULSE_REAL_HOUR*6)	// 6시간 마다 10% 하락
-	#else
-		if(gserver.m_pulse - m_dvd.GetChangeTime() >= PULSE_REAL_HOUR)		// 한시간 마다 10% 하락
-	#endif
-#endif //TEST_SERVER	
-	{	
-		CNetMsg rmsg;
-		
+	if(m_isNotChange == true)
+		return;
+
+	if(gserver->m_pulse - m_dvd.GetChangeTime() >= PULSE_REAL_HOUR)		// 한시간 마다 10% 하락
+	{
 		if(m_dvd.GetMobRate() - 10 > 0)
 		{
 			m_dvd.ChangeMobRate(-10);
@@ -956,24 +951,48 @@ void CDratanCastle::CheckDVD()
 		{
 			m_dvd.SetEnvRate(0);
 		}
+
+		//성주,일반 관리 모드 추가
+		//성주 관리 모드인데 80이하로 하락 하였을 경우에는 일반 모드로 전환
+		if( m_dvd.GetOwnerMode() == true 
+			&& m_dvd.checkOwnerMode() == false )
+		{
+			m_dvd.setOwnerMode(false);
+
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				if(gserver->m_helper->isRun() == true)
+				{
+					HelperDVDNormalChangeNoticeMsg(rmsg);
+					SEND_Q(rmsg, gserver->m_helper);
+				}
+			}
+		}
 		//
-		m_dvd.SetChangeTime(gserver.m_pulse);
+
+		//
+		m_dvd.SetChangeTime(gserver->m_pulse);
 
 		//
 		m_dvd.ChangeSetting();
-		
-		GAMELOG << init("DRATAN DYNAMIC DUNGEON EVN CHANGE") 
+
+		GAMELOG << init("DRATAN DYNAMIC DUNGEON EVN CHANGE")
 				<< "Env:" << m_dvd.GetEnvRate() << delim
 				<< "Mob:" << m_dvd.GetMobRate() << end;
-		
-		HelperDVDRateChangeMsg(rmsg, MSG_MANAGEMENT_ENV_CHANGE , m_dvd.GetEnvRate() );
-		SEND_Q(rmsg, gserver.m_helper);
 
-		HelperDVDRateChangeMsg(rmsg, MSG_MANAGEMENT_STATE_CHANGE , m_dvd.GetMobRate() );
-		SEND_Q(rmsg, gserver.m_helper);
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			HelperDVDRateChangeMsg(rmsg, MSG_MANAGEMENT_ENV_CHANGE , m_dvd.GetEnvRate(), m_dvd.GetOwnerMode() );
+			SEND_Q(rmsg, gserver->m_helper);
+		}
+
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			HelperDVDRateChangeMsg(rmsg, MSG_MANAGEMENT_STATE_CHANGE , m_dvd.GetMobRate(), m_dvd.GetOwnerMode() );
+			SEND_Q(rmsg, gserver->m_helper);
+		}
 	}
 }
-#endif // DYNAMIC_DUNGEON
 
 bool CDratanCastle::CheckSubServer()
 {
@@ -982,7 +1001,7 @@ bool CDratanCastle::CheckSubServer()
 
 int CDratanCastle::GetCurSubServerCastleZoneIndex()
 {
-	switch (gserver.m_subno)
+	switch (gserver->m_subno)
 	{
 	case WAR_CASTLE_SUBNUMBER_DRATAN:
 		return ZONE_DRATAN;
@@ -1000,10 +1019,14 @@ int CDratanCastle::CheckJoin(CPC* ch)
 		// 성주 길드 검사
 		if (guild->index() == GetOwnerGuildIndex())
 			return WCJF_OWNER;
-	
+
 		// 공성 길드 검사
 		if (IsAttackGuild(guild->index()))
 			return WCJF_ATTACK_GUILD;
+
+		// 수성 길드 검사
+		if (IsDefenseGuild(guild->index()))
+			return WCJF_DEFENSE_GUILD;
 	}
 
 	return WCJF_NONE;
@@ -1023,14 +1046,13 @@ void CDratanCastle::CheckWarCastleNotice()
 				return ;
 
 			// 게임내 모든 유저에게 알리기
-			if (IS_RUNNING_HELPER)
 			{
 				struct tm nextWarTime;
 				GetNextWarTime(&nextWarTime, true);
 
-				CNetMsg rmsg;
+				CNetMsg::SP rmsg(new CNetMsg);
 				HelperWarNoticeTimeMsg(rmsg, GetZoneIndex(), nextWarTime.tm_mon, nextWarTime.tm_mday, nextWarTime.tm_hour, nextWarTime.tm_min);
-				SEND_Q(rmsg, gserver.m_helper);
+				SEND_Q(rmsg, gserver->m_helper);
 				m_bNoticeWarTime = true;
 			}
 		}
@@ -1050,11 +1072,14 @@ void CDratanCastle::CheckWarCastleNotice()
 				int modnum = (nexttime - curtime) % 60;
 				if (modnum)
 					remain++;
-				if (remain != 0 && m_noticeRemain > remain && IS_RUNNING_HELPER)
+				if (remain != 0 && m_noticeRemain > remain && gserver->isRunHelper())
 				{
-					CNetMsg rmsg;
-					HelperWarNoticeRemainMsg(rmsg, GetZoneIndex(), remain);
-					SEND_Q(rmsg, gserver.m_helper);
+					{
+						CNetMsg::SP rmsg(new CNetMsg);
+						HelperWarNoticeRemainMsg(rmsg, GetZoneIndex(), remain);
+						SEND_Q(rmsg, gserver->m_helper);
+					}
+
 					m_noticeRemain = remain;
 
 					// 길드전 중지 요청
@@ -1062,9 +1087,8 @@ void CDratanCastle::CheckWarCastleNotice()
 					{
 						// 서버내의 길드 리스트를 돌면서
 						// 길드전 중이면 헬퍼에 요청
-						CNetMsg stopmsg;
 						CGuild* p;
-						for (p = gserver.m_guildlist.head(); p; p = p->nextguild())
+						for (p = gserver->m_guildlist.head(); p; p = p->nextguild())
 						{
 							if (p->battleZone() == GetZoneIndex())
 							{
@@ -1073,17 +1097,17 @@ void CDratanCastle::CheckWarCastleNotice()
 								case GUILD_BATTLE_STATE_WAIT:
 								case GUILD_BATTLE_STATE_ING:
 								case GUILD_BATTLE_STATE_STOP_WAIT:
-									if (IS_RUNNING_HELPER)
 									{
-										HelperGuildBattleStopReqMsg(stopmsg, p->index(), p->battleIndex());
-										SEND_Q(stopmsg, gserver.m_helper);
+										CNetMsg::SP rmsg(new CNetMsg);
+										HelperGuildBattleStopReqMsg(rmsg, p->index(), p->battleIndex());
+										SEND_Q(rmsg, gserver->m_helper);
 									}
 									break;
 								} // switch (p->battleState())
 							} // if (p->battleZone() == GetZoneIndex())
-						} // for (p = gserver.m_guildlist.head(); p; p = p->nextguild())
+						} // for (p = gserver->m_guildlist.head(); p; p = p->nextguild())
 					} // if (curtime + 60 >= nexttime)
-				} // if (remain != 0 && m_noticeRemain > remain && IS_RUNNING_HELPER)
+				} // if (remain != 0 && m_noticeRemain > remain && gserver->isRunHelper())
 			} // if (curtime + 10 * 60 >= nexttime)
 
 			// 시작 3분전 이동
@@ -1109,9 +1133,9 @@ void CDratanCastle::CheckWarCastleNotice()
 		{
 			if (m_bWarCastleReady)
 				m_bWarCastleReady = false;
-		} break;
+		}
+		break;
 	}
-
 }
 
 // 공성 시작
@@ -1131,6 +1155,8 @@ void CDratanCastle::CheckWarCastleStartWarCastle()
 	// 알림 메시지 시간 저장 변수를 초기화
 	m_noticeRemain = 9999;
 
+	SetOldOwnerChar( GetOwnerCharIndex() );
+
 	// 공성 신청 길드가 없으면 다음으로 넘어감
 	if (m_attackGuildList == NULL)
 	{
@@ -1139,18 +1165,17 @@ void CDratanCastle::CheckWarCastleStartWarCastle()
 		return;
 	}
 
-	// 수성측 제외 성에서 내보내기
-	GetOutNonDefense();
-
 	// 리젠 포인트 할당
 	InitRegenPosition();
 
 	// 강제 존이동 시키기
 	m_bMoveToRegen = true;
-	MoveToRegenPoint();
 
 	// 상태를 바꾸고
 	SetState(WCSF_WAR_CASTLE);
+
+	// 수성측 제외 성에서 내보내기
+	GetOutNonDefense();
 
 	// 워프 게이트 생성
 //	RegenWarpNPC();		// 수호탑 생성 할때 같이 생성
@@ -1160,34 +1185,33 @@ void CDratanCastle::CheckWarCastleStartWarCastle()
 
 	GAMELOG << init("WAR CASTLE : START WAR")
 			<< GetZoneIndex() << end;
-	
+
 	// 참여 길드 정보 기록
 	CWarCastleJoin * pJoin = m_attackGuildList;
 	while( pJoin != NULL )
 	{
 		GAMELOG << init("WAR CASTLE : JOIN ATTACK GUILD")
-			<< pJoin->GetIndex() << end;
+				<< pJoin->GetIndex() << end;
 		pJoin = pJoin->GetNext();
 	}
-	
+
 	pJoin = m_defenseGuildList;
 	while( pJoin != NULL )
 	{
 		GAMELOG << init("WAR CASTLE : JOIN DEFANSE GUILD")
-			<< pJoin->GetIndex() << end;
+				<< pJoin->GetIndex() << end;
 		pJoin = pJoin->GetNext();
 	}
 
 	// 마스터 타워 설정 로그
+	int i;
 	GAMELOG << init("WAR CASTLE : REINFORCE SETTING");
-	for( int i = 0; i < 7; i++ )
+	for( i = 0; i < 3; i++ )
 	{
-		 
 		GAMELOG << delim << (int)m_reinforce[i];
 	}
 	GAMELOG << end;
 
-		
 	// 알림 메시지 시간 저장 변수를 초기화
 	m_noticeRemain = 9999;
 
@@ -1195,27 +1219,27 @@ void CDratanCastle::CheckWarCastleStartWarCastle()
 	m_bLoop = true;
 
 	// 공성 시작을 헬퍼를 통해 알리기
-	CNetMsg rmsg;
-	if (IS_RUNNING_HELPER)
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		HelperWarNoticeStartAttackCastleMsg(rmsg, GetZoneIndex(), GetRemainWarTime(), 0, 0, 0);
-		SEND_Q(rmsg, gserver.m_helper);
+		SEND_Q(rmsg, gserver->m_helper);
 	}
-	
-	// 부활 진지 정보 전송
-	CastletowerQuartersListMsg(rmsg, this);
-	GetArea()->SendToAllClient(rmsg);
 
-#ifdef DYNAMIC_DUNGEON
+	{
+		// 부활 진지 정보 전송
+		CNetMsg::SP rmsg(new CNetMsg);
+		CastletowerQuartersListMsg(rmsg, this);
+		GetArea()->SendToAllClient(rmsg);
+	}
+
 	// 공성 보상 던전의 유저 강제 이동
 	MoveingDVD();
-#endif // DYNAMIC_DUNGEON
 }
 
-#ifdef DYNAMIC_DUNGEON
 // 공성 보상 던전의 유저 강제 이동
 void CDratanCastle::MoveingDVD()
-{	// 공성 대기 간이 마을로 이동
+{
+	// 공성 대기 간이 마을로 이동
 	if (m_dvd.GetZone() == 0)
 	{
 		return;
@@ -1223,10 +1247,18 @@ void CDratanCastle::MoveingDVD()
 
 	m_dvd.GetZone()->m_area->MoveAllChar( ZONE_DRATAN, 27 );
 }
-#endif // DYNAMIC_DUNGEON
 
 void CDratanCastle::CheckWarCastleEnd()
 {
+	if (GetState() != WCSF_NORMAL)
+	{
+		if( gserver->getNowSecond() >= GetGuildGradeSkillTime() + APPLY_GUILD_GRADE_SKILL_TIME  )
+		{
+			SetGuildGradeSkillTime( gserver->getNowSecond() );
+			ApplyGuildGradeSkillAll();
+		}
+	}
+
 	// 진행 상태 검사
 	if (GetState() != WCSF_WAR_CASTLE)
 		return;
@@ -1246,16 +1278,29 @@ void CDratanCastle::CheckWarCastleEnd()
 
 	// 공성 신청 길드가 없으면 다음으로 넘어감
 	if (m_attackGuildList == NULL)
-	{		
+	{
 		bFinished = true;
 	}
 
 	if (bFinished == false && m_bLoop == true)
 		return;
 
+	int oldOwnerCharIndex = GetOldOwnerChar();
+	SetOldOwnerChar(0);
+	if( oldOwnerCharIndex > 0)
+	{
+		CPC* pc = PCManager::instance()->getPlayerByCharIndex(oldOwnerCharIndex);
+		if( pc ) // 접속해 있으니 회수 한다.
+		{
+			pc->CastllanTitleDelete(-1, true);
+			pc->m_inventory.CastllanItemRemove(-1, true, true); // 삭제한다.
+		}
+	}
 	///== 승리자 구함
-	int bWinDefense = GetOwnerGuildIndex();
-	
+
+	char bWinDefense = (oldOwnerCharIndex == GetOwnerGuildIndex());
+
+	ChangeGuildNameColor();
 
 	// 권좌/수호탑/워프게이트/가디언 삭제
 	RemoveLordSymbol();
@@ -1265,12 +1310,15 @@ void CDratanCastle::CheckWarCastleEnd()
 
 	// 성 관리인  리젠
 	RegenCastleNPC();
-	
+
 	GAMELOG << init("WAR CASTLE : END WAR")
-			<< GetZoneIndex();
+			<< GetZoneIndex() << end;
 
 	// 성 정보 초기화
+	if(GetState() == WCSF_WAR_CASTLE)
+		m_bWarCastleReady = false;
 	SetState(WCSF_NORMAL);
+
 	m_lastWarTime = endWarTime;
 	SetNextWarTime(0);
 
@@ -1283,15 +1331,15 @@ void CDratanCastle::CheckWarCastleEnd()
 
 	// DB 초기화
 	CDBCmd cmd;
-	cmd.Init(&gserver.m_dbcastle);
+	cmd.Init(&gserver->m_dbcastle);
 
-	sprintf(g_buf,
-			"UPDATE t_castle"
-			" SET a_last_war_time = %d, a_state = 0, a_next_war_time = %d, a_owner_guild_index = %d, a_owner_guild_name = '%s', a_owner_char_index=%d, a_owner_char_name='%s'"
-			" WHERE a_zone_index = %d"
-			, m_lastWarTime, GetNextWarTime(), GetOwnerGuildIndex(), GetOwnerGuildName(), GetOwnerCharIndex(), GetOwnerCharName()
-			, GetZoneIndex());
-	cmd.SetQuery(g_buf);
+	std::string update_castle_sql = boost::str(boost::format(
+										"UPDATE t_castle"
+										" SET a_last_war_time = %d, a_state = 0, a_next_war_time = %d, a_owner_guild_index = %d, a_owner_guild_name = '%s', a_owner_char_index=%d, a_owner_char_name='%s'"
+										" WHERE a_zone_index = %d")
+									% m_lastWarTime % GetNextWarTime() % GetOwnerGuildIndex() % GetOwnerGuildName() % GetOwnerCharIndex() % GetOwnerCharName()
+									% GetZoneIndex());
+	cmd.SetQuery(update_castle_sql);
 	if (!cmd.Update())
 	{
 		GAMELOG << init("SYS_ERR: CANNOT SAVE CASTLE INFO")
@@ -1315,12 +1363,8 @@ void CDratanCastle::CheckWarCastleEnd()
 				<< end;
 	}
 
-	sprintf(g_buf,
-			"DELETE"
-			" FROM t_castle_join"
-			" WHERE a_zone_index = %d"
-			, GetZoneIndex());
-	cmd.SetQuery(g_buf);
+	std::string delete_castle_join_sql = boost::str(boost::format("DELETE FROM t_castle_join WHERE a_zone_index = %d") % GetZoneIndex());
+	cmd.SetQuery(delete_castle_join_sql);
 	if (!cmd.Update())
 	{
 		GAMELOG << init("SYS_ERR: CANNOT DELETE CASTLE JOIN INFO")
@@ -1331,12 +1375,8 @@ void CDratanCastle::CheckWarCastleEnd()
 
 	//  가디언 초기화
 	m_GuardList.clean();
-	sprintf(g_buf,
-		"DELETE"
-		" FROM t_castle_guard"
-		" WHERE a_zone_num = %d"
-		, GetZoneIndex());
-	cmd.SetQuery(g_buf);
+	std::string delete_castle_guard_sql = boost::str(boost::format("DELETE FROM t_castle_guard WHERE a_zone_num = %d") % GetZoneIndex());
+	cmd.SetQuery(delete_castle_guard_sql);
 	if (!cmd.Update())
 	{
 		GAMELOG << init("SYS_ERR: CANNOT DELETE CASTLE GUARD INFO")
@@ -1353,12 +1393,8 @@ void CDratanCastle::CheckWarCastleEnd()
 
 	// 마스터 타워 초기화
 	InitMasterTower();
-	sprintf(g_buf,
-		"DELETE"
-		" FROM t_castle_tower"
-		" WHERE a_zone_num = %d"
-		, GetZoneIndex());
-	cmd.SetQuery(g_buf);
+	std::string delete_castle_tower_sql = boost::str(boost::format("DELETE FROM t_castle_tower WHERE a_zone_num = %d") % GetZoneIndex());
+	cmd.SetQuery(delete_castle_tower_sql);
 	if (!cmd.Update())
 	{
 		GAMELOG << init("SYS_ERR: CANNOT DELETE CASTLE GUARD INFO")
@@ -1369,12 +1405,8 @@ void CDratanCastle::CheckWarCastleEnd()
 
 	// 수호탑 강화 초기화
 	InitReinforce();
-	sprintf(g_buf,
-		"DELETE"
-		" FROM t_castle_reinfoce"
-		" WHERE a_zone_num = %d"
-		, GetZoneIndex());
-	cmd.SetQuery(g_buf);
+	std::string delete_castle_reinforce_sql = boost::str(boost::format("DELETE FROM t_castle_reinforce WHERE a_zone_num = %d") % GetZoneIndex());
+	cmd.SetQuery(delete_castle_reinforce_sql);
 	if (!cmd.Update())
 	{
 		GAMELOG << init("SYS_ERR: CANNOT DELETE CASTLE TOWER REINFORCE")
@@ -1385,12 +1417,8 @@ void CDratanCastle::CheckWarCastleEnd()
 
 	// 부활 진지 초기화
 	ResetRebrithNPC();
-	sprintf(g_buf,
-		"DELETE"
-		" FROM t_castle_rebrith"
-		" WHERE a_zone_num = %d"
-		, GetZoneIndex());
-	cmd.SetQuery(g_buf);
+	std::string delete_castle_rebrith_sql = boost::str(boost::format("DELETE FROM t_castle_rebrith WHERE a_zone_num = %d") % GetZoneIndex());
+	cmd.SetQuery(delete_castle_rebrith_sql);
 	if (!cmd.Update())
 	{
 		GAMELOG << init("SYS_ERR: CANNOT DELETE CASTLE REBRITH")
@@ -1406,87 +1434,44 @@ void CDratanCastle::CheckWarCastleEnd()
 	// 공성 결과 알리기
 	struct tm tmJoin;
 	GetJoinTime(&tmJoin, true);
-	CNetMsg rmsg;
-	if (IS_RUNNING_HELPER)
+	if (gserver->isRunHelper())
 	{
-		HelperWarNoticeEndMsg(rmsg, GetZoneIndex(), bWinDefense, GetOwnerGuildIndex(), GetOwnerGuildName(), GetOwnerCharIndex(), GetOwnerCharName(), tmJoin.tm_mon, tmJoin.tm_mday, tmJoin.tm_hour, tmJoin.tm_wday); 
-		SEND_Q(rmsg, gserver.m_helper);
+		CNetMsg::SP rmsg(new CNetMsg);
+		HelperWarNoticeEndMsg(rmsg, GetZoneIndex(), bWinDefense, GetOwnerGuildIndex(), GetOwnerGuildName(), GetOwnerCharIndex(), GetOwnerCharName(), tmJoin.tm_mon, tmJoin.tm_mday, tmJoin.tm_hour, tmJoin.tm_wday);
+		SEND_Q(rmsg, gserver->m_helper);
 	}
 	else
 	{
-		GuildWarEndMsg(rmsg, GetZoneIndex(), ((bWinDefense) ? (char)1 : (char)0), GetOwnerGuildIndex(), GetOwnerGuildName(), GetOwnerCharIndex(), GetOwnerCharName(), tmJoin.tm_mon, tmJoin.tm_mday, tmJoin.tm_hour, tmJoin.tm_wday);
-		gserver.m_playerList.SendToAll(rmsg);
-		
-		
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			GuildWarEndMsg(rmsg, GetZoneIndex(), ((bWinDefense) ? (char)1 : (char)0), GetOwnerGuildIndex(), GetOwnerGuildName(), GetOwnerCharIndex(), GetOwnerCharName(), tmJoin.tm_mon, tmJoin.tm_mday, tmJoin.tm_hour, tmJoin.tm_wday);
+			PCManager::instance()->sendToAll(rmsg);
+		}
+
 		EndWarRegenPoint();
 
-		for( int i = 0; i < gserver.m_playerList.m_max; i++ )
+		PCManager::map_t& playerMap			= PCManager::instance()->getPlayerMap();
+		PCManager::map_t::iterator iter		= playerMap.begin();
+		PCManager::map_t::iterator endIter	= playerMap.end();
+
+		for (; iter != endIter; ++iter)
 		{
-			CPC* pc = gserver.m_playerList.m_pcList[i];
+			CPC* pc = (*iter).pPlayer;
 			if (pc)
 			{
+				pc->CureGuildGradeSkill();
 				// 바로 보내기
-				CNetMsg rmsg;		
+				CNetMsg::SP rmsg(new CNetMsg);
 				StatusMsg(rmsg, pc);
 				SEND_Q(rmsg, pc->m_desc );
 			}
 		}
-
 	}
-
-#ifdef ADULT_SERVER
-	// 공성 후 진영 변경 반영
-	CGuild * pGuild = gserver.m_guildlist.findguild(GetOwnerGuildIndex());
-	if( pGuild != NULL)
-	{
-		// 마을속성 0 :일반, 1:헌터, 2:카오
-		int mainV = 0, subV = 0;
-		switch(pGuild->GetIncline())
-		{
-		case  GUILD_INCLINE_GENERAL: // 일반 길드 0
-			mainV = 1, subV = 2;
-			break;
-
-		case GUILD_INCLINE_CHAO: // 카오 길드 1
-			mainV = 2, subV = 1;
-			break;
-
-		case GUILD_INCLINE_HUNTER: // 헌터 길드 2
-			mainV = 1, subV = 2;
-			break;
-		}
-
-		int nZoneIndex[2] = { ZONE_DRATAN, ZONE_START };
-		CNetMsg rmsg;
-
-		for( int changeZoneIndex=0; changeZoneIndex<2 ; changeZoneIndex++ )
-		{
-			rmsg.Init( MSG_HELPER_COMMAND );
-
-			int nIndex = gserver.FindZone(nZoneIndex[changeZoneIndex]);
-			if( nIndex >= 0 )
-			{
-				int count = gserver.m_zones[ nIndex ].m_CountChaoAttZonePos;
-				rmsg << MSG_HELPER_ZONE_CHAO_ATTR 
-					 << (char) MSG_HELPER_ZONE_CHAO_ATT_CHANGE
-					 << nZoneIndex[changeZoneIndex] << count;
-				for( int i=0; i<count; i++ )
-				{
-					char cAtt = ( i % 2 == 0 ) ? mainV : subV;
-					rmsg << cAtt;
-				}
-				SEND_Q( rmsg, gserver.m_helper );
-			}								
-		}
-	}
-#endif // ADULT_SERVER
 }
 
 // 공성전 기간 동안 성 관리인 삭제
 void CDratanCastle::CheckWarCastleNPC()
 {
-	CHECK_SUBSERVER(this);
-
 	switch (m_state)
 	{
 	case WCSF_NORMAL:
@@ -1517,7 +1502,8 @@ void CDratanCastle::CheckCastleControlNPC()
 }
 
 void CDratanCastle::RegenCastleControlNPC()
-{	// 마스터 타워와 부활진지
+{
+	// 마스터 타워와 부활진지
 	CHECK_SUBSERVER(this);
 
 	CArea* area = GetArea();
@@ -1530,12 +1516,12 @@ void CDratanCastle::RegenCastleControlNPC()
 		if (p->m_totalNum != 0)
 			continue ;
 
-		CNPCProto* proto = gserver.m_npcProtoList.FindProto(p->m_npcIdx);
-		if (proto != NULL 
-			&& proto->CheckFlag(NPC_WARCASTLE) != 0 
-			&& proto->CheckFlag(NPC_CASTLE_TOWER) != 0)
+		CNPCProto* proto = gserver->m_npcProtoList.FindProto(p->m_npcIdx);
+		if (proto != NULL
+				&& proto->CheckFlag(NPC_WARCASTLE) != 0
+				&& proto->CheckFlag(NPC_CASTLE_TOWER) != 0)
 		{
-			CNPC * npc = gserver.m_npcProtoList.Create(proto->m_index, p);
+			CNPC * npc = gserver->m_npcProtoList.Create(proto->m_index, p);
 			if (!npc)
 				return ;
 
@@ -1548,10 +1534,7 @@ void CDratanCastle::RegenCastleControlNPC()
 			npc->m_regenZ = GET_Z(npc);
 			npc->m_regenY = GET_YLAYER(npc);
 
-			npc->m_recoverPulse = gserver.m_pulse;
-#ifndef NEW_DIVISION_EXPSP
-			npc->m_totalDamage = 0;
-#endif // #ifndef NEW_DIVISION_EXPSP
+			npc->m_recoverPulse = gserver->m_pulse;
 
 			p->m_bAlive = true;
 			p->m_lastDieTime = 0;
@@ -1565,10 +1548,12 @@ void CDratanCastle::RegenCastleControlNPC()
 			area->PointToCellNum(GET_X(npc), GET_Z(npc), &cx, &cz);
 			area->CharToCell(npc, GET_YLAYER(npc), cx, cz);
 
-			CNetMsg rmsg;
-			AppearMsg(rmsg, npc, true);
-			area->SendToCell(rmsg, npc);
-			
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				AppearMsg(rmsg, npc, true);
+				area->SendToCell(rmsg, npc);
+			}
+
 			// 부활 진지 등록
 			SetRebrithNPC(npc);
 		}
@@ -1589,13 +1574,13 @@ void CDratanCastle::RemoveCastleControlNPC()
 	{
 		pNext = p->m_pNPCNext;
 		if (p->m_proto->CheckFlag(NPC_CASTLE_TOWER) != 0
-			&& p->m_proto->CheckFlag(NPC_WARCASTLE) != 0)
+				&& p->m_proto->CheckFlag(NPC_WARCASTLE) != 0)
 		{
 			p->SendDisappearAllInCell(true);
 
 			// 어택리스트에서 삭제
 			DelAttackList(p);
-			
+
 			// npc 삭제
 			area->CharFromCell(p, true);
 			area->DelNPC(p);
@@ -1609,8 +1594,6 @@ void CDratanCastle::RemoveCastleControlNPC()
 // 공성 NPC 리젠
 void CDratanCastle::RegenCastleNPC()
 {
-	CHECK_SUBSERVER(this);
-
 	if (m_castleNPC != NULL || m_pDungeonNPC != NULL )
 		return;
 
@@ -1625,19 +1608,19 @@ void CDratanCastle::RegenCastleNPC()
 		if (p->m_totalNum != 0)
 			continue ;
 
-		CNPCProto* proto = gserver.m_npcProtoList.FindProto(p->m_npcIdx);
-		if (proto != NULL 
-			&& proto->CheckFlag(NPC_WARCASTLE) != 0
-			&& ( proto->m_index == 387 || proto->m_index == 468 ) )
+		CNPCProto* proto = gserver->m_npcProtoList.FindProto(p->m_npcIdx);
+		if (proto != NULL
+				&& proto->CheckFlag(NPC_WARCASTLE) != 0
+				&& ( proto->m_index == 387 || proto->m_index == 468 ) )
 		{
-			CNPC* pTempNPC;
+			CNPC* pTempNPC = NULL;
 			if( !m_pDungeonNPC && proto->m_index == 468 )
 			{
-				pTempNPC = m_pDungeonNPC = gserver.m_npcProtoList.Create(proto->m_index, p);
+				pTempNPC = m_pDungeonNPC = gserver->m_npcProtoList.Create(proto->m_index, p);
 			}
 			else if( !m_castleNPC && proto->m_index == 387 )
 			{
-				pTempNPC = m_castleNPC = gserver.m_npcProtoList.Create(proto->m_index, p);
+				pTempNPC = m_castleNPC = gserver->m_npcProtoList.Create(proto->m_index, p);
 			}
 
 			if (!pTempNPC)
@@ -1652,10 +1635,7 @@ void CDratanCastle::RegenCastleNPC()
 			pTempNPC->m_regenZ = GET_Z(pTempNPC);
 			pTempNPC->m_regenY = GET_YLAYER(pTempNPC);
 
-			pTempNPC->m_recoverPulse = gserver.m_pulse;
-#ifndef NEW_DIVISION_EXPSP
-			pTempNPC->m_totalDamage = 0;
-#endif // #ifndef NEW_DIVISION_EXPSP
+			pTempNPC->m_recoverPulse = gserver->m_pulse;
 
 			p->m_bAlive = true;
 			p->m_lastDieTime = 0;
@@ -1670,16 +1650,18 @@ void CDratanCastle::RegenCastleNPC()
 			area->PointToCellNum(GET_X(pTempNPC), GET_Z(pTempNPC), &cx, &cz);
 			area->CharToCell(pTempNPC, GET_YLAYER(pTempNPC), cx, cz);
 
-			CNetMsg rmsg;
-			AppearMsg(rmsg, pTempNPC, true);
-			area->SendToCell(rmsg, pTempNPC);
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				AppearMsg(rmsg, pTempNPC, true);
+				area->SendToCell(rmsg, pTempNPC);
+			}
 
 			GAMELOG << init("CASTLE NPC REGEN")
 					<< "ZONE" << delim
 					<< GetZoneIndex()
 					<< delim << pTempNPC->m_idNum
 					<< end;
-			
+
 			pTempNPC = NULL;
 		}
 	}
@@ -1687,8 +1669,6 @@ void CDratanCastle::RegenCastleNPC()
 
 void CDratanCastle::RemoveCastleNPC()
 {
-	CHECK_SUBSERVER(this);
-
 	if (m_castleNPC == NULL)
 		return ;
 	CArea* area = m_castleNPC->m_pArea;
@@ -1712,8 +1692,6 @@ void CDratanCastle::RemoveCastleNPC()
 
 void CDratanCastle::RemoveDungeonNPC()
 {
-	CHECK_SUBSERVER(this);
-
 	if (m_pDungeonNPC == NULL)
 		return ;
 	CArea* area = m_pDungeonNPC->m_pArea;
@@ -1753,10 +1731,10 @@ void CDratanCastle::RegenCastleTower()
 	{
 		CNPCRegenInfo* p = area->m_npcRegenList.m_infoList + i;
 
-		if (p->m_totalNum != 0 || p->m_bAlive || (gserver.m_pulse - p->m_lastDieTime < p->m_regenSec))
+		if (p->m_totalNum != 0 || p->m_bAlive || (gserver->m_pulse - p->m_lastDieTime < p->m_regenSec))
 			continue ;
 
-		CNPCProto* proto = gserver.m_npcProtoList.FindProto(p->m_npcIdx);
+		CNPCProto* proto = gserver->m_npcProtoList.FindProto(p->m_npcIdx);
 		if (proto && proto->CheckFlag(NPC_CASTLE_TOWER) && proto->CheckFlag(NPC_WARCASTLE) == 0)
 		{
 			// 마스터 타워 설정 반영
@@ -1765,8 +1743,7 @@ void CDratanCastle::RegenCastleTower()
 				continue;
 			}
 
-
-			CNPC* npc = gserver.m_npcProtoList.Create(proto->m_index, p);
+			CNPC* npc = gserver->m_npcProtoList.Create(proto->m_index, p);
 			if (!npc)
 			{
 				return;
@@ -1781,15 +1758,11 @@ void CDratanCastle::RegenCastleTower()
 			npc->m_regenZ = GET_Z(npc);
 			npc->m_regenY = GET_YLAYER(npc);
 
-			npc->m_recoverPulse = gserver.m_pulse;
-#ifndef NEW_DIVISION_EXPSP
-			npc->m_totalDamage = 0;
-#endif // #ifndef NEW_DIVISION_EXPSP
+			npc->m_recoverPulse = gserver->m_pulse;
 
 			p->m_bAlive = true;
 			p->m_lastDieTime = 0;
 			npc->m_disableTime = 0;
-
 
 			// 수호탑 강화 적용
 			SetTowerReinforce(npc);
@@ -1802,9 +1775,11 @@ void CDratanCastle::RegenCastleTower()
 			area->PointToCellNum(GET_X(npc), GET_Z(npc), &cx, &cz);
 			area->CharToCell(npc, GET_YLAYER(npc), cx, cz);
 
-			CNetMsg rmsg;
-			AppearMsg(rmsg, npc, true);
-			area->SendToCell(rmsg, npc);
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				AppearMsg(rmsg, npc, true);
+				area->SendToCell(rmsg, npc);
+			}
 
 			// 성문지기 NPC 설정
 			SetGateNPC(npc);
@@ -1827,7 +1802,6 @@ void CDratanCastle::RegenCastleTower()
 	}
 }
 
-
 // 공성 타워 체력 1/2 리젠
 void CDratanCastle::RegenCastleTowerHalf()
 {
@@ -1846,15 +1820,15 @@ void CDratanCastle::RegenCastleTowerHalf()
 	{
 		CNPCRegenInfo* p = area->m_npcRegenList.m_infoList + i;
 
-		if (p->m_totalNum != 0 
-			|| p->m_bAlive											
-//			|| (gserver.m_pulse - p->m_lastDieTime < p->m_regenSec)		// 타워들은 리젠 시간에 관계 없이 리젠
-			)
+		if (p->m_totalNum != 0
+				|| p->m_bAlive
+//			|| (gserver->m_pulse - p->m_lastDieTime < p->m_regenSec)		// 타워들은 리젠 시간에 관계 없이 리젠
+		   )
 		{
 			continue ;
 		}
 
-		CNPCProto* proto = gserver.m_npcProtoList.FindProto(p->m_npcIdx);
+		CNPCProto* proto = gserver->m_npcProtoList.FindProto(p->m_npcIdx);
 		if (proto && proto->CheckFlag(NPC_CASTLE_TOWER) != 0 && proto->CheckFlag(NPC_WARCASTLE) == 0)
 		{
 			// 마스터 타워 설정 반영
@@ -1863,7 +1837,7 @@ void CDratanCastle::RegenCastleTowerHalf()
 				continue;
 			}
 
-			CNPC * npc = gserver.m_npcProtoList.Create(proto->m_index, p);
+			CNPC * npc = gserver->m_npcProtoList.Create(proto->m_index, p);
 			if (!npc)
 			{
 				return;
@@ -1878,10 +1852,7 @@ void CDratanCastle::RegenCastleTowerHalf()
 			npc->m_regenZ = GET_Z(npc);
 			npc->m_regenY = GET_YLAYER(npc);
 
-			npc->m_recoverPulse = gserver.m_pulse;
-#ifndef NEW_DIVISION_EXPSP
-			npc->m_totalDamage = 0;
-#endif // #ifndef NEW_DIVISION_EXPSP
+			npc->m_recoverPulse = gserver->m_pulse;
 
 			p->m_bAlive = true;
 			p->m_lastDieTime = 0;
@@ -1902,9 +1873,11 @@ void CDratanCastle::RegenCastleTowerHalf()
 			npc->m_hp = npc->m_proto->m_hp / 2;
 			npc->m_maxHP = npc->m_hp;
 
-			CNetMsg rmsg;
-			AppearMsg(rmsg, npc, true);
-			area->SendToCell(rmsg, npc);
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				AppearMsg(rmsg, npc, true);
+				area->SendToCell(rmsg, npc);
+			}
 
 			// 성문지기 NPC 설정
 			SetGateNPC(npc);
@@ -1942,43 +1915,13 @@ void CDratanCastle::RemoveCastleTower()
 	{
 		pNext = p->m_pNPCNext;
 		if (p->m_proto->CheckFlag(NPC_CASTLE_TOWER) != 0
-			&& p->m_proto->CheckFlag(NPC_WARCASTLE) == 0)
+				&& p->m_proto->CheckFlag(NPC_WARCASTLE) == 0)
 		{
 			p->SendDisappearAllInCell(true);
 
 			// 어택리스트에서 삭제
 			DelAttackList(p);
-			
-			// npc 삭제
-			area->CharFromCell(p, true);
-			area->DelNPC(p);
-		}
-	}
 
-	InitGateNPC();
-	InitWarpNPC();
-}
-
-
-// 공성 타워, 부활진지 삭제
-void CDratanCastle::RemoveCastleTowerHalf()
-{
-	CArea* area = GetArea();
-	if (!area)
-		return ;
-
-	CNPC* pNext = area->m_npcList;
-	CNPC* p;
-	while ((p = pNext))
-	{
-		pNext = p->m_pNPCNext;
-		if (p->m_proto->CheckFlag(NPC_CASTLE_TOWER | NPC_WARCASTLE) != 0)
-		{
-			p->SendDisappearAllInCell(true);
-
-			// 어택리스트에서 삭제
-			DelAttackList(p);
-			
 			// npc 삭제
 			area->CharFromCell(p, true);
 			area->DelNPC(p);
@@ -2005,10 +1948,10 @@ void CDratanCastle::RegenShop()
 		int i;
 		for (i = 0; i < area->m_zone->m_nShopCount; i++)
 		{
-			if (area->GetAttr(area->m_zone->m_shopList[i].m_yLayer, area->m_zone->m_shopList[i].m_x, area->m_zone->m_shopList[i].m_z) != MAPATT_WARZONE)
+			if ( !(area->GetAttr(area->m_zone->m_shopList[i].m_yLayer, area->m_zone->m_shopList[i].m_x, area->m_zone->m_shopList[i].m_z) & MATT_WAR) )
 				continue ;
 
-			CNPC* npc = gserver.m_npcProtoList.Create(area->m_zone->m_shopList[i].m_keeperIdx, NULL);
+			CNPC* npc = gserver->m_npcProtoList.Create(area->m_zone->m_shopList[i].m_keeperIdx, NULL);
 			if (!npc)
 				return ;
 
@@ -2021,10 +1964,7 @@ void CDratanCastle::RegenShop()
 			npc->m_regenZ = GET_Z(npc);
 			npc->m_regenY = GET_YLAYER(npc);
 
-			npc->m_recoverPulse = gserver.m_pulse;
-#ifndef NEW_DIVISION_EXPSP
-			npc->m_totalDamage = 0;
-#endif // #ifndef NEW_DIVISION_EXPSP
+			npc->m_recoverPulse = gserver->m_pulse;
 
 			npc->InitPointsToMax();
 			npc->m_disableTime = 0;
@@ -2037,9 +1977,11 @@ void CDratanCastle::RegenShop()
 			area->PointToCellNum(GET_X(npc), GET_Z(npc), &cx, &cz);
 			area->CharToCell(npc, GET_YLAYER(npc), cx, cz);
 
-			CNetMsg rmsg;
-			AppearMsg(rmsg, npc, true);
-			area->SendToCell(rmsg, npc);
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				AppearMsg(rmsg, npc, true);
+				area->SendToCell(rmsg, npc);
+			}
 
 			GAMELOG << init("CASTLE SHOP REGEN")
 					<< "ZONE" << delim
@@ -2064,13 +2006,13 @@ void CDratanCastle::RegenShop()
 		while ((p = pNext))
 		{
 			pNext = p->m_pNPCNext;
-			if (p->m_proto->CheckFlag(NPC_SHOPPER) && p->GetMapAttr() == MAPATT_WARZONE)
+			if (p->m_proto->CheckFlag(NPC_SHOPPER) && p->GetMapAttr() & MATT_WAR)
 			{
 				p->SendDisappearAllInCell(true);
 
 				// 어택리스트에서 삭제
 				DelAttackList(p);
-				
+
 				// npc 삭제
 				area->CharFromCell(p, true);
 				area->DelNPC(p);
@@ -2095,13 +2037,13 @@ void CDratanCastle::RegenLordSymbol()
 	for (i = 0; i < area->m_npcRegenList.m_nCount; i++)
 	{
 		CNPCRegenInfo* p = area->m_npcRegenList.m_infoList + i;
-		if (p->m_totalNum != 0 || p->m_bAlive || (gserver.m_pulse - p->m_lastDieTime < p->m_regenSec))
+		if (p->m_totalNum != 0 || p->m_bAlive || (gserver->m_pulse - p->m_lastDieTime < p->m_regenSec))
 			continue ;
 
-		CNPCProto* proto = gserver.m_npcProtoList.FindProto(p->m_npcIdx);
+		CNPCProto* proto = gserver->m_npcProtoList.FindProto(p->m_npcIdx);
 		if (proto && proto->CheckFlag(NPC_LORD_SYMBOL))
 		{
-			m_lordSymbol = gserver.m_npcProtoList.Create(proto->m_index, p);
+			m_lordSymbol = gserver->m_npcProtoList.Create(proto->m_index, p);
 			if (!m_lordSymbol)
 				return ;
 
@@ -2114,10 +2056,7 @@ void CDratanCastle::RegenLordSymbol()
 			m_lordSymbol->m_regenZ = GET_Z(m_lordSymbol);
 			m_lordSymbol->m_regenY = GET_YLAYER(m_lordSymbol);
 
-			m_lordSymbol->m_recoverPulse = gserver.m_pulse;
-#ifndef NEW_DIVISION_EXPSP
-			m_lordSymbol->m_totalDamage = 0;
-#endif // #ifndef NEW_DIVISION_EXPSP
+			m_lordSymbol->m_recoverPulse = gserver->m_pulse;
 
 			p->m_bAlive = true;
 			p->m_lastDieTime = 0;
@@ -2132,9 +2071,11 @@ void CDratanCastle::RegenLordSymbol()
 			area->PointToCellNum(GET_X(m_lordSymbol), GET_Z(m_lordSymbol), &cx, &cz);
 			area->CharToCell(m_lordSymbol, GET_YLAYER(m_lordSymbol), cx, cz);
 
-			CNetMsg rmsg;
-			AppearMsg(rmsg, m_lordSymbol, true);
-			area->SendToCell(rmsg, m_lordSymbol);
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				AppearMsg(rmsg, m_lordSymbol, true);
+				area->SendToCell(rmsg, m_lordSymbol);
+			}
 
 			GAMELOG << init("LORD SYMBOL REGEN")
 					<< "ZONE" << delim
@@ -2189,7 +2130,7 @@ void CDratanCastle::RegenGuardNPC()
 	for (i = 0; i < area->m_npcRegenList.m_nCount; i++)
 	{
 		CNPCRegenInfo * p = area->m_npcRegenList.m_infoList + i;
-//		if (gserver.m_pulse - p->m_lastDieTime < p->m_regenSec)
+//		if (gserver->m_pulse - p->m_lastDieTime < p->m_regenSec)
 //		{	// 리젠 시간 체크
 //			continue;
 //		}
@@ -2199,10 +2140,10 @@ void CDratanCastle::RegenGuardNPC()
 			continue;
 		}
 
-		CNPCProto* proto = gserver.m_npcProtoList.FindProto(p->m_npcIdx);
+		CNPCProto* proto = gserver->m_npcProtoList.FindProto(p->m_npcIdx);
 		if (proto && proto->CheckFlag(NPC_CASTLE_GUARD))
 		{
-			CNPC* npc = gserver.m_npcProtoList.Create(proto->m_index, p);
+			CNPC* npc = gserver->m_npcProtoList.Create(proto->m_index, p);
 			if (!npc)
 				return ;
 
@@ -2215,10 +2156,7 @@ void CDratanCastle::RegenGuardNPC()
 			npc->m_regenZ = GET_Z(npc);
 			npc->m_regenY = GET_YLAYER(npc);
 
-			npc->m_recoverPulse = gserver.m_pulse;
-#ifndef NEW_DIVISION_EXPSP
-			npc->m_totalDamage = 0;
-#endif // #ifndef NEW_DIVISION_EXPSP
+			npc->m_recoverPulse = gserver->m_pulse;
 
 			p->m_bAlive = true;
 			p->m_lastDieTime = 0;
@@ -2233,9 +2171,11 @@ void CDratanCastle::RegenGuardNPC()
 			area->PointToCellNum(GET_X(npc), GET_Z(npc), &cx, &cz);
 			area->CharToCell(npc, GET_YLAYER(npc), cx, cz);
 
-			CNetMsg rmsg;
-			AppearMsg(rmsg, npc, true);
-			area->SendToCell(rmsg, npc);
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				AppearMsg(rmsg, npc, true);
+				area->SendToCell(rmsg, npc);
+			}
 
 			regencount++;
 		}
@@ -2271,13 +2211,13 @@ void CDratanCastle::RemoveGuardNPC()
 
 			// 어택리스트에서 삭제
 			DelAttackList(p);
-			
+
 			// npc 삭제
 			area->CharFromCell(p, true);
 			area->DelNPC(p);
 		}
 	}
-	
+
 	for (int i = 0; i < area->m_npcRegenList.m_wPos; i++)
 	{
 		CNPCRegenInfo * p = area->m_npcRegenList.m_infoList + i;
@@ -2286,7 +2226,7 @@ void CDratanCastle::RemoveGuardNPC()
 			continue;
 		}
 
-		CNPCProto* proto = gserver.m_npcProtoList.FindProto(p->m_npcIdx);
+		CNPCProto* proto = gserver->m_npcProtoList.FindProto(p->m_npcIdx);
 		if (proto && proto->CheckFlag(NPC_CASTLE_GUARD))
 		{
 			if(area->m_npcRegenList.DelRegenInfo(p) == true)
@@ -2315,15 +2255,6 @@ void CDratanCastle::GetNextWarTime(struct tm* nextWarTime, bool bHumanable)
 //////////////////////////////////////////////////////////////////////////
 // 초기화
 //////////////////////////////////////////////////////////////////////////
-CArea * CDratanCastle::GerArea()
-{
-	int idx = gserver.FindZone(ZONE_DRATAN);
-	if (idx < 0)
-		return NULL;
-	else
-		return gserver.m_zones[idx].m_area;
-}
-
 bool CDratanCastle::LoadCastleData()
 {
 	CWarCastle::LoadCastleData();
@@ -2332,12 +2263,12 @@ bool CDratanCastle::LoadCastleData()
 	m_GuardList.init(3, 10); // 3종류 각각 10개씩
 
 	CDBCmd cmd;
-	cmd.Init(&gserver.m_dbcastle);
+	cmd.Init(&gserver->m_dbcastle);
 
-	sprintf(g_buf, "SELECT * FROM t_castle_guard WHERE a_zone_num=%d", ZONE_DRATAN);
-	cmd.SetQuery(g_buf);
+	std::string select_castle_guard_sql = boost::str(boost::format("SELECT * FROM t_castle_guard WHERE a_zone_num=%d") % ZONE_DRATAN);
+	cmd.SetQuery(select_castle_guard_sql);
 
-	if (cmd.Open() == false)	
+	if (cmd.Open() == false)
 	{
 		return false;
 	}
@@ -2358,9 +2289,9 @@ bool CDratanCastle::LoadCastleData()
 		cmd.GetRec("a_npc_idx", mobindex);
 		cmd.GetRec("a_pos_x", x);
 		cmd.GetRec("a_pos_z", z);
-		
+
 		r = GetRandom(0, (int) (PI_2 * 10000)) / 10000;
-			
+
 		m_GuardList.InsertGuard(mobindex, x, z, 0);
 
 //		pArea->m_npcRegenList.AddRegenInfo(pArea->m_npcRegenList.m_wPos, mobindex, regensec, x, 0, z, r, 0, ZONE_DRATAN);
@@ -2371,9 +2302,9 @@ bool CDratanCastle::LoadCastleData()
 	RegenGuardNPC();
 
 	// 마스터 타워 정보 로딩
-	sprintf(g_buf, "SELECT * FROM t_castle_tower WHERE a_zone_num=%d", ZONE_DRATAN);
-	cmd.SetQuery(g_buf);
-	if (cmd.Open() == false)	
+	std::string select_castle_tower_sql = boost::str(boost::format("SELECT * FROM t_castle_tower WHERE a_zone_num=%d") % ZONE_DRATAN);
+	cmd.SetQuery(select_castle_tower_sql);
+	if (cmd.Open() == false)
 	{
 		return false;
 	}
@@ -2384,11 +2315,11 @@ bool CDratanCastle::LoadCastleData()
 		cmd.GetRec("status", colid);
 		SetTowerStatus(rowid, (char)colid);
 	}
-	
+
 	// 수호탑 강화 정보 로딩
-	sprintf(g_buf, "SELECT * FROM t_castle_reinforce WHERE a_zone_num=%d", ZONE_DRATAN);
-	cmd.SetQuery(g_buf);
-	if (cmd.Open() == false)	
+	std::string select_castle_reinforce_sql = boost::str(boost::format("SELECT * FROM t_castle_reinforce WHERE a_zone_num=%d") % ZONE_DRATAN);
+	cmd.SetQuery(select_castle_reinforce_sql);
+	if (cmd.Open() == false)
 	{
 		return false;
 	}
@@ -2401,9 +2332,9 @@ bool CDratanCastle::LoadCastleData()
 	}
 
 	// 부활 진지 정보 로딩
-	sprintf(g_buf, "SELECT * FROM t_castle_rebrith WHERE a_zone_num=%d", ZONE_DRATAN);
-	cmd.SetQuery(g_buf);
-	if (cmd.Open() == false)	
+	std::string select_castle_rebrith_sql = boost::str(boost::format("SELECT * FROM t_castle_rebrith WHERE a_zone_num=%d") % ZONE_DRATAN);
+	cmd.SetQuery(select_castle_rebrith_sql);
+	if (cmd.Open() == false)
 	{
 		return false;
 	}
@@ -2414,29 +2345,43 @@ bool CDratanCastle::LoadCastleData()
 		cmd.GetRec("a_npc_idx", qindex);
 		cmd.GetRec("a_guild_idx", gindex);
 		cmd.GetRec("a_guild_name", gname);
-		
+
 		m_nRebrithGuild[qindex-390] = gindex;
 		strncpy(m_strRebrithGuild[qindex-390], (const char *)gname, 51);
 	}
 
-#ifdef DYNAMIC_DUNGEON
-	// 공성 던전 데이터 로딩
-	int nEnvRate , nMopRate, nTaxRate, nHuntRate;
-	sprintf(g_buf, "SELECT * FROM t_castle_dungeon WHERE a_zone_index=%d", ZONE_DRATAN_CASTLE_DUNGEON );
-	cmd.SetQuery(g_buf);
-	if (cmd.Open() && cmd.MoveFirst() )	
+	std::string select_castle_dungeon_sql = boost::str(boost::format("SELECT * FROM t_castle_dungeon"));
+	cmd.SetQuery(select_castle_dungeon_sql);
+	if(cmd.Open() == false)
 	{
-		if( cmd.GetRec("a_env_rate", nEnvRate) )
-			m_dvd.SetEnvRate( nEnvRate );
-		if( cmd.GetRec("a_mop_rate", nMopRate) )
-			m_dvd.SetMobRate( nMopRate );
-		if( cmd.GetRec("a_tax_rate", nTaxRate) )
-			m_dvd.SetFeeRate( nTaxRate );
-		if( cmd.GetRec("a_hunt_rate", nHuntRate) )		
-			m_dvd.SetHuntRate( nHuntRate );
+		return false;
 	}
-#endif //DYNAMIC_DUNGEON
-	
+
+	int env_rate = 50;
+	int mop_rate = 50;
+	int tax_rate = 100;
+	int hunt_rate = 0;
+	int mode = 0;
+	int normal_time = 0;
+	while(cmd.MoveNext() == true)
+	{
+		cmd.GetRec("a_env_rate", env_rate);
+		m_dvd.SetEnvRate(env_rate);
+		cmd.GetRec("a_mop_rate", mop_rate);
+		m_dvd.SetMobRate(mop_rate);
+		cmd.GetRec("a_tax_rate", tax_rate);
+		m_dvd.SetFeeRate(tax_rate);
+		cmd.GetRec("a_hunt_rate", hunt_rate);
+		m_dvd.SetHuntRate(hunt_rate);
+		cmd.GetRec("a_mode", mode);
+		m_dvd.setOwnerMode(mode);
+		if(m_dvd.GetOwnerMode() == false)
+		{
+			cmd.GetRec("a_change_normal_time", normal_time);
+			m_dvd.setChangeNormalTime(normal_time);
+		}
+	}
+
 	return true;
 }
 
@@ -2486,6 +2431,7 @@ void CDratanCastle::ResetOwner()
 	m_ownerGuildName = "";
 	m_ownerCharIndex = 0;
 	m_ownerCharName = "";
+	m_oldOwnerCharIndex = 0;
 }
 
 void CDratanCastle::SetOwner(CGuild* guild)
@@ -2505,17 +2451,16 @@ void CDratanCastle::SetOwner(CGuild* guild)
 
 void CDratanCastle::CheckRespond(CPC * ch)
 {
-	CNetMsg rmsg;
-
 	// 교감 중이면 교감 취소
 	if(ch->IsSetPlayerState(PLAYER_CRISTAL_RESPOND) == true)
 	{
-		
 		if (ch->m_pZone != NULL
-			&& ch->m_pZone->m_index == ZONE_DRATAN)
+				&& ch->m_pZone->m_index == ZONE_DRATAN)
 		{
 			if(GetState() == WCSF_WAR_CASTLE)
-			{	// 공성중이면 교감 해제 이펙트 보이기
+			{
+				// 공성중이면 교감 해제 이펙트 보이기
+				CNetMsg::SP rmsg(new CNetMsg);
 				CastleCristalRespondFailMsg(rmsg, ch);
 				ch->m_pArea->SendToCell(rmsg, ch, true);
 			}
@@ -2529,7 +2474,7 @@ char CDratanCastle::GetReinforceStep(int i)
 {
 	if( i >= 0 && i < 3)
 	{
-			return m_reinforce[i];
+		return m_reinforce[i];
 	}
 	return -1;
 }
@@ -2544,9 +2489,10 @@ void CDratanCastle::SetReinforceStep(char i, char v)
 
 bool CDratanCastle::CheckBuyTower(int index)
 {
-	if( index >= 352 
+	if( index >= 352
 			&& index <= 386)
-	{	// 수호탑
+	{
+		// 수호탑
 		int rows = (index - 352)/5;
 		int limit_npc = (352 + rows*5 ) + (int)(GetTowerStatus(rows));
 		if(index >= limit_npc)
@@ -2570,8 +2516,8 @@ void CDratanCastle::SetTowerReinforce(CNPC * npc)
 		type = 1;
 	}
 	else if(npc->m_proto->m_index == 388
-		|| npc->m_proto->m_index == 389
-		|| npc->m_proto->m_index == 404) 
+			|| npc->m_proto->m_index == 389
+			|| npc->m_proto->m_index == 404)
 	{
 		type = 2;
 	}
@@ -2583,16 +2529,24 @@ void CDratanCastle::SetTowerReinforce(CNPC * npc)
 	switch (m_reinforce[type])
 	{
 	case 1:
-		npc->m_opMelee = npc->m_opMelee + (npc->m_opMelee*30)/100;
+		npc->m_opMelee = npc->m_opMelee + (npc->m_eqMelee*30)/100;
+		npc->m_opRange = npc->m_opRange + (npc->m_eqRange*30)/100;
+		npc->m_opMagic = npc->m_opMagic + (npc->m_eqMagic*30)/100;
 		return;
 
 	case 2:
-		npc->m_opMelee = npc->m_opMelee + (npc->m_opMelee*50)/100;
+		npc->m_opMelee = npc->m_opMelee + (npc->m_eqMelee*50)/100;
+		npc->m_opRange = npc->m_opRange + (npc->m_eqRange*50)/100;
+		npc->m_opMagic = npc->m_opMagic + (npc->m_eqMagic*50)/100;
+
 		npc->m_maxHP =  npc->m_maxHP + (npc->m_maxHP*50)/100;
 		return;
 
 	case 3:
-		npc->m_opMelee = npc->m_opMelee*2;
+		npc->m_opMelee = npc->m_opMelee + npc->m_eqMelee;
+		npc->m_opRange = npc->m_opRange + npc->m_eqRange;
+		npc->m_opMagic = npc->m_opMagic + npc->m_eqMagic;
+
 		npc->m_maxHP =  npc->m_maxHP*2;
 		return;
 
@@ -2604,21 +2558,23 @@ void CDratanCastle::SetTowerReinforce(CNPC * npc)
 void CDratanCastle::ChangeSide(int gindex)
 {
 	// 길드 얻어서 길드 멤버 참여정보 초기화
-	CGuild * pGuild = gserver.m_guildlist.findguild(gindex);
+	CGuild * pGuild = gserver->m_guildlist.findguild(gindex);
 	// 공성 길드에서 제외
 	RemoveAttackGuild(gindex);
 
-	CNetMsg rmsg;
 	if (pGuild)
-	{	// 길드원 공성 참여 정보 변환
+	{
+		// 길드원 공성 참여 정보 변환
 		int j;
-		for (j = 0; j < pGuild->maxmember(); j++)
+		int guildMaxMember = pGuild->maxmember();
+		for (j = 0; j < guildMaxMember; j++)
 		{
 			if (pGuild->member(j) && pGuild->member(j)->GetPC())
 			{
 				pGuild->member(j)->GetPC()->SetJoinFlag(ZONE_DRATAN, WCJF_OWNER);
 //				pGuild->member(j)->GetPC()->m_bChangeStatus = true;
 				// 바로 보내기
+				CNetMsg::SP rmsg(new CNetMsg);
 				StatusMsg(rmsg, pGuild->member(j)->GetPC());
 				SEND_Q(rmsg, pGuild->member(j)->GetPC()->m_desc);
 			}
@@ -2626,13 +2582,13 @@ void CDratanCastle::ChangeSide(int gindex)
 	}
 
 	// 참여 정보 DB에 저장
-	// a_index 길드 인덱스 or 캐릭터 인덱스 
+	// a_index 길드 인덱스 or 캐릭터 인덱스
 	// a_guild 1이면 길드 참가 0이면 개인
 	// a_attack 1이면 공성 0 이면 수성
-	sprintf(g_buf, "DELETE FROM t_castle_join WHERE a_zone_index=%d AND a_index=%d AND a_guild=1", ZONE_DRATAN, gindex);
+	std::string delete_castle_join_sql = boost::str(boost::format("DELETE FROM t_castle_join WHERE a_zone_index=%d AND a_index=%d AND a_guild=1") % ZONE_DRATAN % gindex);
 	CDBCmd cmd;
-	cmd.Init(&gserver.m_dbcastle);
-	cmd.SetQuery(g_buf);
+	cmd.Init(&gserver->m_dbcastle);
+	cmd.SetQuery(delete_castle_join_sql);
 	cmd.Update();
 
 	// 수성 길드 변경
@@ -2643,34 +2599,35 @@ void CDratanCastle::ChangeSide(int gindex)
 		{
 			int tindex = pJoin->GetIndex();
 			ChangeAttackGuild(tindex);
-			
+
 			pJoin = pJoin->GetNext();
 
 			RemoveDefenseGuild(tindex);
 		}
 	}
-	
+
 	// 기존 성주 길드 처리
 	ChangeAttackGuild(GetOwnerGuildIndex());
 }
 
 void CDratanCastle::ChangeAttackGuild(int gindex)
 {
-	CGuild * pGuild = gserver.m_guildlist.findguild(gindex);
+	CGuild * pGuild = gserver->m_guildlist.findguild(gindex);
 	AddAttackGuild(gindex);
 
-	CNetMsg rmsg;
-
 	if (pGuild)
-	{	// 길드원 공성 참여 정보 변환
+	{
+		// 길드원 공성 참여 정보 변환
 		int j;
-		for (j = 0; j < pGuild->maxmember(); j++)
+		int guildMaxMember = pGuild->maxmember();
+		for (j = 0; j < guildMaxMember; j++)
 		{
 			if (pGuild->member(j) && pGuild->member(j)->GetPC())
 			{
 				pGuild->member(j)->GetPC()->SetJoinFlag(ZONE_DRATAN, WCJF_ATTACK_GUILD);
 
 				// 바로 보내기
+				CNetMsg::SP rmsg(new CNetMsg);
 				StatusMsg(rmsg, pGuild->member(j)->GetPC());
 				SEND_Q(rmsg, pGuild->member(j)->GetPC()->m_desc);
 			}
@@ -2679,14 +2636,14 @@ void CDratanCastle::ChangeAttackGuild(int gindex)
 
 	// 참여 정보 DB에 저장
 	CDBCmd cmd;
-	cmd.Init(&gserver.m_dbcastle);
+	cmd.Init(&gserver->m_dbcastle);
 
-	sprintf(g_buf, "DELETE FROM t_castle_join WHERE a_index=%d", gindex);
-	cmd.SetQuery(g_buf);
+	std::string delete_castle_join_sql = boost::str(boost::format("DELETE FROM t_castle_join WHERE a_index=%d") % gindex);
+	cmd.SetQuery(delete_castle_join_sql);
 	cmd.Update();
 
-	sprintf(g_buf, "INSERT INTO t_castle_join (a_zone_index, a_index, a_guild, a_attack) VALUES (%d, %d, 1, 1)", ZONE_DRATAN, gindex);
-	cmd.SetQuery(g_buf);
+	std::string insert_castle_join_sql = boost::str(boost::format("INSERT INTO t_castle_join (a_zone_index, a_index, a_guild, a_attack) VALUES (%d, %d, 1, 1)") % ZONE_DRATAN % gindex);
+	cmd.SetQuery(insert_castle_join_sql);
 	cmd.Update();
 }
 
@@ -2702,13 +2659,10 @@ int CDratanCastle::GetRemainWarTime()
 
 void CDratanCastle::GetOutNonDefense()
 {
-	CNetMsg rmsg;
+	CZone*		pZone	= gserver->FindZone(GetZoneIndex());
+	if (pZone == NULL)
+		return;
 
-	int i = gserver.FindZone(GetZoneIndex());
-	if (i == -1)
-		return ;
-
-	CZone*		pZone	= gserver.m_zones + i;
 	CArea*		pArea	= pZone->m_area;
 
 	char		nYlayer	= 0;
@@ -2725,6 +2679,9 @@ void CDratanCastle::GetOutNonDefense()
 	pArea->PointToCellNum(nX0x2 / 2.0f, nZ0x2 / 2.0f, &nCellX0, &nCellZ0);
 	pArea->PointToCellNum(nX1x2 / 2.0f, nZ1x2 / 2.0f, &nCellX1, &nCellZ1);
 
+	// 먼저 이동시킬 유저를 선별후 이동 // 다른셀로 이동시 또는 이동중 삭제시 문제 발생
+
+	std::vector<CPC*> m_MovePCList;
 	int cx, cz;
 	for (cx = nCellX0; cx <= nCellX1; cx++)
 	{
@@ -2738,50 +2695,50 @@ void CDratanCastle::GetOutNonDefense()
 
 			CCell& rCell = pArea->m_cell[cx][cz];
 			CCharacter* pCharNext = rCell.m_listChar;
-			CCharacter* pChar = NULL;
+			CCharacter* pChar;
 			while ((pChar = pCharNext))
 			{
 				pCharNext = pCharNext->m_pCellNext;
-
 				if (IS_PC(pChar))
 				{
 					CPC* pPC = TO_PC(pChar);
-					int nJoinFlag = pPC->GetJoinFlag(pZone->m_index);
-
-//					switch (nJoinFlag)
-//					{
-//					case WCJF_OWNER:
-//					case WCJF_DEFENSE_GUILD:
-//						pPC = NULL;
-//						break;
-//					default:
-//						break;
-//					}
-
 					if (pPC)
 					{
-						if (IsInInnerCastle(pPC))
-						{
-							int extra = GetRegenPoint(nJoinFlag, pPC);
-
-#ifdef EX_GO_ZONE_REBIRTH
-							if (extra == 0)
-							{
-								extra = gserver.FindExtraByZoneIndex(pPC->IsChaotic(), ZONE_DRATAN);
-							}
-#endif // EX_GO_ZONE_REBIRTH
-								
-							GoZone(pPC, pZone->m_index,
-									pZone->m_zonePos[extra][0],
-									GetRandom(pZone->m_zonePos[extra][1], pZone->m_zonePos[extra][3]) / 2.0f,
-									GetRandom(pZone->m_zonePos[extra][2], pZone->m_zonePos[extra][4]) / 2.0f);
-							pPC->SetDisableTime(1);
-						}
+						m_MovePCList.push_back( pPC );
 					}
 				}
 			}
 		}
 	}
+
+	std::vector<CPC*>::iterator it = m_MovePCList.begin();
+	std::vector<CPC*>::iterator endit = m_MovePCList.end();
+	for(; it != endit; ++it)
+	{
+		CPC* movePc = *(it);
+
+		ApplyWarSkill(movePc, GetZoneIndex());
+
+		int nJoinFlag = movePc->GetJoinFlag(pZone->m_index);
+		if (IsInInnerCastle(movePc))
+		{
+			int extra = GetRegenPoint(nJoinFlag, movePc);
+
+#ifdef WARCASTLE_MOVE_MESSAGE_LIMIT
+			if( !( movePc->m_pZone->m_index == GetZoneIndex()
+					&& movePc->m_pZone->InExtra( (int)GET_X(movePc), (int)GET_Z(movePc) ,extra ) ) )
+#endif
+			{
+				GoZone(movePc, pZone->m_index,
+					   pZone->m_zonePos[extra][0],
+					   GetRandom(pZone->m_zonePos[extra][1], pZone->m_zonePos[extra][3]) / 2.0f,
+					   GetRandom(pZone->m_zonePos[extra][2], pZone->m_zonePos[extra][4]) / 2.0f);
+				movePc->SetDisableTime(1);
+			}
+		}
+	}
+
+	m_MovePCList.clear();
 }
 
 bool CDratanCastle::IsInInnerCastle(CCharacter* pChar)
@@ -2801,7 +2758,7 @@ bool CDratanCastle::IsInInnerCastle(CCharacter* pChar)
 
 bool CDratanCastle::CanLordChat(CPC* pc)
 {
-	switch (gserver.m_subno)
+	switch (gserver->m_subno)
 	{
 	case WAR_CASTLE_SUBNUMBER_DRATAN:
 		if (GetState() != WCSF_NORMAL)
@@ -2863,26 +2820,32 @@ bool CDratanCastle::IsDefenseGuild(int index)
 
 void CDratanCastle::MoveToRegenPoint()
 {
-	CNetMsg rmsg;
+	CZone* pZone = gserver->FindZone(ZONE_DRATAN);
+	if (pZone == NULL)
+		return;
 
-	int i = gserver.FindZone(ZONE_DRATAN);
-	if (i == -1)
-		return ;
-
-	CZone* pZone = gserver.m_zones + i;
-
-	for (i = 0; i < gserver.m_playerList.m_max; i++)
+	PCManager::map_t& playerMap			= PCManager::instance()->getPlayerMap();
+	PCManager::map_t::iterator iter		= playerMap.begin();
+	PCManager::map_t::iterator endIter	= playerMap.end();
+	for(; iter != endIter; ++iter)
 	{
-		CPC * pc = gserver.m_playerList.m_pcList[i];
+		CPC* pc = (*iter).pPlayer;
 		if( pc )
 		{
 			int extra = GetRegenPoint(pc->GetJoinFlag(ZONE_DRATAN), pc);
 			if (extra == 0)
 				continue ;
 
-			// 확인 메시지 전송
-			WarpPromptMsg(rmsg, pZone->m_index, extra);
-			SEND_Q(rmsg, pc->m_desc);
+#ifdef WARCASTLE_MOVE_MESSAGE_LIMIT
+			if(!( pc->m_pZone->m_index == GetZoneIndex()
+					&& pc->m_pZone->InExtra( (int)GET_X(pc), (int)GET_Z(pc) ,extra)) )
+#endif
+			{
+				// 확인 메시지 전송
+				CNetMsg::SP rmsg(new CNetMsg);
+				WarpPromptMsg(rmsg, pZone->m_index, extra);
+				SEND_Q(rmsg, pc->m_desc);
+			}
 		}
 	}
 }
@@ -2901,11 +2864,12 @@ void CDratanCastle::StopCastleTower()
 	{
 		pNext = p->m_pNPCNext;
 		if (p->m_proto->CheckFlag(NPC_CASTLE_TOWER) != 0
-			&& p->m_proto->CheckFlag(NPC_WARCASTLE) == 0
-			&& p->m_proto->m_index != 388
-			&& p->m_proto->m_index != 389 
-			&& p->m_proto->m_index != 404 )
-		{	// 마스터 타워에서 설정한 타워들 정지
+				&& p->m_proto->CheckFlag(NPC_WARCASTLE) == 0
+				&& p->m_proto->m_index != 388
+				&& p->m_proto->m_index != 389
+				&& p->m_proto->m_index != 404 )
+		{
+			// 마스터 타워에서 설정한 타워들 정지
 			p->m_hp = 0;
 		}
 	}
@@ -2914,76 +2878,137 @@ void CDratanCastle::StopCastleTower()
 	InitWarpNPC();
 }
 
-void CDratanCastle::EndWarRegenPoint()
+void CDratanCastle::ChangeGuildNameColor()
 {
-	int i = gserver.FindZone(GetZoneIndex());
-	if (i == -1)
-		return ;
-
-	CZone*		pZone	= gserver.m_zones + i;
-	CArea*		pArea	= pZone->m_area;
-
-	char		nYlayer	= 0;
-	int			nX0x2	= 0;
-	int			nZ0x2	= 0;
-	int			nX1x2	= 0;
-	int			nZ1x2	= 0;
-	GetInnerCastleRect(&nYlayer, &nX0x2, &nZ0x2, &nX1x2, &nZ1x2);
-
-	int			nCellX0	= 0;
-	int			nCellZ0	= 0;
-	int			nCellX1	= 0;
-	int			nCellZ1	= 0;
-	pArea->PointToCellNum(nX0x2 / 2.0f, nZ0x2 / 2.0f, &nCellX0, &nCellZ0);
-	pArea->PointToCellNum(nX1x2 / 2.0f, nZ1x2 / 2.0f, &nCellX1, &nCellZ1);
-
-	int cx, cz;
-	for (cx = nCellX0; cx <= nCellX1; cx++)
+	int i;
+	CWarCastleJoin* join;
+	CGuild* pGuild;
+	join = m_attackGuildList;
+	while(join)
 	{
-		if (cx < 0 || cx >= pArea->m_size[0])
-			continue ;
-
-		for (cz = nCellZ0; cz <= nCellZ1; cz++)
+		pGuild = gserver->m_guildlist.findguild(join->GetIndex());
+		if(pGuild)
 		{
-			if (cz < 0 || cz >= pArea->m_size[1])
-				continue ;
-
-			CCell& rCell = pArea->m_cell[cx][cz];
-			CCharacter* pCharNext = rCell.m_listChar;
-			CCharacter* pChar = NULL;
-			while ((pChar = pCharNext))
+			int i;
+			int guildMaxMember = pGuild->maxmember();
+			for(i=0; i<guildMaxMember; i++)
 			{
-				pCharNext = pCharNext->m_pCellNext;
-
-				if (IS_PC(pChar))
+				if(pGuild->member(i) && pGuild->member(i)->GetPC())
 				{
-					CPC* pPC = TO_PC(pChar);
-					int nJoinFlag = pPC->GetJoinFlag(pZone->m_index);
-
-					switch (nJoinFlag)
-					{
-					case WCJF_OWNER:
-					case WCJF_DEFENSE_GUILD:
-						pPC = NULL;
-						break;
-					}
-
-					if (pPC)
-					{
-						if (IsInInnerCastle(pPC))
-						{
-							int extra = 0;
-								
-							GoZone(pPC, pZone->m_index,
-									pZone->m_zonePos[extra][0],
-									GetRandom(pZone->m_zonePos[extra][1], pZone->m_zonePos[extra][3]) / 2.0f,
-									GetRandom(pZone->m_zonePos[extra][2], pZone->m_zonePos[extra][4]) / 2.0f);
-							pPC->SetDisableTime(1);						
-						}
-					}
+					CNetMsg::SP rmsg(new CNetMsg);
+					GuildNameColorStateMsg(rmsg, pGuild->member(i)->GetPC() );
+					SEND_Q(rmsg , pGuild->member(i)->GetPC()->m_desc);
 				}
+			}
+		}
+		join = join->GetNext();
+	}
+
+	join = m_defenseGuildList;
+	while(join)
+	{
+		pGuild = gserver->m_guildlist.findguild(join->GetIndex());
+		if(pGuild)
+		{
+			int guildMaxMember = pGuild->maxmember();
+			for(i=0; i<guildMaxMember; i++)
+			{
+				if(pGuild->member(i) && pGuild->member(i)->GetPC())
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					GuildNameColorStateMsg(rmsg, pGuild->member(i)->GetPC() );
+					SEND_Q(rmsg , pGuild->member(i)->GetPC()->m_desc);
+				}
+			}
+		}
+		join = join->GetNext();
+	}
+
+	pGuild = gserver->m_guildlist.findguild(m_ownerGuildIndex);
+	if(pGuild)
+	{
+		int guildMaxMember = pGuild->maxmember();
+		for(i=0; i<guildMaxMember; i++)
+		{
+			if(pGuild->member(i) && pGuild->member(i)->GetPC())
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				GuildNameColorStateMsg(rmsg, pGuild->member(i)->GetPC() );
+				SEND_Q(rmsg , pGuild->member(i)->GetPC()->m_desc);
 			}
 		}
 	}
 }
-#endif // DRATAN_CASTLE
+
+void CDratanCastle::CheckRegenRebirthNPC()
+{
+	CHECK_SUBSERVER(this);
+
+	CArea* area = GetArea();
+	if (!area)
+		return ;
+
+	if(GetState() != WCSF_WAR_CASTLE)
+		return ;
+
+	int i;
+	for(i=0; i < 7; i++)
+	{
+		if( (m_pRebrithNPC[i] == NULL) &&
+				(m_nRebrithGuild[i] == -1) && m_nRegenTimeRebirthNPC[i] != 0 &&
+#ifdef BUGFIX_WARCASTLE_REGEN
+				(gserver->getNowSecond() > m_nRegenTimeRebirthNPC[i] )
+#else
+				(gserver->m_pulse > m_nRegenTimeRebirthNPC[i] )
+#endif //BUGFIX_WARCASTLE_REGEN
+		  )
+		{
+			for (int k = 0; k < area->m_npcRegenList.m_nCount; k++)
+			{
+				CNPCRegenInfo* p = area->m_npcRegenList.m_infoList + k;
+				if (p->m_totalNum != 0 || p->m_npcIdx != i+390)
+					continue ;
+
+				CNPCProto* proto = gserver->m_npcProtoList.FindProto(p->m_npcIdx);
+				CNPC * npc = gserver->m_npcProtoList.Create(proto->m_index, p);
+				if (!npc)
+					return ;
+
+				GET_X(npc) = p->m_regenX;
+				GET_Z(npc) = p->m_regenZ;
+				GET_R(npc) = p->m_regenR;
+				GET_YLAYER(npc) = p->m_regenY;
+
+				npc->m_regenX = GET_X(npc);
+				npc->m_regenZ = GET_Z(npc);
+				npc->m_regenY = GET_YLAYER(npc);
+
+				npc->m_recoverPulse = gserver->m_pulse;
+
+				p->m_bAlive = true;
+				p->m_lastDieTime = 0;
+				npc->m_disableTime = 0;
+
+				npc->InitPointsToMax();
+				area->AddNPC(npc);
+				npc->m_postregendelay = 0;
+
+				int cx, cz;
+				area->PointToCellNum(GET_X(npc), GET_Z(npc), &cx, &cz);
+				area->CharToCell(npc, GET_YLAYER(npc), cx, cz);
+
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					AppearMsg(rmsg, npc, true);
+					area->SendToCell(rmsg, npc);
+				}
+
+				m_pRebrithNPC[i] = npc;
+
+				m_nRegenTimeRebirthNPC[i] = 0;
+				break;
+			}
+		}
+	}
+}
+

@@ -1,72 +1,40 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "Party.h"
-
-#ifdef __GAME_SERVER__
-#include "Battle.h"
-#endif // __GAME_SERVER__
+#include "CmdMsg.h"
 
 ////////////////////////////
 // implement of CPartyMember
-#ifdef __GAME_SERVER__
-CPartyMember::CPartyMember(int nCharIndex, const char* strCharName, CPC* pc)
-: m_strCharName(MAX_CHAR_NAME_LENGTH + 1)
-#else
-CPartyMember::CPartyMember(int nCharIndex, const char* strCharName)
-: m_strCharName(MAX_CHAR_NAME_LENGTH + 1)
-#endif // __GAME_SERVER__
+CPartyMember::CPartyMember(int nCharIndex, const char* strCharName, int nLevel )
+	: m_strCharName(MAX_CHAR_NAME_LENGTH + 1)
 {
 	m_nCharIndex = nCharIndex;
 	m_strCharName = strCharName;
 
-#ifdef __GAME_SERVER__
-	m_pChar = pc;
-#endif // __GAME_SERVER__
+	m_nLevel = nLevel;
 }
 
 CPartyMember::~CPartyMember()
 {
 	m_nCharIndex = 0;
 	m_strCharName = "";
-
-#ifdef __GAME_SERVER__
-	m_pChar = NULL;
-#endif // __GAME_SERVER__
+	m_nLevel = 0;
 }
 
-#ifdef __GAME_SERVER__
-void CPartyMember::SetMemberPCPtr(CPC* pc)
+CParty::CParty(int nSubNo, char nPartyType, int nBossIndex, const char* strBossName, int nRequest, const char* strRequest, int nBossLevel )
+	: m_strRequest(MAX_CHAR_NAME_LENGTH + 1)
 {
-	if (m_pChar != NULL && pc == NULL)
-		m_pChar->m_party = NULL;
-
-	m_pChar = pc;
-}
-#endif // __GAME_SERVER__
-
-
-//////////////////////
-// implement of CParty
-#ifdef __GAME_SERVER__
-CParty::CParty(char nPartyType, int nBossIndex, const char* strBossName, CPC* pBoss, int nRequest, const char* strRequest)
-: m_strRequest(MAX_CHAR_NAME_LENGTH + 1)
-#else
-CParty::CParty(int nSubNo, char nPartyType, int nBossIndex, const char* strBossName, int nRequest, const char* strRequest)
-: m_strRequest(MAX_CHAR_NAME_LENGTH + 1)
-#endif // __GAME_SERVER__
-{
-	m_nPartyType[MSG_DIVITYPE_EXP]		= nPartyType;
-	m_nPartyType[MSG_DIVITYPE_ITEM]		= nPartyType;
-	m_nPartyType[MSG_DIVITYPE_SPECIAL]	= nPartyType;
+	m_nPartyType[MSG_DIVITYPE_EXP]		= nPartyType;			   // 경험치(균등(랜던),입수우선,전투)
+	m_nPartyType[MSG_DIVITYPE_ITEM]		= MSG_PARTY_TYPE_FIRSTGET; // 디폴터 설정(입수우선)
+	m_nPartyType[MSG_DIVITYPE_SPECIAL]	= MSG_PARTY_TYPE_OPENBOX;  // 디폴터 설정(상자열기)
+	m_nPartyType[MSG_DIVITYPE_SP]		= nPartyType;
+	m_nPartyType[MSG_DIVITYPE_MONEY]	= nPartyType;
 
 	memset(m_listMember, 0, sizeof(CPartyMember*) * MAX_PARTY_MEMBER);
 
-#ifdef __GAME_SERVER__
-	m_listMember[0] = new CPartyMember(nBossIndex, strBossName, pBoss);
-#else
-	m_listMember[0] = new CPartyMember(nBossIndex, strBossName);
+	m_listMember[0] = new CPartyMember(nBossIndex, strBossName, nBossLevel);
 	m_nSubNo = nSubNo;
-#endif // __GAME_SERVER__
 
 	m_nRequest = nRequest;
 	m_strRequest = strRequest;
@@ -75,16 +43,6 @@ CParty::CParty(int nSubNo, char nPartyType, int nBossIndex, const char* strBossN
 #ifdef GMTOOL
 	m_bGmtarget = false;
 #endif // GMTOOL
-
-#ifdef __GAME_SERVER__
-#ifdef MONSTER_COMBO
-	m_comboAreaIndex = -1;
-#endif // MONSTER_COMBO
-
-#ifdef EXTREME_CUBE
-	m_cubeUniqueIdx = -1;
-#endif // EXTREME_CUBE
-#endif // __GAME_SERVER__
 }
 
 CParty::~CParty()
@@ -92,6 +50,8 @@ CParty::~CParty()
 	m_nPartyType[MSG_DIVITYPE_EXP] = -1;
 	m_nPartyType[MSG_DIVITYPE_ITEM] = -1;
 	m_nPartyType[MSG_DIVITYPE_SPECIAL] = -1;
+	m_nPartyType[MSG_DIVITYPE_SP] = -1;
+	m_nPartyType[MSG_DIVITYPE_MONEY] = -1;
 
 	m_nCount = 0;
 	int i;
@@ -99,134 +59,35 @@ CParty::~CParty()
 	{
 		if (m_listMember[i] != NULL)
 		{
-#ifdef __GAME_SERVER__
-			if (m_listMember[i]->GetMemberPCPtr())
-			{
-				m_listMember[i]->SetMemberPCPtr(NULL);
-			}
-#endif // __GAME_SERVER__
 			delete m_listMember[i];
 			m_listMember[i] = NULL;
 		}
 	}
 	m_nRequest = -1;
-
-#ifdef __GAME_SERVER__
-#ifdef MONSTER_COMBO
-	m_comboAreaIndex = -1;
-#endif // MONSTER_COMBO
-
-#ifdef EXTREME_CUBE
-	m_cubeUniqueIdx = -1;
-#endif // EXTREME_CUBE
-
-#endif // __GAME_SERVER__
 }
 
-//////////////////////////////////////////////////////////////////////
-// 게임 서버 전용 함수들
-#ifdef __GAME_SERVER__
-int CParty::GetNearPartyMemberCount(CCharacter* pCenter)
+int CParty::GetMemberCountOnline()
 {
-	int i;
 	int ret = 0;
+	int i = 0;
 	for (i = 0; i < MAX_PARTY_MEMBER; i++)
 	{
-		if(m_listMember[i] != NULL
-				&& m_listMember[i]->GetMemberPCPtr()
-				&& CheckInNearCellExt(pCenter, m_listMember[i]->GetMemberPCPtr())
-			)
-		{
+		if( m_listMember[i] != NULL && m_listMember[i]->m_nLevel > 0 )
 			ret++;
-		}
 	}
 
 	return ret;
 }
 
-//서버 다운 수정(09.05.11)
-void CParty::SendToAllPC(CNetMsg& msg, int nExcludeCharIndex)
+//파티 대표값 설정
+void CParty::SetPartyTypeAll(char cPartyType)
 {
-	int i;
-	CPartyMember* pMember = NULL;
-
-	for (i = 0; i < MAX_PARTY_MEMBER; i++)
-	{
-		if(m_listMember[i] != NULL)
-		{
-			pMember =  (CPartyMember*)m_listMember[i];
-			if(pMember != NULL)
-			{
-				if(pMember->GetCharIndex() != nExcludeCharIndex)	
-				{
-					CPC *pPC = pMember->GetMemberPCPtr();
-					if(pPC != NULL)
-					{
-						SEND_Q(msg, pPC->m_desc);
-					}
-				}
-			}
-		}
-	}
+	m_nPartyType[MSG_DIVITYPE_EXP]		= cPartyType;
+	m_nPartyType[MSG_DIVITYPE_SP]		= cPartyType;
+	m_nPartyType[MSG_DIVITYPE_MONEY]	= cPartyType;
 }
 
-//서버 다운 수정(09.05.11)
-void CParty::SendToPCInSameZone(int nZone, int nArea, CNetMsg& msg)
-{
-	int i;
-	CPartyMember* pMember = NULL;
-
-	for (i = 0; i < MAX_PARTY_MEMBER; i++)
-	{
-		if(m_listMember[i] != NULL)
-		{
-			pMember = (CPartyMember*)m_listMember[i];
-			if(pMember != NULL)
-			{
-				CPC *pPC = pMember->GetMemberPCPtr();
-				if(pPC != NULL && pPC->m_pZone->m_index == nZone && pPC->m_pArea->m_index == nArea)
-				{
-					SEND_Q(msg, pPC->m_desc);
-				}
-			}
-		}
-	}
-}
-
-CPC* CParty::GetNearMember(CCharacter* pPC, int nListIndex)
-{
-	if (nListIndex < 0 || nListIndex >= MAX_PARTY_MEMBER)
-		return NULL;
-	if (m_listMember[nListIndex] == NULL)
-		return NULL;
-	if (m_listMember[nListIndex]->GetMemberPCPtr() == NULL)
-		return NULL;
-	if (!CheckInNearCellExt(pPC, m_listMember[nListIndex]->GetMemberPCPtr()))
-		return NULL;
-	return m_listMember[nListIndex]->GetMemberPCPtr();
-}
-
-void CParty::SetMemberPCPtr(int nCharIndex, CPC* pPC)
-{
-	int i;
-	for (i = 0; i < MAX_PARTY_MEMBER; i++)
-	{
-		if(m_listMember[i] != NULL
-		   && m_listMember[i]->GetCharIndex() == nCharIndex
-		  )
-		{
-			m_listMember[i]->SetMemberPCPtr(pPC);
-			return ;
-		}
-	}
-	return ;
-}
-
-#endif // __GAME_SERVER__
-// 게임 서버 전용 함수들
-//////////////////////////////////////////////////////////////////////
-
-const CPartyMember* CParty::GetMemberByListIndex(int nListIndex) const
+CPartyMember* CParty::GetMemberByListIndex(int nListIndex) const
 {
 	if (nListIndex < 0 || nListIndex >= MAX_PARTY_MEMBER)
 		return NULL;
@@ -241,8 +102,8 @@ int CParty::FindMember(int nCharIndex)
 	for (i = 0; i < MAX_PARTY_MEMBER; i++)
 	{
 		if (	   m_listMember[i] != NULL
-				&& m_listMember[i]->GetCharIndex() == nCharIndex
-			)
+				   && m_listMember[i]->GetCharIndex() == nCharIndex
+		   )
 		{
 			return i;
 		}
@@ -259,46 +120,13 @@ int CParty::GetMemberCharIndex(int nListIndex)
 	return m_listMember[nListIndex]->GetCharIndex();
 }
 
-int CParty::CompParty(CParty* p1, CParty* p2)
-{
-#ifdef __GAME_SERVER__
-	if (p1->GetBossIndex() == p2->GetBossIndex())
-		return 0;
-	else
-		return p1->GetBossIndex() - p2->GetBossIndex();
-#else // __GAME_SERVER__
-	if (p1->GetSubNo() == p2->GetSubNo())
-	{
-		if (p1->GetBossIndex() == p2->GetBossIndex())
-			return 0;
-		else
-			return p1->GetBossIndex() - p2->GetBossIndex();
-	}
-	else
-		return p1->GetSubNo() - p2->GetSubNo();
-#endif // __GAME_SERVER__
-}
-
 void CParty::SetRequest(int nRequest, const char* strRequest)
 {
-#ifdef __GAME_SERVER__
-	// 게임 서버에서는 요청자를 찾아 파티 정보를 리셋한다.
-	if (m_nRequest != -1)
-	{
-		CPC* pPC = gserver.m_playerList.Find(m_nRequest);
-		if (pPC)
-			pPC->m_party = NULL;
-	}
-#endif // __GAME_SERVER__
 	m_nRequest = nRequest;
 	m_strRequest = strRequest;
 }
 
-#ifdef __GAME_SERVER__
-int CParty::JoinRequest(const char* strRequestName, CPC* pRequest)
-#else
-int CParty::JoinRequest(const char* strRequestName)
-#endif // __GAME_SERVER__
+int CParty::JoinRequest(const char* strRequestName, int nLevel )
 {
 	if (GetRequestIndex() < 1)
 		return -1;
@@ -317,11 +145,7 @@ int CParty::JoinRequest(const char* strRequestName)
 	}
 
 	// 빈자리에 설정하고
-#ifdef __GAME_SERVER__
-	m_listMember[i] = new CPartyMember(m_nRequest, strRequestName, pRequest);
-#else
-	m_listMember[i] = new CPartyMember(m_nRequest, strRequestName);
-#endif // __GAME_SERVER__
+	m_listMember[i] = new CPartyMember(m_nRequest, strRequestName, nLevel );
 	m_nCount++;
 
 	// request 초기화 하고
@@ -342,12 +166,22 @@ void CParty::DeleteMember(int nCharIndex)
 				delete m_listMember[i];
 				m_listMember[i] = NULL;
 				m_nCount--;
+				if (i == 0)
+				{
+					LONGLONG key = MAKE_LONGLONG_KEY(this->GetSubNo(), nCharIndex);
+					gserver.m_listParty.erase(key);
+				}
 			}
 		}
 		if (i < MAX_PARTY_MEMBER - 1 && m_listMember[i] == NULL)
 		{
 			m_listMember[i] = m_listMember[i + 1];
 			m_listMember[i + 1] = NULL;
+			if (i == 0)
+			{
+				LONGLONG key = MAKE_LONGLONG_KEY(this->GetSubNo(), m_listMember[i]->GetCharIndex());
+				gserver.m_listParty.insert(map_party_t::value_type(key, this));
+			}
 		}
 	}
 	return ;
@@ -358,16 +192,29 @@ bool CParty::ChangeBoss(const char* strNewBossName)
 	int i;
 	for (i = 0; i < MAX_PARTY_MEMBER; i++)
 	{
-		if (m_listMember[i])
+		if (m_listMember[i] && m_listMember[i]->m_nLevel > 0 )
 		{
 			if (strcmp(m_listMember[i]->GetCharName(), strNewBossName) == 0)
 			{
 				CPartyMember* pMember = m_listMember[0];
 				m_listMember[0] = m_listMember[i];
 				m_listMember[i] = pMember;
+				LONGLONG key = MAKE_LONGLONG_KEY(this->GetSubNo(), pMember->GetCharIndex());
+				gserver.m_listParty.erase(key);
+				key = MAKE_LONGLONG_KEY(this->GetSubNo(), m_listMember[0]->GetCharIndex());
+				gserver.m_listParty.insert(map_party_t::value_type(key, this));
 				return true;
 			}
 		}
 	}
 	return false;
+}
+
+void CParty::SetEndParty()
+{
+	for(int i=0; i < MAX_PARTY_MEMBER; i++)
+	{
+		delete m_listMember[i];
+		m_listMember[i] = NULL;
+	}
 }

@@ -1,17 +1,15 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "BillingClient.h"
 #include "User.h"
 #include "Log.h"
-
 CUser::CUser(int index, const char* name, int server, int subnum, const char* ip, const char* ident)
-: m_name(MAX_ID_NAME_LENGTH + 1)
-, m_ip(HOST_LENGTH + 1)
-#ifdef EVENT_PROMOTION_SITE
-,m_proSite(3)
-#endif//#ifdef EVENT_PROMOTION_SITE
+	: m_name(MAX_ID_NAME_LENGTH + 1)
+	, m_ip(HOST_LENGTH + 1)
+	,m_proSite(3)
 #ifdef CHARDEL_CHECKID
-, m_identification(8)
+	, m_identification(8)
 #endif
 {
 	m_index = index;
@@ -34,10 +32,6 @@ CUser::CUser(int index, const char* name, int server, int subnum, const char* ip
 //0627
 	m_userFlag = 0;
 
-#ifdef EVENT_PCBANG
-	m_pcbang_time = 0;
-#endif
-
 #ifdef CHARDEL_CHECKID
 	if( ident )
 		m_identification = ident;
@@ -51,9 +45,6 @@ CUserList::CUserList()
 	m_users = new CUser*[MAX_PLAYING];
 	memset(m_users, 0, sizeof(CUser*) * MAX_PLAYING);
 	memset(m_playersPerZone, -1, sizeof(int) * MAX_ZONES);
-#ifdef EXTERNAL_COUNT
-	m_exCount = NULL;
-#endif
 }
 
 CUserList::~CUserList()
@@ -84,25 +75,6 @@ CUser* CUserList::Add(CUser* user)
 	m_count++;
 	if (m_last < i)
 		m_last = i;
-#ifdef EXTERNAL_COUNT
-	if( !m_exCount )
-	{
-		m_exCount = new int[gserver.m_extTableCount];
-		memset(m_exCount, 0, sizeof(m_exCount) );
-	}
-
-	for(int j = 0; j < gserver.m_extTableCount; j++)
-	{
-		if( strcmp(user->m_proSite, gserver.m_extTableList[j]) == 0 )
-		{
-			m_exCount[j]++;
-		}
-	}
-	/*
-	if( strcmp(user->m_proSite, "NM") == 0 )
-		m_nmCount++;
-		*/
-#endif
 
 	GAMELOG << init("PLAYER_ADD", m_users[i]->m_name)
 			<< i
@@ -122,15 +94,6 @@ bool CUserList::Remove(CUser* user, bool bFree)
 
 	m_users[user->m_listindex] = NULL;
 	m_count--;
-#ifdef EXTERNAL_COUNT
-	for(int j = 0; j < gserver.m_extTableCount; j++)
-	{
-		if( strcmp(user->m_proSite, gserver.m_extTableList[j]) == 0 )
-		{
-			m_exCount[j]--;
-		}
-	}
-#endif
 	if (bFree)
 		delete user;
 
@@ -151,7 +114,7 @@ CUser* CUserList::Find(const char* name)
 	return NULL;
 }
 
-CUser* CUserList::Find(int userindex)
+CUser* CUserList::FindByUserIndex(int userindex)
 {
 	int i;
 	for (i = 0; i <= m_last; i++)
@@ -164,3 +127,4 @@ CUser* CUserList::Find(int userindex)
 	}
 	return NULL;
 }
+//

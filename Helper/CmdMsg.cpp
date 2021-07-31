@@ -1,30 +1,31 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
-#include "DBCmd.h"
+#include "../ShareLib/DBCmd.h"
 #include "Guild.h"
 #include "CmdMsg.h"
 #include "doFunc.h"
 //#include "Friend.h"
 
-void FailMsg(CNetMsg& msg, MSG_FAIL_TYPE failtype)
+void FailMsg(CNetMsg::SP& msg, MSG_FAIL_TYPE failtype)
 {
-	msg.Init(MSG_FAIL);
-	msg << (unsigned char)failtype;
+	msg->Init(MSG_FAIL);
+	RefMsg(msg) << (unsigned char)failtype;
 }
 
-void HelperWhisperNotfoundMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int sidx, const char* sname)
+void HelperWhisperNotfoundMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int sidx, const char* sname)
 {
-	msg.Init(MSG_HELPER_REP);
-	msg	<< seq
+	msg->Init(MSG_HELPER_REP);
+	RefMsg(msg)	<< seq
 		<< server << subno << zone
 		<< (unsigned char)MSG_HELPER_WHISPER_NOTFOUND
 		<< sidx << sname;
 }
 
-void HelperWhisperRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone, int sidx, const char* sname, const char* rname, const char* chat)
+void HelperWhisperRepMsg(CNetMsg::SP& msg, int seq, int server, int subno, int zone, int sidx, const char* sname, const char* rname, const char* chat)
 {
-	msg.Init(MSG_HELPER_REP);
-	msg	<< seq
+	msg->Init(MSG_HELPER_REP);
+	RefMsg(msg)	<< seq
 		<< server
 		<< subno
 		<< zone
@@ -34,18 +35,18 @@ void HelperWhisperRepMsg(CNetMsg& msg, int seq, int server, int subno, int zone,
 		<< chat;
 }
 
-void HelperGuildCreateRepMsg(CNetMsg& msg, int charindex, MSG_GUILD_ERROR_TYPE errcode)
+void HelperGuildCreateRepMsg(CNetMsg::SP& msg, int charindex, MSG_GUILD_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_CREATE_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_CREATE_REP
 		<< charindex
 		<< (unsigned char)errcode;
 }
 
-void HelperGuildCreateNotifyMsg(CNetMsg& msg, CGuild* guild)
+void HelperGuildCreateNotifyMsg(CNetMsg::SP& msg, CGuild* guild)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_CREATE_NTF
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_CREATE_NTF
 		<< guild->index()
 		<< guild->level()
 		<< guild->name()
@@ -53,210 +54,184 @@ void HelperGuildCreateNotifyMsg(CNetMsg& msg, CGuild* guild)
 		<< guild->boss()->GetName();
 }
 
-void HelperGuildOnlineNotifyMsg(CNetMsg& msg, CGuildMember* member)
+void HelperGuildOnlineNotifyMsg(CNetMsg::SP& msg, CGuildMember* member)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_ONLINE_NTF
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_ONLINE_NTF
 		<< member->guild()->index()
 		<< member->charindex()
 		<< member->online();
 }
 
-void HelperGuildMemberListMsg(CNetMsg& msg, CGuild* guild, int startidx, int cutCount )
+void HelperGuildMarkTableMsg(CNetMsg::SP& msg)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_MEMBER_LIST
-		<< guild->index();
-
-	int loopCount = startidx+cutCount<=guild->membercount()?cutCount:guild->membercount()%cutCount;
-	msg	<< loopCount;
-
-	int i;
-	CGuildMember* member;
-	for (i = startidx; i< startidx+loopCount ; i++)
-	{
-		member = guild->member(i);
-		if (member)
-		{
-			msg << member->charindex()
-				<< member->GetName()
-				<< member->pos()
-				<< member->online();
-		}
-	}
-}
-
-#ifdef GUILD_MARK_TABLE
-void HelperGuildMarkTableMsg(CNetMsg & msg)
-{
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_MARK_TABLE;
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_MARK_TABLE;
 	for(int i = 0; i < 3 ; i++)
 	{
-		msg << gserver.m_nGuildMarkTable[i];
+		RefMsg(msg) << gserver.m_nGuildMarkTable[i];
 	};
 }
-#endif // GUILD_MARK_TABLE
 
-void HelperGuildLoadRepMsg(CNetMsg& msg, const char* idname, int charindex, MSG_GUILD_ERROR_TYPE errcode)
+void HelperGuildLoadRepMsg(CNetMsg::SP& msg, const char* idname, int charindex, MSG_GUILD_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_LOAD_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_LOAD_REP
 		<< idname
 		<< charindex
 		<< (unsigned char)errcode;
 }
 
-void HelperGuildLevelUpRepMsg(CNetMsg& msg, int guildindex, int charindex, MSG_GUILD_ERROR_TYPE errcode)
+void HelperGuildLevelUpRepMsg(CNetMsg::SP& msg, int guildindex, int charindex, MSG_GUILD_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_LEVELUP_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_LEVELUP_REP
 		<< guildindex
 		<< charindex
 		<< (unsigned char)errcode;
 }
 
-void HelperGuildLevelUpNotifyMsg(CNetMsg& msg, int guildindex, int level)
+void HelperGuildLevelUpNotifyMsg(CNetMsg::SP& msg, int guildindex, int level)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_LEVELUP_NTF
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_LEVELUP_NTF
 		<< guildindex
 		<< level;
 }
 
-void HelperGuildBreakUpRepMsg(CNetMsg& msg, int charindex, MSG_GUILD_ERROR_TYPE errcode)
+void HelperGuildBreakUpRepMsg(CNetMsg::SP& msg, int charindex, MSG_GUILD_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_BREAKUP_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_BREAKUP_REP
 		<< charindex
 		<< (unsigned char)errcode;
 }
 
-void HelperGuildBreakUpNotifyMsg(CNetMsg& msg, int guildindex)
+void HelperGuildBreakUpNotifyMsg(CNetMsg::SP& msg, int guildindex)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_BREAKUP_NTF
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_BREAKUP_NTF
 		<< guildindex;
 }
 
-void HelperGuildMemberAddRepMsg(CNetMsg& msg, int guildindex, int bossindex, int charindex, MSG_GUILD_ERROR_TYPE errcode)
+void HelperGuildMemberAddRepMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex, MSG_GUILD_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_MEMBER_ADD_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_MEMBER_ADD_REP
 		<< guildindex
 		<< bossindex
 		<< charindex
 		<< (unsigned char)errcode;
 }
 
-void HelperGuildMemberAddNotifyMsg(CNetMsg& msg, int guildindex, int charindex, const char* name, MSG_GUILD_POSITION_TYPE pos)
+void HelperGuildMemberAddNotifyMsg(CNetMsg::SP& msg, int guildindex, int charindex, const char* name, MSG_GUILD_POSITION_TYPE pos)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_MEMBER_ADD_NTF
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_MEMBER_ADD_NTF
 		<< guildindex
 		<< charindex
 		<< name
 		<< pos;
 }
 
-void HelperGuildMemberOutRepMsg(CNetMsg& msg, int guildindex, int charindex, MSG_GUILD_ERROR_TYPE errcode)
+void HelperGuildMemberOutRepMsg(CNetMsg::SP& msg, int guildindex, int charindex, MSG_GUILD_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_MEMBER_OUT_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_MEMBER_OUT_REP
 		<< guildindex
 		<< charindex
 		<< (unsigned char)errcode;
 }
 
-void HelperGuildMemberOutNotifyMsg(CNetMsg& msg, int guildindex, int charindex, const char* charname)
+void HelperGuildMemberOutNotifyMsg(CNetMsg::SP& msg, int guildindex, int charindex, const char* charname)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_MEMBER_OUT_NTF
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_MEMBER_OUT_NTF
 		<< guildindex
 		<< charindex
 		<< charname;
 }
 
-void HelperGuildMemberKickRepMsg(CNetMsg& msg, int guildindex, int bossindex, int charindex, MSG_GUILD_ERROR_TYPE errcode)
+void HelperGuildMemberKickRepMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex, MSG_GUILD_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_MEMBER_KICK_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_MEMBER_KICK_REP
 		<< guildindex
 		<< bossindex
 		<< charindex
 		<< (unsigned char)errcode;
 }
 
-void HelperGuildMemberKickNotifyMsg(CNetMsg& msg, int guildindex, int bossindex, int charindex)
+void HelperGuildMemberKickNotifyMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_MEMBER_KICK_NTF
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_MEMBER_KICK_NTF
 		<< guildindex
 		<< bossindex
 		<< charindex;
 }
 
-void HelperGuildChangeBossRepMsg(CNetMsg& msg, int guildindex, int current, int change, MSG_GUILD_ERROR_TYPE errcode)
+void HelperGuildChangeBossRepMsg(CNetMsg::SP& msg, int guildindex, int current, int change, MSG_GUILD_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_CHANGE_BOSS_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_CHANGE_BOSS_REP
 		<< guildindex
 		<< current
 		<< change
 		<< (unsigned char)errcode;
 }
 
-void HelperGuildChangeBossNotifyMsg(CNetMsg& msg, int guildindex, int current, int change)
+void HelperGuildChangeBossNotifyMsg(CNetMsg::SP& msg, int guildindex, int current, int change)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_CHANGE_BOSS_NTF
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_CHANGE_BOSS_NTF
 		<< guildindex
 		<< current
 		<< change;
 }
 
-void HelperGuildAppointOfficerRepMsg(CNetMsg& msg, int guildindex, int bossindex, int charindex, MSG_GUILD_ERROR_TYPE errcode)
+void HelperGuildAppointOfficerRepMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex, MSG_GUILD_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_APPOINT_OFFICER_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_APPOINT_OFFICER_REP
 		<< guildindex
 		<< bossindex
 		<< charindex
 		<< (unsigned char)errcode;
 }
 
-void HelperGuildAppointOfficerNotifyMsg(CNetMsg& msg, int guildindex, int bossindex, int charindex)
+void HelperGuildAppointOfficerNotifyMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_APPOINT_OFFICER_NTF
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_APPOINT_OFFICER_NTF
 		<< guildindex
 		<< bossindex
 		<< charindex;
 }
 
-void HelperGuildFireOfficerRepMsg(CNetMsg& msg, int guildindex, int bossindex, int charindex, MSG_GUILD_ERROR_TYPE errcode)
+void HelperGuildFireOfficerRepMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex, MSG_GUILD_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_FIRE_OFFICER_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_FIRE_OFFICER_REP
 		<< guildindex
 		<< bossindex
 		<< charindex
 		<< (unsigned char)errcode;
 }
 
-void HelperGuildFireOfficerNotifyMsg(CNetMsg& msg, int guildindex, int bossindex, int charindex)
+void HelperGuildFireOfficerNotifyMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_FIRE_OFFICER_NTF
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_FIRE_OFFICER_NTF
 		<< guildindex
 		<< bossindex
 		<< charindex;
 }
 
-void HelperGuildLoadNotifyMsg(CNetMsg& msg, CGuild* guild)
+void HelperGuildLoadNotifyMsg(CNetMsg::SP& msg, CGuild* guild)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_LOAD_NTF
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_LOAD_NTF
 		<< guild->index()
 		<< guild->level()
 		<< guild->name()
@@ -268,16 +243,24 @@ void HelperGuildLoadNotifyMsg(CNetMsg& msg, CGuild* guild)
 		<< guild->battleZone()
 		<< guild->killCount()
 		<< guild->battleState();
-#ifdef NEW_GUILD
-	msg << guild->maxmember();
-#endif // NEW_GUILD
+	RefMsg(msg) << guild->maxmember();
+#ifdef DEV_GUILD_MARK
+	RefMsg(msg) << guild->GetGuildMarkRow()
+		<< guild->GetGuildMarkCol()
+		<< guild->GetBackgroundRow()
+		<< guild->GetBackgroundCol()
+		<< guild->GetMarkTime();
+#endif
+	RefMsg(msg) << guild->getGuildKick()->getKickStatus()
+		<< guild->getGuildKick()->getKickRequestChar()
+		<< guild->getGuildKick()->getKickRequestTime();
 }
 
-void HelperGuildBattleRepMsg(CNetMsg& msg, CGuild* g1, CGuild* g2, int prize)
+void HelperGuildBattleRepMsg(CNetMsg::SP& msg, CGuild* g1, CGuild* g2, int prize)
 {
-	msg.Init(MSG_HELPER_COMMAND);
+	msg->Init(MSG_HELPER_COMMAND);
 
-	msg << MSG_HELPER_GUILD_BATTLE_REP
+	RefMsg(msg) << MSG_HELPER_GUILD_BATTLE_REP
 		<< g1->index()
 		<< g1->name()
 		<< g2->index()
@@ -287,11 +270,11 @@ void HelperGuildBattleRepMsg(CNetMsg& msg, CGuild* g1, CGuild* g2, int prize)
 		<< g1->battleTime() / 2;
 }
 
-void HelperGuildBattleStartMsg(CNetMsg& msg, CGuild* g1, CGuild* g2)
+void HelperGuildBattleStartMsg(CNetMsg::SP& msg, CGuild* g1, CGuild* g2)
 {
-	msg.Init(MSG_HELPER_COMMAND);
+	msg->Init(MSG_HELPER_COMMAND);
 
-	msg << MSG_HELPER_GUILD_BATTLE_START
+	RefMsg(msg) << MSG_HELPER_GUILD_BATTLE_START
 		<< g1->index()
 		<< g1->name()
 		<< g2->index()
@@ -301,25 +284,27 @@ void HelperGuildBattleStartMsg(CNetMsg& msg, CGuild* g1, CGuild* g2)
 		<< g1->battleTime() / 2;
 }
 
-void HelperGuildBattleStopRepMsg(CNetMsg& msg, int winner_index, CGuild* g1, CGuild* g2)
+void HelperGuildBattleStopRepMsg(CNetMsg::SP& msg, int winner_index, CGuild* g1, CGuild* g2)
 {
-	msg.Init(MSG_HELPER_COMMAND);
+	msg->Init(MSG_HELPER_COMMAND);
 
-	msg << MSG_HELPER_GUILD_BATTLE_STOP_REP
+	RefMsg(msg) << MSG_HELPER_GUILD_BATTLE_STOP_REP
 		<< winner_index
 		<< g1->index()
 		<< g1->name()
+		<< g1->killCount()
 		<< g2->index()
 		<< g2->name()
+		<< g2->killCount()
 		<< g1->battlePrize()
 		<< g1->battleZone();
 }
 
-void HelperGuildBattleStatusMsg(CNetMsg& msg, CGuild* g1, CGuild* g2)
+void HelperGuildBattleStatusMsg(CNetMsg::SP& msg, CGuild* g1, CGuild* g2)
 {
-	msg.Init(MSG_HELPER_COMMAND);
+	msg->Init(MSG_HELPER_COMMAND);
 
-	msg << MSG_HELPER_GUILD_BATTLE_STATUS
+	RefMsg(msg) << MSG_HELPER_GUILD_BATTLE_STATUS
 		<< g1->index()
 		<< g1->name()
 		<< g1->killCount()
@@ -330,76 +315,52 @@ void HelperGuildBattleStatusMsg(CNetMsg& msg, CGuild* g1, CGuild* g2)
 		<< g2->battleZone();
 }
 
-void HelperGuildBattlePeaceRepMsg(CNetMsg& msg, CGuild* g)
+void HelperGuildBattlePeaceRepMsg(CNetMsg::SP& msg, CGuild* g)
 {
-	msg.Init(MSG_HELPER_COMMAND);
+	msg->Init(MSG_HELPER_COMMAND);
 
-	msg << MSG_HELPER_GUILD_BATTLE_PEACE_REP
+	RefMsg(msg) << MSG_HELPER_GUILD_BATTLE_PEACE_REP
 		<< g->index();
 }
 
-void HelperEventMoonStoneLoadMsg(CNetMsg& msg, int moonstone)
+void HelperEventMoonStoneLoadMsg(CNetMsg::SP& msg, int moonstone)
 {
-	msg.Init(MSG_HELPER_COMMAND);
+	msg->Init(MSG_HELPER_COMMAND);
 
-	msg << MSG_HELPER_EVENT_MOONSTONE_LOAD
+	RefMsg(msg) << MSG_HELPER_EVENT_MOONSTONE_LOAD
 		<< moonstone;
 }
 
-void HelperEventMoonStoneUpdateRepMsg(CNetMsg& msg, int moonstone)
+void HelperEventMoonStoneUpdateRepMsg(CNetMsg::SP& msg, int moonstone)
 {
-	msg.Init(MSG_HELPER_COMMAND);
+	msg->Init(MSG_HELPER_COMMAND);
 
-	msg << MSG_HELPER_EVENT_MOONSTONE_UPDATE_REP
+	RefMsg(msg) << MSG_HELPER_EVENT_MOONSTONE_UPDATE_REP
 		<< moonstone;
 }
 
-void HelperEventMoonStoneJackPotRepMsg(CNetMsg& msg, int moonstone, int chaindex)
+void HelperEventMoonStoneJackPotRepMsg(CNetMsg::SP& msg, int moonstone, int chaindex)
 {
-	msg.Init(MSG_HELPER_COMMAND);
+	msg->Init(MSG_HELPER_COMMAND);
 
-	msg << MSG_HELPER_EVENT_MOONSTONE_JACKPOT_REP
+	RefMsg(msg) << MSG_HELPER_EVENT_MOONSTONE_JACKPOT_REP
 		<< moonstone
 		<< chaindex;
 }
 
-void HelperFriendMemberAddRepMsg(CNetMsg& msg, int approvalindex, const char* appname, int appjob, int requestindex, const char* reqname, int reqjob, MSG_FRIEND_ERROR_TYPE errcode)
+void HelperBlockCharRepMsg(CNetMsg::SP& msg, int reqindex, int blockIndex, const char* blockName )
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_FRIEND_MEMBER_ADD_REP
-		<< approvalindex
-		<< appname
-		<< appjob
-		<< requestindex
-		<< reqname
-		<< reqjob
-		<< (unsigned char)errcode;
-}
-
-void HelperFriendMemberDelRepMsg(CNetMsg& msg, int removerindex, int deleteindex, MSG_FRIEND_ERROR_TYPE errcode)
-{
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_FRIEND_MEMBER_DEL_REP
-		<< removerindex
-		<< deleteindex		
-		<< (unsigned char)errcode;
-}
-
-#ifdef MESSENGER_NEW
-void HelperBlockCharRepMsg(CNetMsg& msg, int reqindex, int blockIndex, const char* blockName )
-{
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_BLOCKPC_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_BLOCKPC_REP
 		<< reqindex
 		<< blockIndex
 		<< blockName;
 }
-#endif
-#ifdef CASH_ITEM_GIFT
-void HelperGiftCharRepMsg(CNetMsg& msg, int sendUserIdx, int sendCharIdx, int recvUserIdx, int recvCharIdx, const char* recvCharName, const char* sendMsg, int count, int idx[], int ctid[] )
+
+void HelperGiftCharRepMsg(CNetMsg::SP& msg, int sendUserIdx, int sendCharIdx, int recvUserIdx, int recvCharIdx, const char* recvCharName, const char* sendMsg, int count, int idx[], int ctid[] )
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GIFT_RECVCHARNAME_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GIFT_RECVCHARNAME_REP
 		<< sendUserIdx
 		<< sendCharIdx
 		<< recvUserIdx
@@ -410,87 +371,84 @@ void HelperGiftCharRepMsg(CNetMsg& msg, int sendUserIdx, int sendCharIdx, int re
 
 	for(int i = 0; i < count; i++)
 	{
-		msg << idx[i]
+		RefMsg(msg) << idx[i]
 			<< ctid[i];
 	}
 }
-#endif
 
-void HelperFriendSetConditionNotifyMsg(CNetMsg& msg, int chaindex, int condition, int reply, int sum, const int* index)
+void HelperFriendSetConditionNotifyMsg(CNetMsg::SP& msg, int chaindex, int condition, int reply, int sum, const int* index)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_FRIEND_SET_CONDITION_NOTIFY
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_FRIEND_SET_CONDITION_NOTIFY
 		<< chaindex
 		<< condition
 		<< reply;
 
 	if(reply == -1)
 	{
-		msg	<< sum;
+		RefMsg(msg) << sum;
 		for(int i=0 ; i<sum ; i++)
 		{
-			msg << index[i];
+			RefMsg(msg) << index[i];
 		}
-	}			
+	}
 }
 
-void HelperNameChangeRepMsg(CNetMsg& msg, char bguild, int charindex, const char* name, MSG_EX_NAMECHANGE_ERROR_TYPE error)
+void HelperNameChangeRepMsg(CNetMsg::SP& msg, char bguild, int charindex, const char* name, MSG_EX_NAMECHANGE_ERROR_TYPE error)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_NAME_CHANGE_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_NAME_CHANGE_REP
 		<< bguild
 		<< charindex
 		<< name
 		<< (unsigned char) error;
 }
 
-void HelperPetCreateRepMsg(CNetMsg& msg, int index, int owner, char typegrade)
+void HelperPetCreateRepMsg(CNetMsg::SP& msg, int index, int owner, char typegrade)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PET_CREATE_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PET_CREATE_REP
 		<< index
 		<< owner
 		<< typegrade;
 }
 
-#ifdef NEW_UI
-void HelperPetDeleteRepMsg(CNetMsg& msg, int index, int owner)
+void HelperPetDeleteRepMsg(CNetMsg::SP& msg, int index, int owner)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PET_DELETE_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PET_DELETE_REP
 		<< index
 		<< owner;
 }
-#endif // NEW_UI
 
-void HelperGuildStashHistoryRepMsg(CNetMsg& msg, int charindex, MSG_HELPER_GUILD_STASH_ERROR_TYPE errcode, int month[7], int day[7], LONGLONG money[7])
+void HelperGuildStashHistoryRepMsg(CNetMsg::SP& msg, int charindex, MSG_HELPER_GUILD_STASH_ERROR_TYPE errcode, int month[7], int day[7], LONGLONG money[7])
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_STASH_HISTORY_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_STASH_HISTORY_REP
 		<< charindex
 		<< errcode;
 	int i;
 	for (i = 0; i < 7; i++)
 	{
-		msg << month[i]
+		RefMsg(msg) << month[i]
 			<< day[i]
 			<< money[i];
 	}
 }
 
-void HelperGuildStashViewRepMsg(CNetMsg& msg, int charindex, MSG_HELPER_GUILD_STASH_ERROR_TYPE errcode, LONGLONG money)
+void HelperGuildStashViewRepMsg(CNetMsg::SP& msg, int charindex, MSG_HELPER_GUILD_STASH_ERROR_TYPE errcode, LONGLONG money)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_STASH_VIEW_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_STASH_VIEW_REP
 		<< charindex
 		<< errcode
 		<< money;
 }
 
-void HelperGuildStashTakeRepMsg(CNetMsg& msg, int guildindex, int charindex, MSG_HELPER_GUILD_STASH_ERROR_TYPE errcode, LONGLONG money, LONGLONG balance)
+void HelperGuildStashTakeRepMsg(CNetMsg::SP& msg, int guildindex, int charindex, MSG_HELPER_GUILD_STASH_ERROR_TYPE errcode, LONGLONG money, LONGLONG balance)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_STASH_TAKE_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_STASH_TAKE_REP
 		<< guildindex
 		<< charindex
 		<< errcode
@@ -498,10 +456,10 @@ void HelperGuildStashTakeRepMsg(CNetMsg& msg, int guildindex, int charindex, MSG
 		<< balance;
 }
 
-void HelperGuildStashSaveTaxRepMsg(CNetMsg& msg, MSG_HELPER_GUILD_STASH_ERROR_TYPE errcode, int guildindex, int zoneindex, LONGLONG taxItem, LONGLONG taxProduce)
+void HelperGuildStashSaveTaxRepMsg(CNetMsg::SP& msg, MSG_HELPER_GUILD_STASH_ERROR_TYPE errcode, int guildindex, int zoneindex, LONGLONG taxItem, LONGLONG taxProduce)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_GUILD_STASH_SAVE_TAX_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_STASH_SAVE_TAX_REP
 		<< errcode
 		<< guildindex
 		<< zoneindex
@@ -509,29 +467,25 @@ void HelperGuildStashSaveTaxRepMsg(CNetMsg& msg, MSG_HELPER_GUILD_STASH_ERROR_TY
 		<< taxProduce;
 }
 
-void HelperFameupRepMsg(CNetMsg& msg, int teachidx, int studentidx, const char* studentname, int fameup)
+void HelperFameupRepMsg(CNetMsg::SP& msg, int teachidx, int studentidx, const char* studentname, int fameup)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_TEACHER_FAMEUP_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_TEACHER_FAMEUP_REP
 		<< teachidx
-		<< studentidx
-		<< studentname
 		<< fameup;
 }
 
-void HelperTeacherInfo(CNetMsg& rmsg, const char* idname, int charindex, char m_teachType, int m_fame, char bteacher, int m_cntCompleteStudent, 
-		int m_cntFailStudent, int m_superstone, int m_guardian, const char* strTeachIdx, const char* strTeachSec)
+void HelperTeacherInfo(CNetMsg::SP& rmsg, const char* idname, int charindex, char m_teachType, int m_fame, char bteacher, int m_cntCompleteStudent,
+		int m_cntFailStudent, int m_superstone, int m_guardian, const char* strTeachIdx, const char* strTeachSec, int msgSubType)
 {
 	int m_teachIdx[TEACH_MAX_STUDENTS];
 	char		m_teachJob[TEACH_MAX_STUDENTS];
-#ifdef ENABLE_CHANGEJOB
 	char		m_teachJob2[TEACH_MAX_STUDENTS];
-#endif
 	int		m_teachLevel[TEACH_MAX_STUDENTS];
 	char	m_teachName[TEACH_MAX_STUDENTS][MAX_CHAR_NAME_LENGTH + 1];
 	int		m_teachTime[TEACH_MAX_STUDENTS];
 	int		m_cntTeachingStudent = 0;
-	char	tbuf[255];
+	char	tbuf[255] ={0,};
 
 	memset(m_teachIdx, -1, sizeof(m_teachIdx) );
 	memset(m_teachTime, 0, sizeof(m_teachTime) );
@@ -553,26 +507,19 @@ void HelperTeacherInfo(CNetMsg& rmsg, const char* idname, int charindex, char m_
 			{
 				m_teachIdx[cnt] = -1;
 				m_teachJob[cnt] = -1;
-#ifdef ENABLE_CHANGEJOB
 				m_teachJob2[cnt] = 0;
-#endif
 				m_teachLevel[cnt] = 0;
 				m_teachName[cnt][0] = '\0';
 				m_teachTime[cnt] = 0;
 			}
 			else
 			{
-				
 				CDBCmd dbTmp;
 				dbTmp.Init(&gserver.m_dbchar);
 
 				CLCString sql(1024);
 
-#ifdef ENABLE_CHANGEJOB
 				sql.Format("SELECT a_index, a_name, a_nick, a_level, a_job, a_job2 FROM t_characters WHERE a_enable = 1 and a_index=%d", idx);
-#else
-				sql.Format("SELECT a_index, a_name, a_nick, a_level, a_job FROM t_characters WHERE a_enable = 1 and a_index=%d", idx);
-#endif
 
 				dbTmp.SetQuery(sql);
 				if (dbTmp.Open() && dbTmp.MoveFirst())
@@ -582,23 +529,17 @@ void HelperTeacherInfo(CNetMsg& rmsg, const char* idname, int charindex, char m_
 					CLCString teach_name(MAX_CHAR_NAME_LENGTH + 1);
 					CLCString teach_nick(MAX_CHAR_NAME_LENGTH + 1);
 					char teach_job;
-#ifdef ENABLE_CHANGEJOB
 					char teach_job2;
-#endif
 
 					dbTmp.GetRec("a_index",		teach_index);
 					dbTmp.GetRec("a_name",		teach_name);
 					dbTmp.GetRec("a_nick",		teach_nick);
 					dbTmp.GetRec("a_level",		teach_level);
 					dbTmp.GetRec("a_job",		teach_job);
-#ifdef ENABLE_CHANGEJOB
 					dbTmp.GetRec("a_job2",		teach_job2);
-#endif
 					m_teachIdx[cnt] = teach_index;
 					m_teachJob[cnt] = teach_job;
-#ifdef ENABLE_CHANGEJOB
 					m_teachJob2[cnt] = teach_job2;
-#endif
 					m_teachLevel[cnt] = teach_level;
 					strcpy(m_teachName[cnt], teach_nick);
 					count++;
@@ -613,7 +554,6 @@ void HelperTeacherInfo(CNetMsg& rmsg, const char* idname, int charindex, char m_
 					do_TeachCancel(tempCmd, charindex, idx, CANCELTEACHER);
 					tempCmd.Commit();
 				}
-
 			}
 
 			cnt++;
@@ -630,12 +570,13 @@ void HelperTeacherInfo(CNetMsg& rmsg, const char* idname, int charindex, char m_
 			pTeachSec = AnyOneArg(pTeachSec, tbuf);
 			sec = atoi(tbuf);
 			m_teachTime[cnt++] = sec;
+			if( cnt >= 2 )
+				break;
 		}
 
 		// 사제 시스템을 읽고 난후 메세지를 보낸다.
-		rmsg.Init(MSG_HELPER_COMMAND);
-
-		rmsg << MSG_HELPER_TEACHER_LOAD_REP
+		rmsg->Init(MSG_HELPER_COMMAND);
+		RefMsg(rmsg) << msgSubType
 			 << idname
 			 << charindex
 			 << m_cntTeachingStudent
@@ -646,20 +587,19 @@ void HelperTeacherInfo(CNetMsg& rmsg, const char* idname, int charindex, char m_
 			 << m_teachType
 			 << m_fame
 			 << bteacher;
+		RefMsg(rmsg) << m_teachTime[0]
+			 << m_teachTime[1];
 
 		for(int i = 0; i < TEACH_MAX_STUDENTS; i++)
 		{
-			rmsg << m_teachIdx[i]
+			RefMsg(rmsg) << m_teachIdx[i]
 				 << m_teachJob[i]
-	#ifdef ENABLE_CHANGEJOB
 				 << m_teachJob2[i]
-	#endif
 				 << m_teachLevel[i]
-				 << m_teachName[i]
-				 << m_teachTime[i];
+				 << m_teachName[i];
 		}
 	}
-	else // 학생
+	else
 	{
 		const char* pTeach = strTeachIdx;
 
@@ -672,13 +612,8 @@ void HelperTeacherInfo(CNetMsg& rmsg, const char* idname, int charindex, char m_
 
 		CLCString sql(1024);
 
-#ifdef ENABLE_CHANGEJOB
 		sql.Format("SELECT a_index, a_name, a_nick, a_level, a_job, a_job2, a_teach_idx, a_fame, a_teach_complete, a_teach_fail "
 			"FROM t_characters WHERE a_enable  = 1 and a_index=%d", idx);
-#else
-		sql.Format("SELECT a_index, a_name, a_nick, a_level, a_job, a_teach_idx, a_fame, a_teach_complete, a_teach_fail "
-			"FROM t_characters WHERE a_enable  = 1 and a_index=%d", idx);
-#endif
 
 		dbTmp.SetQuery(sql);
 		if (dbTmp.Open() && dbTmp.MoveFirst())
@@ -691,9 +626,7 @@ void HelperTeacherInfo(CNetMsg& rmsg, const char* idname, int charindex, char m_
 			strcpy(m_teachName[0], teachName);
 			dbTmp.GetRec("a_level", m_teachLevel[0]);
 			dbTmp.GetRec("a_job", m_teachJob[0]);
-#ifdef ENABLE_CHANGEJOB
 			dbTmp.GetRec("a_job2", m_teachJob2[0]);
-#endif
 			// 자신이 학생이면 idx[1]을 선생의 명성수치로, idx[2]를 선생의 양성중이 초보로, time[1]을 완료인원, time[2]을 실패인원으로 쓴다.
 			dbTmp.GetRec("a_teach_idx", teachIdx);
 			dbTmp.GetRec("a_fame", m_teachIdx[1]);
@@ -708,34 +641,24 @@ void HelperTeacherInfo(CNetMsg& rmsg, const char* idname, int charindex, char m_
 				int idx;
 				pTemp = AnyOneArg(pTemp, tbuf);
 				idx = atoi(tbuf);
-				
+
 				if( idx != -1 )
 				{
 					m_teachIdx[2]++;
 				}
 			}
 		}
-		else
-		{
-			// 선생케릭이 삭제되었을 경우 캔슬.
-			CDBCmd tempCmd;
-			tempCmd.Init(&gserver.m_dbchar);
-
-			tempCmd.BeginTrans();
-			do_TeachCancel(tempCmd, idx, charindex, CANCELSTUDENT);
-			tempCmd.Commit();
-		}
-
-		const char* pTeachSec = strTeachSec;
 		
+		// 사제 성립 시간을 견습생은 포기 횟수로 사용한다.
+		const char* pTeachSec = strTeachSec;
+
 		int sec;
 		pTeachSec = AnyOneArg(pTeachSec, tbuf);
 		sec = atoi(tbuf);
 		m_teachTime[0] = sec;
+		rmsg->Init(MSG_HELPER_COMMAND);
 
-		rmsg.Init(MSG_HELPER_COMMAND);
-
-		rmsg << MSG_HELPER_TEACHER_LOAD_REP
+		RefMsg(rmsg) << MSG_HELPER_TEACHER_LOAD_REP
 			 << idname
 			 << charindex
 			 << m_cntTeachingStudent
@@ -746,90 +669,106 @@ void HelperTeacherInfo(CNetMsg& rmsg, const char* idname, int charindex, char m_
 			 << m_teachType
 			 << m_fame
 			 << bteacher;
+		if( m_teachType == MSG_TEACH_STUDENT_TYPE)
 
-		rmsg << m_teachIdx[0]
-			 << m_teachJob[0]
-#ifdef ENABLE_CHANGEJOB
-			 << m_teachJob2[0]
-#endif
-			 << m_teachLevel[0]
-			 << m_teachName[0]
-			 << m_teachTime[0];
+		{
+			RefMsg(rmsg) << m_teachIdx[0]
+				 << m_teachJob[0]
+				 << m_teachJob2[0]
+				 << m_teachLevel[0]
 
-		// 자신이 학생이면 idx[1]을 선생의 명성수치로, idx[2]를 선생의 양성중이 초보로, time[1]을 완료인원, time[2]을 실패인원으로 쓴다.
-		rmsg << m_teachIdx[1]
-			 << m_teachIdx[2]
-			 << m_teachTime[1]
-			 << m_teachTime[2];
+			 	 << m_teachName[0]
+				// 사제 성립 시간을 견습생은 포기 횟수로 사용한다.
+				 << m_teachTime[0];
 
+			// 자신이 학생이면 idx[1]을 선생의 명성수치로, idx[2]를 선생의 양성중이 초보로, time[1]을 완료인원, time[2]을 실패인원으로 쓴다.
+			RefMsg(rmsg) << m_teachIdx[1]
+				 << m_teachIdx[2]
+				 << m_teachTime[1]
+				 << m_teachTime[2];
+		}
+		else
+		{
+			RefMsg(rmsg) << m_teachTime[0];
+		}
 	}
-
 }
+
+void HelperTeachGiftRepMsg( CNetMsg::SP& msg, MSG_HELPER_TEACH_RENEWER_GIFT_ERROR_TYPE type, int charindex, int count)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_TEACHER_SYSTEM_RENEWER
+		<< (unsigned char) MSG_HELPER_TEACH_RENEWER_TEACHER_GIFT_REP
+		<< (unsigned char) type
+		<< charindex;
+	if( count != -1 )
+		RefMsg(msg) << count;
+}
+
 //휴면케릭 응답 보내는 부분.
-void HelperEventSearchFriendMemberAddRepMsg(CNetMsg& msg
-			, int approvalindex, 
+void HelperEventSearchFriendMemberAddRepMsg(CNetMsg::SP& msg
+			, int approvalindex,
 			const char reqnick[MAX_CHAR_NAME_LENGTH + 1], MSG_EVENT_SEARCHFRIEND_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_SEARCHFRIEND_ADD_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_SEARCHFRIEND_ADD_REP
 		<< approvalindex
 		<< reqnick
 		<< (unsigned char)errcode;
 }
 
 //휴면케릭이 리스트에서 선택한 결과를 보내는 부분
-void HelperEventSearchFriendMemberSelectAddRepMsg(CNetMsg& msg
+void HelperEventSearchFriendMemberSelectAddRepMsg(CNetMsg::SP& msg
 			, int approvalindex, MSG_EVENT_SEARCHFRIEND_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_SEARCHFRIEND_SELECT_ADD_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_SEARCHFRIEND_SELECT_ADD_REP
 		<< approvalindex
 		<< (unsigned char)errcode;
 }
 
 //휴면케릭이 한시간 단위로 사냥한 시간을 저장하고 상태를 GameServer로 보냄.
-void HelperEventSearchFriendMemberOneTimeCheckRepMsg(CNetMsg& msg
+void HelperEventSearchFriendMemberOneTimeCheckRepMsg(CNetMsg::SP& msg
 			, int timesec, int appDormantindex, MSG_EVENT_SEARCHFRIEND_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_SEARCHFRIEND_ONETIME_ADD_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_SEARCHFRIEND_ONETIME_ADD_REP
 		<< timesec
-		<< appDormantindex 		
+		<< appDormantindex
 		<< (unsigned char)errcode;
 }
 
 //휴면케릭 이벤트 등록된 친구 보상가능 여부 데이터를 GameServer로 보냄.
-void HelperEventSearchFriendMemberListGoodRepMsg(CNetMsg& msg, int approvalindex, int* requestindex, const char requestnick[][MAX_CHAR_NAME_LENGTH + 1], int* itemgood, int request_listmember, int startindex, int nTotal)
+void HelperEventSearchFriendMemberListGoodRepMsg(CNetMsg::SP& msg, int approvalindex, int* requestindex, const char requestnick[][MAX_CHAR_NAME_LENGTH + 1], int* itemgood, int request_listmember, int startindex, int nTotal)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_SEARCHFRIEND_LISTGOOD_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_SEARCHFRIEND_LISTGOOD_REP
 		<< approvalindex
 		<< request_listmember
 		<< startindex
 		<< nTotal;
-	
+
 	for (int i = 0; i < request_listmember; i++)
 	{
-		msg << requestindex[i]
+		RefMsg(msg) << requestindex[i]
 			<< requestnick[i]
 			<< itemgood[i];
 	}
 }
 
 //휴면케릭 이벤트 등록된 친구 보상 결과 데이터를 GameServer로 보냄.
-void HelperEventSearchFriendMemberGoodRepMsg(CNetMsg& msg, int approvalindex, MSG_EVENT_SEARCHFRIEND_GOODS_ERROR_TYPE errcode)
+void HelperEventSearchFriendMemberGoodRepMsg(CNetMsg::SP& msg, int approvalindex, MSG_EVENT_SEARCHFRIEND_GOODS_ERROR_TYPE errcode)
 {
-
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_SEARCHFRIEND_GOOD_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_SEARCHFRIEND_GOOD_REP
 		<< approvalindex
 		<< (unsigned char)errcode;
 }
 
-void HelperPartyInviteReqMsg(CNetMsg& msg, int nBossIndex, const char* strBossName, int nBossLevel, int nTargetIndex, char nPartyType)
+void HelperPartyInviteReqMsg(CNetMsg::SP& msg, int nBossIndex, const char* strBossName, int nBossLevel, int nTargetIndex, char nPartyType)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_INVITE_REQ
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_INVITE_REQ
 		<< nBossIndex
 		<< strBossName
 		<< nBossLevel
@@ -837,41 +776,43 @@ void HelperPartyInviteReqMsg(CNetMsg& msg, int nBossIndex, const char* strBossNa
 		<< nPartyType;
 }
 
-void HelperPartyInviteRepMsg(CNetMsg& msg, int nBossIndex, const char* strBossName, int nTargetIndex, const char* strTargetName, char nPartyType, MSG_HELPER_PARTY_ERROR_TYPE errcode)
+void HelperPartyInviteRepMsg(CNetMsg::SP& msg, int nBossIndex, const char* strBossName, int nTargetIndex, const char* strTargetName, char cPartyType1, char cPartyType2, char cPartyType3, MSG_HELPER_PARTY_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_INVITE_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_INVITE_REP
 		<< nBossIndex
 		<< strBossName
 		<< nTargetIndex
 		<< strTargetName
-		<< nPartyType
+		<< cPartyType1
+		<< cPartyType2
+		<< cPartyType3
 		<< errcode;
 }
 
-void HelperPartyAllowRepMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex, const char* strTargetName, MSG_HELPER_PARTY_ERROR_TYPE errcode)
+void HelperPartyAllowRepMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex, const char* strTargetName, MSG_HELPER_PARTY_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_ALLOW_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_ALLOW_REP
 		<< nBossIndex
 		<< nTargetIndex
 		<< strTargetName
 		<< errcode;
 }
 
-void HelperPartyRejectRepMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex, MSG_HELPER_PARTY_ERROR_TYPE errcode)
+void HelperPartyRejectRepMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex, MSG_HELPER_PARTY_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_REJECT_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_REJECT_REP
 		<< nBossIndex
 		<< nTargetIndex
 		<< errcode;
 }
 
-void HelperPartyQuitRepMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex, MSG_HELPER_PARTY_ERROR_TYPE errcode, int nNewBossIndex, const char* strNewBossName)
+void HelperPartyQuitRepMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex, MSG_HELPER_PARTY_ERROR_TYPE errcode, int nNewBossIndex, const char* strNewBossName)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_QUIT_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_QUIT_REP
 		<< nBossIndex
 		<< nTargetIndex
 		<< errcode
@@ -879,50 +820,45 @@ void HelperPartyQuitRepMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex, MSG_H
 		<< strNewBossName;
 }
 
-void HelperPartyKickRepMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex, MSG_HELPER_PARTY_ERROR_TYPE errcode)
+void HelperPartyKickRepMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex, MSG_HELPER_PARTY_ERROR_TYPE errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_KICK_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_KICK_REP
 		<< nBossIndex
 		<< nTargetIndex
 		<< errcode;
 }
 
-void HelperPartyChangeBossRepMsg(CNetMsg& msg, int nBossIndex, const char* strBossName, int nNewBossIndex, const char* strNewBossName)
+void HelperPartyChangeBossRepMsg(CNetMsg::SP& msg, int nBossIndex, const char* strBossName, int nNewBossIndex, const char* strNewBossName)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_CHANGE_BOSS_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_CHANGE_BOSS_REP
 		<< nBossIndex
 		<< strBossName
 		<< nNewBossIndex
 		<< strNewBossName;
 }
 
-#ifdef NEW_UI
-void HelperPartyChangeTypeRepMsg(CNetMsg& msg, int nBossIndex, char cPartyType, char cDiviType)
+void HelperPartyChangeTypeRepMsg(CNetMsg::SP& msg, int nBossIndex, char cPartyType, char cDiviType, char cAllOneSet)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_CHANGE_TYPE_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_CHANGE_TYPE_REP
 		<< nBossIndex
 		<< cPartyType
-		<< cDiviType;
+		<< cDiviType
+		<< cAllOneSet;
 }
-#endif // NEW_UI
-
-#ifdef PARTY_RAID
-void HelperPartyEndPartyRepMsg(CNetMsg& msg, int nBossIndex)
+void HelperPartyEndPartyRepMsg(CNetMsg::SP& msg, int nBossIndex)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_END_PARTY_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_END_PARTY_REP
 		<< nBossIndex;
 }
-#endif //PARTY_RAID
 
-#ifdef PARTY_MATCHING
-void HelperPartyMatchRegMemberRepMsg(CNetMsg& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, int nCharIndex, const char* strCharName, int nCharLevel, int nZone, char cJob, char cPartyType)
+void HelperPartyMatchRegMemberRepMsg(CNetMsg::SP& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, int nCharIndex, const char* strCharName, int nCharLevel, int nZone, char cJob, char cPartyType)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_MATCH_REG_MEMBER_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_MATCH_REG_MEMBER_REP
 		<< nErrorCode
 		<< nCharIndex
 		<< strCharName
@@ -932,36 +868,37 @@ void HelperPartyMatchRegMemberRepMsg(CNetMsg& msg, MSG_HELPER_PARTY_MATCH_ERROR_
 		<< cPartyType;
 }
 
-void HelperPartyMatchRegPartyRepMsg(CNetMsg& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, int nBossIndex, const char* strBossName, int nBossLevel, int nZone, int nJobFlag, char cLimitLevel, char cPartyType, const char* strComment)
+void HelperPartyMatchRegPartyRepMsg(CNetMsg::SP& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, int nBossIndex, const char* strBossName, int nBossLevel, int nZone, int nMemberCount, int nJobFlag, char cLimitLevel, char cPartyType, const char* strComment)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_MATCH_REG_PARTY_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_MATCH_REG_PARTY_REP
 		<< nErrorCode
 		<< nBossIndex
 		<< strBossName
 		<< nBossLevel
 		<< nZone
+		<< nMemberCount
 		<< nJobFlag
 		<< cLimitLevel
 		<< cPartyType;
 	if (nErrorCode == MSG_HELPER_PARTY_MATCH_ERROR_REG_PARTY_OK)
-		msg << strComment;
+		RefMsg(msg) << strComment;
 	else
-		msg << "";
+		RefMsg(msg) << "";
 }
 
-void HelperPartyMatchDelRepMsg(CNetMsg& msg, int nCharIndex, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode)
+void HelperPartyMatchDelRepMsg(CNetMsg::SP& msg, int nCharIndex, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_MATCH_DEL_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_MATCH_DEL_REP
 		<< nCharIndex
 		<< nErrorCode;
 }
 
-void HelperPartyMatchInviteRepMsg(CNetMsg& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, int nBossIndex, const char* strBossName, int nCharIndex, const char* strCharName, char cPartyType)
+void HelperPartyMatchInviteRepMsg(CNetMsg::SP& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, int nBossIndex, const char* strBossName, int nCharIndex, const char* strCharName, char cPartyType)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_MATCH_INVITE_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_MATCH_INVITE_REP
 		<< nErrorCode
 		<< nBossIndex
 		<< strBossName
@@ -970,21 +907,10 @@ void HelperPartyMatchInviteRepMsg(CNetMsg& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYP
 		<< cPartyType;
 }
 
-void HelperPartyMatchInviteReqMsg(CNetMsg& msg, int nBossIndex, const char* strBossName, int nBossLevel, int nCharIndex, char cPartyType)
+void HelperPartyMatchJoinRepMsg(CNetMsg::SP& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, char cPartyType, int nBossIndex, const char* strBossName, int nCharIndex, const char* strCharName, char cCharJob)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_MATCH_INVITE_REQ
-		<< nBossIndex
-		<< strBossName
-		<< nBossLevel
-		<< nCharIndex
-		<< cPartyType;
-}
-
-void HelperPartyMatchJoinRepMsg(CNetMsg& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, char cPartyType, int nBossIndex, const char* strBossName, int nCharIndex, const char* strCharName, char cCharJob)
-{
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_MATCH_JOIN_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_MATCH_JOIN_REP
 		<< nErrorCode
 		<< cPartyType
 		<< nBossIndex
@@ -994,226 +920,69 @@ void HelperPartyMatchJoinRepMsg(CNetMsg& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE 
 		<< cCharJob;
 }
 
-void HelperPartyMatchJoinAllowRepMsg(CNetMsg& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, int nBossIndex, int nCharIndex, const char* strCharName)
+void HelperPartyMatchJoinAllowRepMsg(CNetMsg::SP& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, int nBossIndex, int nCharIndex, const char* strCharName)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_MATCH_JOIN_ALLOW_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_MATCH_JOIN_ALLOW_REP
 		<< nErrorCode
 		<< nBossIndex
 		<< nCharIndex
 		<< strCharName;
 }
 
-void HelperPartyMatchJoinRejectRepMsg(CNetMsg& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, int nJoinCharIndex, int nRejectCharIndex)
+void HelperPartyMatchJoinRejectRepMsg(CNetMsg::SP& msg, MSG_HELPER_PARTY_MATCH_ERROR_TYPE nErrorCode, int nJoinCharIndex, int nRejectCharIndex)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_MATCH_JOIN_REJECT_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_MATCH_JOIN_REJECT_REP
 		<< nErrorCode
 		<< nJoinCharIndex
 		<< nRejectCharIndex;
 }
 
-void HelperPartyMatchMemberChangeInfoMsg(CNetMsg& msg, int nCharIndex, MSG_HELPER_PARTY_MATCH_MEMBER_CHANGE_INFO_TYPE nType, const char* strCharName, int nLevel, int nZone)
+void HelperPartyMatchMemberChangeInfoMsg(CNetMsg::SP& msg, int nCharIndex, MSG_HELPER_PARTY_MATCH_MEMBER_CHANGE_INFO_TYPE nType, const char* strCharName, int nLevel, int nZone)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_MATCH_MEMBER_CHANGE_INFO
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_MATCH_MEMBER_CHANGE_INFO
 		<< nCharIndex
 		<< nType;
 
 	switch (nType)
 	{
 	case MSG_HELPER_PARTY_MATCH_MEMBER_CHANGE_INFO_NAME:
-		msg << strCharName;
+		RefMsg(msg) << strCharName;
 		break;
 
 	case MSG_HELPER_PARTY_MATCH_MEMBER_CHANGE_INFO_LEVEL:
-		msg << nLevel;
+		RefMsg(msg) << nLevel;
 		break;
 
 	case MSG_HELPER_PARTY_MATCH_MEMBER_CHANGE_INFO_ZONE:
-		msg << nLevel
+		RefMsg(msg) << nLevel
 			<< nZone;
 		break;
 	}
 }
 
-#endif // PARTY_MATCHING
-
-void HelperPartyInfoEndMsg(CNetMsg& msg)
+void HelperPartyInfoEndMsg(CNetMsg::SP& msg)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_INFO_END;
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_PARTY_INFO_END;
 }
 
-void HelperPartyInfoPartyMsg(CNetMsg& msg, const CParty* pParty)
+void HelperGuildInclineEstablishRepMsg( CNetMsg::SP& msg, int guildindex, int charindex, char guildincline, MSG_GUILD_ERROR_TYPE errcode )
 {
-	if (pParty == NULL)
-	{
-		msg.Init(MSG_UNKNOWN);
-		return ;
-	}
-
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_INFO_PARTY
-		<< pParty->GetPartyType(MSG_DIVITYPE_EXP)
-		<< pParty->GetRequestIndex()
-		<< pParty->GetRequestName()
-		<< pParty->GetMemberCount();
-	int i;
-	for (i = 0; i < MAX_PARTY_MEMBER; i++)
-	{
-		const CPartyMember* pMember = pParty->GetMemberByListIndex(i);
-		if (pMember)
-		{
-			msg << pMember->GetCharIndex()
-				<< pMember->GetCharName();
-		}
-	}
-}
-
-#ifdef PARTY_MATCHING
-void HelperPartyInfoPartyMatchMemberMsg(CNetMsg& msg, const CPartyMatchMember* pMatchMember)
-{
-	if (pMatchMember == NULL)
-	{
-		msg.Init(MSG_UNKNOWN);
-		return ;
-	}
-
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_INFO_PARTY_MATCH_MEMBER
-		<< pMatchMember->GetIndex()
-		<< pMatchMember->GetName()
-		<< pMatchMember->GetLevel()
-		<< pMatchMember->GetZone()
-		<< pMatchMember->GetPartyType();
-}
-
-void HelperPartyInfoPartyMatchPartyMsg(CNetMsg& msg, const CPartyMatchParty* pMatchParty)
-{
-	if (pMatchParty == NULL)
-	{
-		msg.Init(MSG_UNKNOWN);
-		return ;
-	}
-
-	char cLimitLevel = (pMatchParty->IsLimitLevel()) ? 1 : 0;
-
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARTY_INFO_PARTY_MATCH_PARTY
-		<< pMatchParty->GetBossIndex()
-		<< pMatchParty->GetBossName()
-		<< pMatchParty->GetBossLevel()
-		<< pMatchParty->GetZone()
-		<< pMatchParty->GetJobFlag()
-		<< pMatchParty->GetPartyType()
-		<< cLimitLevel
-		<< pMatchParty->GetComment();
-}
-#endif // PARTY_MATCHING
-
-#ifdef EVENT_CHILDRENSDAY_2007
-void HelperChildrensDay2007Msg( CNetMsg& msg, int nCharIndex, int nItemIndex, int nNeedFlower, char cResult )
-{
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_CHILDRENSDAY_2007
-		<< nCharIndex
-		<< nItemIndex
-		<< nNeedFlower
-		<< cResult;
-}
-
-#endif //EVENT_CHILDRENSDAY_2007
-
-#ifdef EVENT_2007_PARENTSDAY
-void HelperEventAccmulatepointList( CNetMsg& msg, MSG_PARENTSDAY_2007_ERROR_TYPE errorType, int CharIndex, int count,  int* Ranking, int* Accumulatepoint, const char GuildName[][MAX_CHAR_NAME_LENGTH+1] )
-{
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARENTSDAY_2007_ACCUMULATEPOINT_RANKING_LIST
-		<< errorType
-		<< CharIndex
-		<< count;
-	for( int i = 0;  i < count; i++ )
-	{
-	msg	<< Ranking[i]
-		<< Accumulatepoint[i]
-		<< GuildName[i];
-	}
-}
-void HelperEventParentsdayAddPoint( CNetMsg& msg, MSG_PARENTSDAY_2007_ERROR_TYPE errorType, int CharIndex, int CarnationCount, int AccumulatePoint )
-{
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARENTSDAY_2007_ADD_POINT
-		<< errorType
-		<< CharIndex
-		<< CarnationCount
-		<< AccumulatePoint;
-}
-void HelperEventParentsdayExchangeTicket( CNetMsg& msg, MSG_PARENTSDAY_2007_ERROR_TYPE errorType, int CharIndex, int GiftTicket )
-{
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_PARENTSDAY_2007_EXCHANGE_TICKET
-		<< errorType
-		<< CharIndex
-		<< GiftTicket;
-}
-
-void HelperEventParentsdayExchangeItem( CNetMsg& msg, MSG_PARENTSDAY_2007_ERROR_TYPE errorType, int CharIndex, int GiftItemIndex, int GiftItemCount )
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_PARENTSDAY_2007_EXCHANGE_ITEM
-		<< errorType
-		<< CharIndex
-		<< GiftItemIndex
-		<< GiftItemCount;
-}
-
-void HelperEventParentsdayGet( CNetMsg& msg, int CharIndex , int GiftItemIndex, int GiftItemCount )
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_PARENTSDAY_2007_NOTICE
-		<< CharIndex
-		<< GiftItemIndex
-		<< GiftItemCount;
-}
-
-#endif // EVENT_2007_PARENTSDAY
-
-
-#ifdef EVENT_TEACH_2007
-void HelperTeach2007Addflower(CNetMsg & msg, int charidx)
-{
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_TEACH_2007_ADDFLOWER
-		<< charidx;
-}
-#endif // EVENT_TEACH_2007
-
-#ifdef EVENT_FLOWERTREE_2007
-void HelperFlowerTree2007Msg( CNetMsg& msg, MSG_HELPER_FLOWERTREE_2007_TYPE subtype ,int nCharIndex )
-{
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_FLOWERTREE_2007
-		<< (unsigned char) subtype
-		<< nCharIndex;
-}
-#endif //EVENT_FLOWERTREE_2007
-
-#ifdef NEW_GUILD
-void HelperGuildInclineEstablishRepMsg( CNetMsg& msg, int guildindex, int charindex, char guildincline, MSG_GUILD_ERROR_TYPE errcode )
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_GUILD_INCLINE_ESTABLISH_REP
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_GUILD_INCLINE_ESTABLISH_REP
 		<< guildindex
 		<< charindex
 		<< guildincline
 		<< errcode;
 }
 
-void HelperGuildMemberAdjustRepMsg( CNetMsg& msg, int guildindex, int ownerindex, int charindex, const char* strPositionName, int contributeExp, int contributeFame,  MSG_GUILD_ERROR_TYPE errcode )
+void HelperGuildMemberAdjustRepMsg( CNetMsg::SP& msg, int guildindex, int ownerindex, int charindex, const char* strPositionName, int contributeExp, int contributeFame, int pos, MSG_GUILD_ERROR_TYPE errcode )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_GUILD_MEMBER_ADJUST_REP
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_GUILD_MEMBER_ADJUST_REP
 		<< guildindex
 		<< ownerindex
 		<< charindex
@@ -1221,29 +990,30 @@ void HelperGuildMemberAdjustRepMsg( CNetMsg& msg, int guildindex, int ownerindex
 		<< contributeExp
 		<< contributeFame
 		<< errcode;
+	RefMsg(msg) << pos;
 }
 
-void HelperNewGuildInfoRepMsg( CNetMsg& msg, int charindex, MSG_GUILD_ERROR_TYPE errorcode )
+void HelperNewGuildInfoRepMsg( CNetMsg::SP& msg, int charindex, MSG_GUILD_ERROR_TYPE errorcode )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_NEW_GUILD_INFO_REP
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_NEW_GUILD_INFO_REP
 		<< charindex
 		<< errorcode;
 }
-void HelperNewGuildInfoNotifyMsg( CNetMsg& msg, int charindex, int guildindex, int avelevel, int usepoint, MSG_GUILD_ERROR_TYPE errorcode  )
+void HelperNewGuildInfoNotifyMsg( CNetMsg::SP& msg, int charindex, int guildindex, int avelevel, int usepoint, MSG_GUILD_ERROR_TYPE errorcode  )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_NEW_GUILD_INFO_NTF
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_NEW_GUILD_INFO_NTF
 		<< charindex
 		<< guildindex
 		<< avelevel
 		<< usepoint
 		<< errorcode;
 }
-void HelperNewGuildMemberListRepMsg( CNetMsg& msg, int endcount, int & guildstart, int charindex, int guildindex, MSG_GUILD_ERROR_TYPE errcode,  int* membercharindex, int* cumulatePoint, const char CharName[][MAX_CHAR_NAME_LENGTH], const char positionName[][GUILD_POSITION_NAME+1], char* job, char* job2, int* level, int* position )
+void HelperNewGuildMemberListRepMsg( CNetMsg::SP& msg, int endcount, int & guildstart, int charindex, int guildindex, MSG_GUILD_ERROR_TYPE errcode,  int* membercharindex, int* cumulatePoint, const char CharName[][MAX_CHAR_NAME_LENGTH + 1], const char positionName[][GUILD_POSITION_NAME+1], char* job, char* job2, int* level, int* position )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_NEW_GUILD_MEMBERLIST_REP
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_NEW_GUILD_MEMBERLIST_REP
 		<< charindex
 		<< guildindex
 		<< errcode
@@ -1251,7 +1021,7 @@ void HelperNewGuildMemberListRepMsg( CNetMsg& msg, int endcount, int & guildstar
 
 	for( ; guildstart < endcount; guildstart++ )
 	{
-		msg << membercharindex[guildstart]
+		RefMsg(msg) << membercharindex[guildstart]
 			<< cumulatePoint[guildstart]
 			<< CharName[guildstart]
 			<< positionName[guildstart]
@@ -1260,18 +1030,15 @@ void HelperNewGuildMemberListRepMsg( CNetMsg& msg, int endcount, int & guildstar
 			<< level[guildstart]
 			<< position[guildstart];
 	}
-		
-
 }
-
-
-
-
-
-void HelperNewGuildManageRepMsg( CNetMsg& msg, int endcount, int & guildstart, int charindex, int guildindex, MSG_GUILD_ERROR_TYPE errcode,  int* membercharindex, int* contributeExp, int* contributeFame, const char CharName[][MAX_CHAR_NAME_LENGTH], const char positionName[][GUILD_POSITION_NAME+1], int* level, int* position, char first)
+#ifdef DEV_GUILD_STASH
+void HelperNewGuildManageRepMsg( CNetMsg::SP& msg, int endcount, int & guildstart, int charindex, int guildindex, MSG_GUILD_ERROR_TYPE errcode,  int* membercharindex, int* contributeExp, int* contributeFame, const char CharName[][MAX_CHAR_NAME_LENGTH + 1], const char positionName[][GUILD_POSITION_NAME+1], int* level, int* position, char* stashAuth, char first)
+#else
+void HelperNewGuildManageRepMsg( CNetMsg::SP& msg, int endcount, int & guildstart, int charindex, int guildindex, MSG_GUILD_ERROR_TYPE errcode,  int* membercharindex, int* contributeExp, int* contributeFame, const char CharName[][MAX_CHAR_NAME_LENGTH + 1], const char positionName[][GUILD_POSITION_NAME+1], int* level, int* position, char first)
+#endif //DEV_GUILD_STASH
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_NEW_GUILD_MANAGE_REP
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_NEW_GUILD_MANAGE_REP
 		<< first
 		<< charindex
 		<< guildindex
@@ -1280,76 +1047,96 @@ void HelperNewGuildManageRepMsg( CNetMsg& msg, int endcount, int & guildstart, i
 
 	for( ; guildstart < endcount; guildstart++ )
 	{
-		msg << membercharindex[guildstart]
+		RefMsg(msg) << membercharindex[guildstart]
 			<< contributeExp[guildstart]
 			<< contributeFame[guildstart]
 			<< CharName[guildstart]
 			<< positionName[guildstart]
 			<< level[guildstart]
 			<< position[guildstart];
+#ifdef DEV_GUILD_STASH
+		RefMsg(msg) << stashAuth[guildstart];
+#endif //DEV_GUILD_STASH
 	}
 }
 
-
-
-void HelperNewGuildNoticeRepMsg( CNetMsg& msg, int charindex, int guildindex, const char* title, const char* text )
+void HelperNewGuildNoticeRepMsg( CNetMsg::SP& msg, int charindex, int guildindex, const char* title, const char* text )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_NEW_GUILD_NOTICE_REP
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_NEW_GUILD_NOTICE_REP
 		<< charindex
 		<< guildindex;
 	if( title != NULL && text != NULL )
 	{
-		msg << title
+		RefMsg(msg) << title
 			<< text;
 	}
 }
-void HelperNewGuildNoticeUpdateRepMsg( CNetMsg& msg, int charindex, int guildindex, MSG_GUILD_ERROR_TYPE errcode )
+void HelperNewGuildNoticeUpdateRepMsg( CNetMsg::SP& msg, int charindex, int guildindex, MSG_GUILD_ERROR_TYPE errcode )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_NEW_GUILD_NOTICE_UPDATE_REP
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_NEW_GUILD_NOTICE_UPDATE_REP
 		<< charindex
 		<< guildindex
 		<< errcode;
 }
 
-void HelperNewGuildNoticeTransMsg( CNetMsg& msg, int guildindex, const char* title, const char* text )
+void HelperNewGuildNoticeTransMsg( CNetMsg::SP& msg, int guildindex, const char* title, const char* text )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_NEW_GUILD_NOTICE_TRANSMISSION_NTF
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_NEW_GUILD_NOTICE_TRANSMISSION_NTF
 		<< guildindex
 		<< title
-		<< text;	
+		<< text;
 }
 
-void HelperNewGuildNoticeTransRep( CNetMsg& msg, int guildindex, int charindex, MSG_GUILD_ERROR_TYPE errcode )
+void HelperNewGuildNoticeTransRep( CNetMsg::SP& msg, int guildindex, int charindex, MSG_GUILD_ERROR_TYPE errcode )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_NEW_GUILD_NOTICE_TRANSMISSION_REP
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_NEW_GUILD_NOTICE_TRANSMISSION_REP
 		<< guildindex
 		<< charindex
 		<< errcode;
 }
 
-void HelperNewGuildSkillListRepMsg( CNetMsg& msg, int charindex, int guildindex, MSG_GUILD_ERROR_TYPE errcode, int skillcount, int* skillindex, int* skillLevel )
+void HelperNewGuildSkillListRepMsg( CNetMsg::SP& msg, int charindex, int guildindex, MSG_GUILD_ERROR_TYPE errcode, int Activeskillcount, int* Activeskillindex, int* ActiveskillLevel, int Passiveskillcount, int* Passiveskillindex, int* PassiveskillLevel, int Etcskillcount, int* Etcskillindex, int* EtcskillLevel )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_NEW_GUILD_NOTICE_SKILLLIST_REP
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_NEW_GUILD_NOTICE_SKILLLIST_REP
 		<< charindex
 		<< guildindex
-		<< errcode
-		<< skillcount;
-	for( int i = 0; i < skillcount; i++ )
+		<< errcode;
+
+	int i;
+	RefMsg(msg) << GUILD_ACTIVE_SKILL_START					// Active Skill 시작
+		<< Activeskillcount;
+	for(i = 0; i < Activeskillcount; i++)
 	{
-		msg << skillindex[i]
-			<< skillLevel[i];
+		RefMsg(msg) << Activeskillindex[i]
+			<< ActiveskillLevel[i];
 	}
 
+	RefMsg(msg) << GUILD_PASSIVE_SKILL_START				// PassiveSkill 시작
+		<< Passiveskillcount;
+	for(i = 0; i < Passiveskillcount; i++)
+	{
+		RefMsg(msg) << Passiveskillindex[i]
+			<< PassiveskillLevel[i];
+	}
+
+	RefMsg(msg) << GUILD_ETC_SKILL_START					// EtcSkill 시작
+		<< Etcskillcount;
+	for(i = 0; i < Etcskillcount; i++)
+	{
+		RefMsg(msg) << Etcskillindex[i]
+			<< EtcskillLevel[i];
+	}
 }
-void HelperExtendGuildLoadNotifyMsg( CNetMsg& msg, CGuild* guild, int skillcount, int* skillindex, int* skillLevel )
+
+void HelperExtendGuildLoadNotifyMsg( CNetMsg::SP& msg, CGuild* guild, int skillcount, int* skillindex, int* skillLevel, int skilltype )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_NEW_GUILD_LOAD_NTF
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_NEW_GUILD_LOAD_NTF
 		<< guild->index()
 		<< guild->GetGuildPoint()
 		<< guild->GetIncline()
@@ -1358,7 +1145,7 @@ void HelperExtendGuildLoadNotifyMsg( CNetMsg& msg, CGuild* guild, int skillcount
 	int landcount = guild->GetLandCount();
 	if( landcount == 0 )
 	{
-		msg << -1;
+		RefMsg(msg) << -1;
 	}
 	else
 	{
@@ -1367,427 +1154,119 @@ void HelperExtendGuildLoadNotifyMsg( CNetMsg& msg, CGuild* guild, int skillcount
 			int* land = guild->GetLand();
 			if( land[i] != -1 )
 			{
-				msg << land[i];				
+				RefMsg(msg) << land[i];
 			}
 			else
 				continue;
 		}
 	}
-	msg	<< skillcount;
+	RefMsg(msg) << skillcount;
 	for( int i = 0; i < skillcount; i++ )
 	{
-		msg << skillindex[i]
+		RefMsg(msg) << skillindex[i]
 			<< skillLevel[i];
 	}
-
+	RefMsg(msg) << skilltype;
 }
 
-void HelperExtendGuildMemberListMsg( CNetMsg& msg, int endcount, int & guildstart, CGuild* guild )
+void HelperNewGuildPointUpdateMsg( CNetMsg::SP& msg, int charindex, int guildindex, int guildpoint )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_NEW_GUILD_MEMBER_LIST
-		<< guild->index()
-		<< endcount - guildstart;
-	
-	
-	CGuildMember* member;
-	for(  ; guildstart < endcount; guildstart++ )
-	{		
-		member = guild->member(guildstart);
-		if( member )
-		{
-			msg << member->charindex()
-				<< member->GetcontributeExp()
-				<< member->GetcontributeFame()
-				<< member->GetcumulatePoint()
-				<< member->GetPositionName()
-				<< member->GetChannel()
-				<< member->GetZoneNum();
-		}		
-	}
-	
-}
-
-void HelperNewGuildPointUpdateMsg( CNetMsg& msg, int charindex, int guildindex, int guildpoint )
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_UPDATE_GUILD_POINT
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_UPDATE_GUILD_POINT
 		<< charindex
 		<< guildindex
 		<< guildpoint;
 }
 
-
-void HelperNewGuildNotice( CNetMsg& msg, int charindex, int guildindex, const char* title, const char* text )
+void HelperNewGuildNotice( CNetMsg::SP& msg, int charindex, int guildindex, const char* title, const char* text )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_GUILD_NOTICE
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_GUILD_NOTICE
 		<< charindex
 		<< guildindex;
 	if( title != NULL && text != NULL )
 	{
-		msg << title
+		RefMsg(msg) << title
 			<< text;
-	}	
+	}
 }
 
-void HelperNewGuildMemberPointSaveMsg( CNetMsg& msg, int charindex, int guildindex, int memberpoint )
+void HelperNewGuildMemberPointSaveMsg( CNetMsg::SP& msg, int charindex, int guildindex, int memberpoint )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_SAVE_GUILD_MEMBER_POINT
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_SAVE_GUILD_MEMBER_POINT
 		<< guildindex
 		<< charindex
 		<< memberpoint;
 }
-#endif // NEW_GUILD
 
-#ifdef PET_NAME_CHANGE
-void HelperPetNameChange( CNetMsg& msg, MSG_EX_PET_CHANGE_NAME_ERROR_TYPE err,int charidx, int petidx, const char* strPetName )
+void HelperPetNameChange( CNetMsg::SP& msg, MSG_EX_PET_CHANGE_NAME_ERROR_TYPE err,int charidx, int petidx, const char* strPetName )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_PET_NAME_CHANGE
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_PET_NAME_CHANGE
 		<< err
 		<< charidx
 		<< petidx
 		<< strPetName;
 }
-#endif // PET_NAME_CHANGE
 
-#ifdef REWARD_IDC2007
-void HelperRewardIDC2007Msg( CNetMsg& msg, int userindex)
+void HelperHalloween2007Msg( CNetMsg::SP& msg, int charIndex, unsigned char error )
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_REWARD_IDC2007_REP
-		<< userindex;
-}
-#endif // REWARD_IDC2007
-
-#ifdef EVENT_HALLOWEEN_2007
-void HelperHalloween2007Msg( CNetMsg& msg, int charIndex, unsigned char error )
-{
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_HALLOWEEN_2007
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_HALLOWEEN_2007
 		<< charIndex
 		<< error;
 }
-#endif //EVENT_HALLOWEEN_2007
 
-#ifdef DYNAMIC_DUNGEON
-void HelperDVDRateChangeMsg( CNetMsg& msg, unsigned char subtype, int nRate )
+void HelperDVDRateChangeMsg( CNetMsg::SP& msg, unsigned char subtype, int nRate )
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_DVD_RATE_CHANGE
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_DVD_RATE_CHANGE
 		<< subtype
 		<< nRate;
 }
-#endif //DYNAMIC_DUNGEON
 
-#ifdef ALTERNATE_MERCHANT
-void HelperMerchantErrorMsg( CNetMsg& msg, MSG_EX_ALTERNATE_MERCHANT_ERROR_TYPE errorType, int CharIndex )
+void HelperAttackPet( CNetMsg::SP& msg, MSG_HELPER_APET_TYPE type, int charIndex )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_ALTERNATEMERCHANT
-		<< errorType
-		<< CharIndex;
-}
-
-void HelperMerchantProductRecoverMsg( CNetMsg& msg, int nCharIndex, int nItemCount, int* pItemDBIndex,  char strSerial[][50],  int* pItemCount, int* pItemWearPos, 
-		int* pItemFlag, int*  pItemPlus, short* pItemOption0, short* pItemOption1, short* pItemOption2, short* pItemOption3, short* pItemOption4 )
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_ALTERNATEMERCHANT_PRODUCT_RECOVERY
-		<< nCharIndex
-		<< nItemCount;
-
-	for( int i = 0; i < nItemCount; i++ )
-	{
-		msg << pItemDBIndex[i]
-			<< strSerial[i]
-			<< pItemCount[i]
-			<< pItemWearPos[i] << pItemFlag[i] << pItemPlus[i]
-			<< pItemOption0[i] << pItemOption1[i] << pItemOption2[i]
-			<< pItemOption3[i] << pItemOption4[i];
-	}
-
-}
-
-void HelperMerchantNasMsg( CNetMsg& msg, int nCharIndex, int nItemDBIndex, 
-						  int nItemPlus, int nItemWearPos, int nItemFlag, const char* pSerial, int nItemCount, 
-						  short nItemOption0, short nItemOption1, short  nItemOption2, short  nItemOption3, short nItemOption4 )
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_ALTERNATEMERCHANT_PRODUCT_RECOVERY
-		<< nCharIndex
-		<< nItemDBIndex << pSerial
-		<< nItemWearPos << nItemFlag << nItemPlus
-		<< nItemOption0 << nItemOption1 << nItemOption2
-		<< nItemOption3 << nItemOption4;
-}
-
-void HelperMerchantStartMsg( CNetMsg& msg, int nCharIndex )
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_ALTERNATEMERCHANT_START
-		<< nCharIndex;
-}
-#endif //ALTERNATE_MERCHANT
-
-#ifdef IRIS_POINT
-void HelperToConnAddIpointMsg( CNetMsg& msg, int user_index, MSG_CONN_IPOINT_TYPE type, int nIpoint )
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_TO_CONN_ADD_IPOINT
-		<< user_index
-		<< (int) type
-		<< nIpoint;
-}
-#endif //IRIS_POINT
-
-#ifdef ATTACK_PET
-void HelperAttackPet( CNetMsg& msg, MSG_HELPER_APET_TYPE type, int charIndex )
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_APET
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_APET
 		<< (unsigned char) type
 		<< charIndex;
 }
-#endif // ATTACK_PET
 
-#ifdef EVENT_PHOENIX	// //피닉스 이벤트 yhj	
-void HelperEventPhoenixMsg(CNetMsg& msg, MSG_HELPER_EVENT_PHOENIX_ERROR_TYPE nError, int nCharIdx )
+void HelperEventPhoenixMsg(CNetMsg::SP& msg, MSG_HELPER_EVENT_PHOENIX_ERROR_TYPE nError, int nCharIdx )
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_EVENT_PHOENIX
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << MSG_HELPER_EVENT_PHOENIX
 		<< (unsigned char) nError
 		<< nCharIdx;
 }
-#endif  // EVENT_PHOENIX
 
-#ifdef TRADE_AGENT
-void HelperTradeAgentErrorMsg(CNetMsg& msg, MSG_TRADEAGENT_ERROR_TYPE errorType, int CharIndex,char errorPart)
+
+void HelperExpedErrorMsg(CNetMsg::SP& msg, unsigned char errorType, int CharIndex)
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_TRADEAGENT_ERROR
-		<< (unsigned char)errorType
-		<< CharIndex
-		<< errorPart;
-}
-
-// 등록 리스트
-void HelperTradeAgentRegListRepMsg(CNetMsg& msg, int nCharIndex, int nCharRegTotCount, int nMaxPageNo, int nPageNo, int nItemCount, int* pListindex, int* pItemSerial, int* pItemPlus, int* pItemFlag,S_ITEMOPTION* pItemOption,int* pQuantity,LONGLONG* ptotalmoney,int* pFinishDay,int* pFinishDayUnit)
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_TRADEAGENT_REG_LIST_REP
-		<< nCharIndex
-		<< nCharRegTotCount
-		<< nMaxPageNo
-		<< nPageNo
-		<< nItemCount;
-
-	for( int i = 0; i < nItemCount; i++ )
-	{
-		msg << pListindex[i]
-			<< pItemSerial[i]
-			<< pItemPlus[i]
-			<< pItemFlag[i]
-			<< pItemOption[i].m_nOptionCnt;
-
-		for(int j=0; j < pItemOption[i].m_nOptionCnt; j++)
-		{
-			msg << 	pItemOption[i].m_Option_type[j]
-				<< 	pItemOption[i].m_Option_level[j];
-		}
-
-		msg << pQuantity[i]
-			<< ptotalmoney[i]
-			<< pFinishDay[i]
-			<< pFinishDayUnit[i];
-	}
-}
-
-// 정산 리스트
-void HelperTradeAgentCalcListRepMsg(CNetMsg& msg, int nCharIndex, int nMaxPageNo, int nPageNo, int nItemCount, int* pItemSerial, int* pItemPlus, int* pItemFlag,S_ITEMOPTION* pItemOption, int* pQuantity,LONGLONG* ptotalmoney,int* pState,int* pPassDay,CLCString *pCharname)
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_TRADEAGENT_CALCLIST_REP
-		<< nCharIndex
-		<< nMaxPageNo
-		<< nPageNo
-		<< nItemCount;
-
-	for( int i = 0; i < nItemCount; i++ )
-	{
-		msg << pItemSerial[i]
-			<< pItemPlus[i]
-			<< pItemFlag[i]
-			
-			<< pItemOption[i].m_nOptionCnt;			
-
-		for(int j=0; j < pItemOption[i].m_nOptionCnt; j++)
-		{
-			msg	<<	pItemOption[i].m_Option_type[j]
-				<<	pItemOption[i].m_Option_level[j];
-		}
-
-		msg	<< pQuantity[i]
-			<< ptotalmoney[i]
-			<< pState[i]
-			<< pPassDay[i]
-			<< pCharname[i];
-	}
-}
-
-// 정산 처리
-void HelperTradeAgentCalculateRepMsg(CNetMsg& msg, int nCharIndex,int nMaxPageNo,int nPageNo,int nItemCount,int* pListindex, int* pItemSerial,CLCString* pItemSerial2,int* pItemPlus, int* pItemFlag,S_ITEMOPTION* pItemOption,int* pQuantity,LONGLONG* ptotalmoney,int* pState)
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_TRADEAGENT_CALCULATE_REP
-		<< nCharIndex
-		<< nMaxPageNo
-		<< nPageNo
-		<< nItemCount;
-
-	for( int i = 0; i < nItemCount; i++ )
-	{
-		msg << pListindex[i]
-			<< pItemSerial[i]
-			<< pItemSerial2[i]
-			<< pItemPlus[i]
-			<< pItemFlag[i]
-
-			<< pItemOption[i].m_nOptionCnt;			
-
-		for(int j=0; j < pItemOption[i].m_nOptionCnt; j++)
-		{
-			msg	<<	pItemOption[i].m_Option_type[j]
-				<<	pItemOption[i].m_Option_level[j];
-		}
-
-		msg	<< pQuantity[i]
-			<< ptotalmoney[i]
-			<< pState[i];
-	}
-
-}
-
-// 체크 정산
-void HelperTradeAgentCheckCalcRepMsg(CNetMsg& msg, int nCharIndex, int nIsBeCalcdata)
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_TRADEAGENT_CHECKCALC_REP
-		<< nCharIndex
-		<< nIsBeCalcdata;
-}
-
-// 조회 
-void HelperTradeAgentSearchRepMsg(CNetMsg& msg, int nCharIndex,int nMaxPageNo, int nPageNo, int nItemCount, int* pListindex, int* pItemSerial,int* pItemPlus,int* pItemFlag,S_ITEMOPTION* pItemOption,int* pQuantity,LONGLONG* ptotalmoney,int* pLevel,CLCString* pSellCharname)
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_TRADEAGENT_SEARCH_REP
-		<< nCharIndex
-		<< nMaxPageNo
-		<< nPageNo
-		<< nItemCount;
-
-	for( int i = 0; i < nItemCount; i++ )
-	{
-		msg << pListindex[i]
-			<< pItemSerial[i]
-			<< pItemPlus[i]
-			<< pItemFlag[i]
-			<< pItemOption[i].m_nOptionCnt;
-
-		for(int j=0; j < pItemOption[i].m_nOptionCnt; j++)
-		{
-			msg << pItemOption[i].m_Option_type[j]
-				<< pItemOption[i].m_Option_level[j];
-				
-		}
-
-		msg	<< pQuantity[i]
-			<< ptotalmoney[i]
-			<< pLevel[i]
-			<< pSellCharname[i];
-	}
-}
-
-// 등록 
-void HelperTradeAgentRegRepMsg(CNetMsg& msg, int nCharIndex,char tab, char row, char col, int nitem_serial,CLCString item_serial2, CLCString item_name,int Quantity,LONGLONG TotalMoney,LONGLONG Guaranty,int nDbIndex)
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_TRADEAGENT_REG_REP
-		<< nCharIndex
-		<< tab
-		<< row
-		<< col
-		<< nitem_serial
-		<< item_serial2
-		<< item_name	
-		<< Quantity
-		<< TotalMoney
-		<< Guaranty
-		<< nDbIndex;
-}
-
-//등록 취소 
-void HelperTradeAgentRegCancelRepMsg(CNetMsg& msg, int nCharIndex,CLCString stItemname,int nItemCount)
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_TRADEAGENT_REG_CANCEL_REP
-		<< nCharIndex
-		<< stItemname
-		<< nItemCount;
-
-}
-
-//구매
-void HelperTradeAgentBuyRepMsg(CNetMsg& msg, int nCharIndex, int nSellcharindex, LONGLONG TotalMoney,CLCString stItemname,int nItemCount)
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_TRADEAGENT_BUY_REP
-		<< nCharIndex
-		<< nSellcharindex
-		<< TotalMoney
-		<< stItemname
-		<< nItemCount;
-}
-
-//반송
-void HelperTradeAgentReturnedMsg(CNetMsg& msg, int nSellcharindex,CLCString stItemName,int nItemCount)
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_TRADEAGENT_RETURNED
-		<< nSellcharindex
-		<< stItemName
-		<< nItemCount;
-}
-
-#endif  // TRADE_AGENT
-
-#ifdef EXPEDITION_RAID
-
-void HelperExpedErrorMsg(CNetMsg& msg, unsigned char errorType, int CharIndex)
-{
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_EXPED_ERROR
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << (int)MSG_HELPER_EXPED_ERROR
 		<< errorType
 		<< CharIndex;
 }
 
-void HelperExpedCreateRepMsg(CNetMsg& msg, char nExpedType1,char nExpedType2,char nExpedType3, int nBossIndex,CLCString BossCharName,int nMemberCount,int *pCharIdex,CLCString* pCharName,int* pGroupType,int* pMemberType,int *pSetLabelType,int* pQuitType)
+void HelperExpedCreateRepMsg(CNetMsg::SP& msg, char nExpedType1,char nExpedType2,char nExpedType3, char nExpedType4, char nExpedType5, int nBossIndex,CLCString BossCharName,int nMemberCount,int *pCharIdex,CLCString* pCharName,int* pGroupType,int* pMemberType,int *pSetLabelType,int* pQuitType)
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_EXPED_CREATE_REP
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << (int)MSG_HELPER_EXPED_CREATE_REP
 		<< nExpedType1
 		<< nExpedType2
 		<< nExpedType3
+		<< nExpedType4
+		<< nExpedType5
 		<< nBossIndex
 		<< BossCharName
 		<< nMemberCount;
 
 	for(int i=0; i < nMemberCount; i++)
 	{
-		msg << pCharIdex[i]
+		RefMsg(msg) << pCharIdex[i]
 			<< pCharName[i]
 			<< pGroupType[i]
 			<< pMemberType[i]
@@ -1796,10 +1275,10 @@ void HelperExpedCreateRepMsg(CNetMsg& msg, char nExpedType1,char nExpedType2,cha
 	}
 }
 
-void HelperExpedInviteRepMsg(CNetMsg& msg, int nBossIndex, CLCString strBossName, int nTargetIndex, CLCString strTargetName,char cExpedType1,char cExpedType2,char cExpedType3)
+void HelperExpedInviteRepMsg(CNetMsg::SP& msg, int nBossIndex, CLCString strBossName, int nTargetIndex, CLCString strTargetName,char cExpedType1,char cExpedType2,char cExpedType3)
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_EXPED_INVITE_REP
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << (int)MSG_HELPER_EXPED_INVITE_REP
 		<< nBossIndex
 		<< strBossName
 		<< nTargetIndex
@@ -1807,92 +1286,93 @@ void HelperExpedInviteRepMsg(CNetMsg& msg, int nBossIndex, CLCString strBossName
 		<< cExpedType1
 		<< cExpedType2
 		<< cExpedType3;
-
 }
 
-void HelperExpedAllowRepMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex, CLCString strTargetName,int nTargetGroup, int nTargetMember,int nTargetListIndex)
+void HelperExpedAllowRepMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex, CLCString strTargetName,int nTargetGroup, int nTargetMember,int nTargetListIndex,int nErrorCode)
 {
-	msg.Init( MSG_HELPER_COMMAND );
-	msg << MSG_HELPER_EXPED_ALLOW_REP
+	msg->Init( MSG_HELPER_COMMAND );
+	RefMsg(msg) << (int)MSG_HELPER_EXPED_ALLOW_REP
 		<< nBossIndex
 		<< nTargetIndex
 		<< strTargetName
 		<< nTargetGroup
 		<< nTargetMember
-		<< nTargetListIndex;
+		<< nTargetListIndex
+		<< nErrorCode;
 }
 
-void HelperExpedRejectRepMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex)
+void HelperExpedRejectRepMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex,int nErrorCode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_EXPED_REJECT_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << (int)MSG_HELPER_EXPED_REJECT_REP
 		<< nBossIndex
-		<< nTargetIndex;
+		<< nTargetIndex
+		<< nErrorCode;
 }
 
-void HelperExpedQuitRepMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex, int nQuitMode, unsigned char errcode)
+void HelperExpedQuitRepMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex, int nQuitMode, int nErrorCode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_EXPED_QUIT_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << (int)MSG_HELPER_EXPED_QUIT_REP
 		<< nBossIndex
 		<< nTargetIndex
 		<< nQuitMode
-		<< errcode;
+		<< nErrorCode;
 }
 
-void HelperExpedKickRepMsg(CNetMsg& msg, int nBossIndex, int nTargetIndex, unsigned char errcode)
+void HelperExpedKickRepMsg(CNetMsg::SP& msg, int nBossIndex, int nTargetIndex, int errcode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_EXPED_KICK_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << (int)MSG_HELPER_EXPED_KICK_REP
 		<< nBossIndex
 		<< nTargetIndex
 		<< errcode;
 }
 
-void HelperExpedChangeBossRepMsg(CNetMsg& msg, int nBossIndex,  int nNewBossIndex, int nChangeMode)
+void HelperExpedChangeBossRepMsg(CNetMsg::SP& msg, int nBossIndex,  int nNewBossIndex, int nChangeMode)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_EXPED_CHANGEBOSS_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << (int)MSG_HELPER_EXPED_CHANGEBOSS_REP
 		<< nBossIndex
 		<< nNewBossIndex
 		<< nChangeMode;
 }
-void HelperExpedChangeTypeRepMsg(CNetMsg& msg, int nBossIndex, char cDiviType, char cExpedType)
+void HelperExpedChangeTypeRepMsg(CNetMsg::SP& msg, int nBossIndex, char cExpedType, char cDiviType)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_EXPED_CHANGETYPE_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << (int)MSG_HELPER_EXPED_CHANGETYPE_REP
 		<< nBossIndex
-		<< cDiviType
-		<< cExpedType;
+		<< cExpedType
+		<< cDiviType;
 }
 
-void HelperExpedEndExpedRepMsg(CNetMsg& msg, int nBossIndex)
+void HelperExpedEndExpedRepMsg(CNetMsg::SP& msg, int nBossIndex)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_EXPED_ENDEXPED_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << (int)MSG_HELPER_EXPED_ENDEXPED_REP
 		<< nBossIndex;
 }
 
-void HelperExpedSetMBossRepMsg(CNetMsg& msg, int nBossIndex, int nNewMBossIndex)
+void HelperExpedSetMBossRepMsg(CNetMsg::SP& msg, int nBossIndex, int nNewMBossIndex)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_EXPED_SETMBOSS_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << (int)MSG_HELPER_EXPED_SETMBOSS_REP
 		<< nBossIndex
 		<< nNewMBossIndex;
 }
 
-void HelperExpedResetMBossRepMsg(CNetMsg& msg, int nBossIndex, int nNewMBossIndex)
+void HelperExpedResetMBossRepMsg(CNetMsg::SP& msg, int nBossIndex, int nNewMBossIndex)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_EXPED_RESETMBOSS_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << (int)MSG_HELPER_EXPED_RESETMBOSS_REP
 		<< nBossIndex
 		<< nNewMBossIndex;
 }
 
-void HelperExpedMoveGroupRepMsg(CNetMsg& msg,int nBossIndex,int nSourceGroup, int nMoveCharIndex, int nTargetGroup,int nTargetListindex)
+void HelperExpedMoveGroupRepMsg(CNetMsg::SP& msg,int nBossIndex,int nSourceGroup, int nMoveCharIndex, int nTargetGroup,int nTargetListindex)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_EXPED_MOVEGROUP_REP
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << (int)MSG_HELPER_EXPED_MOVEGROUP_REP
 		<< nBossIndex
 		<< nSourceGroup
 		<< nMoveCharIndex
@@ -1900,36 +1380,253 @@ void HelperExpedMoveGroupRepMsg(CNetMsg& msg,int nBossIndex,int nSourceGroup, in
 		<< nTargetListindex;
 }
 
-void HelperExpedSetLabelRepMsg(CNetMsg& msg, int nBossIndex,int nType,int nMode,int nLabel,int nDestIndex)
+void HelperRaidInzoneGetRoomNoRep(CNetMsg::SP& msg, int nCharIndex, int nZoneNo,int nRoomNo, int nBossIndex,int nBossRoomNo)
 {
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_EXPED_SET_LABEL_REP
-		<< nBossIndex
-		<< nType
-		<< nMode
-		<< nLabel
-		<< nDestIndex;
-}
-
-void HelperExpedRejoinRepMsg(CNetMsg& msg, int nBossIndex, int nJoinIndex)
-{
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_EXPED_REJOIN_REP
-		<< nBossIndex
-		<< nJoinIndex;
-}
-
-void HelperExpedChatRepMsg(CNetMsg& msg, int nBossIndex, int nCharIndex, CLCString strName,int nGroupTyp,CLCString strChat)
-{
-	msg.Init(MSG_HELPER_COMMAND);
-	msg << MSG_HELPER_EXPED_CHAT_REP
-		<< nBossIndex
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_INZONE_GET_ROOMNO_REP
 		<< nCharIndex
-		<< strName
-		<< nGroupTyp
-		<< strChat;
+		<< nZoneNo
+		<< nRoomNo
+		<< nBossIndex
+		<< nBossRoomNo;
 }
 
-#endif //EXPEDITION_RAID
+void HelperDeleteRaidCharacterRep(CNetMsg::SP& msg, int nCharIndex, int nSuccess)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_DELETE_RAID_CHAR
+		<< nCharIndex
+		<< nSuccess;
+}
 
+void HelperRaidInfoRep(CNetMsg::SP& msg, int nCharIndex, int nRaidCount, int* nZoneNum, int* nRoomNum)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_RAID_INFO
+		<< nCharIndex
+		<< nRaidCount;
 
+	for (int i=0; i < nRaidCount; i++)
+	{
+		RefMsg(msg) << nZoneNum[i]
+			<< nRoomNum[i];
+	}
+}
+
+void HelperNSCreateCardErrorMsg(CNetMsg::SP& msg, MSG_HELPER_NS_CARD_TYPE subtype, int userindex, int charindex)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_NS_CARD
+		<< (unsigned char) subtype
+		<< userindex
+		<< charindex;
+}
+
+#if defined(EVENT_WORLDCUP_2010) || defined(EVENT_WORLDCUP_2010_TOTO) || defined(EVENT_WORLDCUP_2010_TOTO_STATUS) || defined(EVENT_WORLDCUP_2010_TOTO_GIFT) || defined(EVENT_WORLDCUP_2010_ATTENDANCE) || defined(EVENT_WORLDCUP_2010_KOREA)
+void HelperWorldcup2010TOTOErrorMsg(CNetMsg::SP& msg, MSG_HELPER_WORLDCUP2010_ERROR_TYPE subType, int charIndex, int itemidx)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_EVENT_WORLDCUP2010
+		<< (unsigned char) MSG_HELPER_WORLDCUP2010_TOTO_REP
+		<< (unsigned char) subType
+		<< charIndex
+		<< itemidx;
+}
+void HelperWorldcup2010TOTOStatusErrorMsg(CNetMsg::SP& msg, MSG_HELPER_WORLDCUP2010_ERROR_TYPE subType, int charIndex, int resultType, int intemIndex)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_EVENT_WORLDCUP2010
+		<< (unsigned char) MSG_HELPER_WORLDCUP2010_TOTO_STATUS_REP
+		<< (unsigned char) subType
+		<< charIndex
+		<< resultType
+		<< intemIndex;
+}
+void HelperWorldcup2010TOTOGiftErrorMsg(CNetMsg::SP& msg, MSG_HELPER_WORLDCUP2010_ERROR_TYPE subType,  int charIndex)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_EVENT_WORLDCUP2010
+		<< (unsigned char) MSG_HELPER_WORLDCUP2010_TOTO_GIFT_REP
+		<< (unsigned char) subType
+		<< charIndex;
+}
+void HelperWorldcup2010AttendanceErrorMsg(CNetMsg::SP& msg, MSG_HELPER_WORLDCUP2010_ERROR_TYPE subType,  int charIndex)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_EVENT_WORLDCUP2010
+		<< (unsigned char) MSG_HELPER_WORLDCUP2010_ATTENDANCE_REP
+		<< (unsigned char) subType
+		<< charIndex;
+}
+
+void HelperWorldcup2010KoreaErrorMsg(CNetMsg::SP& msg, MSG_HELPER_WORLDCUP2010_ERROR_TYPE subType, int charIndex)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_EVENT_WORLDCUP2010
+		<< (unsigned char) MSG_HELPER_WORLDCUP2010_KOREA_REP
+		<< (unsigned char) subType
+		<< charIndex;
+}
+#endif // defined(EVENT_WORLDCUP_2010) || defined(EVENT_WORLDCUP_2010_TOTO) || defined(EVENT_WORLDCUP_2010_TOTO_GIFT) || defined(EVENT_WORLDCUP_2010_ATTENDANCE) || defined(EVENT_WORLDCUP_2010_KOREA)
+
+#ifdef EXTREME_CUBE_VER2
+void HelperCubeRewardGuildPointRepMsg(CNetMsg::SP& msg, int guildindex, char rank, int guildpoint)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_CUBEREWARD_GUILDPOINT_REP
+		<< guildindex
+		<< rank
+		<< guildpoint;
+}
+
+void HelperCubeRewardPersonalRepMsg(CNetMsg::SP& msg, int updatetime,int charindex, char rank)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_CUBEREWARD_PERSONAL_REP
+		<< updatetime
+		<< charindex
+		<< rank;
+}
+
+void HelperExtremeCubeErrorMsg(CNetMsg::SP& msg, HELPER_EXTREME_CUBE_ERROR_TYPE errortype, int charindex)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_EXTREME_CUBE_ERROR
+		<< (char)errortype;
+}
+#endif // EXTREME_CUBE_VER2
+
+#ifdef EVENT_CHAR_BIRTHDAY
+void HelperEventCharBirthdayGiftRepMsg(CNetMsg::SP& msg, MSG_EVENT_CHAR_BIRTHDAY_ERROR_TYPE errortype, int charindex, int years)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_CHAR_BIRTHDAY
+		<< (unsigned char) MSG_EVENT_CHAR_BIRTHDAY_GIFT_REP
+		<< charindex
+		<< (unsigned char)errortype;
+	if( errortype == MSG_EVENT_CHAR_BIRTHDAY_ERROR_SUC )
+	{
+		RefMsg(msg) << years;
+	}
+}
+
+void HelperEventCharBirthdayBDayRepMsg(CNetMsg::SP& msg, int charindex, int year, char month, char day)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_CHAR_BIRTHDAY
+		<< (unsigned char) MSG_EVENT_CHAR_BIRTHDAY_BDAY_REP
+		<< charindex
+		<< year
+		<< month
+		<< day;
+}
+#endif
+#ifdef DEV_GUILD_MARK
+void HelperGuildMarkRegistRepMsg(CNetMsg::SP& msg, int GuildIndex, int CharIndex, char command, char gm_row, char gm_col, char bg_row, char bg_col, unsigned short tab, unsigned short invenIndex, int markTime, const char* serial)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_NEW_GUILD_MARK_REGIST
+		<< GuildIndex
+		<< CharIndex
+		<< command
+		<< gm_row
+		<< gm_col
+		<< bg_row
+		<< bg_col
+		<< tab
+		<< invenIndex
+		<< markTime
+		<< serial;
+}
+void HelperGuildMarkExpireMsg(CNetMsg::SP& msg, unsigned char command, int GuildIndex)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_NEW_GUILD_MARK_EXPIRE
+		<< command
+		<< GuildIndex;
+}
+#endif
+
+#ifdef DEV_GUILD_STASH
+void HelperGuildStashListMsg( CNetMsg::SP& msg , int charIndex )
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_STASH_LIST
+		<< charIndex;
+}
+
+void HelperGuildStashKeepMsg( CNetMsg::SP& msg , int charIndex, int guildIndex, char error, LONGLONG keeyMoney, int itemCount )
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_STASH_KEEP
+		<< charIndex
+		<< guildIndex
+		<< error
+		<< keeyMoney
+		<< itemCount;
+}
+
+void HelperGuildStashTakeMsg( CNetMsg::SP& msg , int charIndex, int guildIndex, char error, LONGLONG takeMoney, int itemCount )
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_STASH_TAKE
+		<< charIndex
+		<< guildIndex
+		<< error
+		<< takeMoney
+		<< itemCount;
+}
+
+void HelperGuildStashLogMsg( CNetMsg::SP& msg, int charIndex, int guildIndex, int logCount )
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_STASH_LOG
+		<< charIndex
+		<< guildIndex
+		<< logCount;
+}
+
+void HelperGuildStashErrorMsg( CNetMsg::SP& msg, int charIndex, char error )
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_STASH_ERROR
+		<< charIndex
+		<< error;
+}
+
+#endif // DEV_GUILD_STASH
+
+void HelperGuildMasterKickRep(CNetMsg::SP& msg, int _guildIndex, int _requestChar, int _result, int _requestTime)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_MASTER_KICK_REP
+		<< _guildIndex
+		<< _requestChar
+		<< _result
+		<< _requestTime;
+}
+
+void HelperGuildMasterKickCancelRep(CNetMsg::SP& msg, int _guildIndex, int _requestChar, int _result)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_MASTER_KICK_CANCEL_REP
+		<< _guildIndex
+		<< _requestChar
+		<< _result;
+}
+
+void HelperGuildMasterKickStatus(CNetMsg::SP& msg, int _guildIndex, int _status)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_MASTER_KICK_STATUS
+		<< _guildIndex
+		<< _status;
+}
+
+void HelperGuildMasterKickReset(CNetMsg::SP& msg, int _charIndex, int _reset)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+	RefMsg(msg) << MSG_HELPER_GUILD_MASTER_KICK_RESET
+		<< _charIndex
+		<< _reset;
+}

@@ -1,18 +1,14 @@
 #ifndef __WAR_CASTLE_H__
 #define __WAR_CASTLE_H__
 
-#ifdef ENABLE_WAR_CASTLE
-
 #define WAR_CASTLE_SUBNUMBER_DRATAN WAR_CASTLE_SUBNUMBER_MERAC
 
-#define CHECK_SUBSERVER(castle)		if (!castle->CheckSubServer()) return 
-
+#define CHECK_SUBSERVER(castle)		if (!castle->CheckSubServer()) return
 
 // 공성 상태
 #define WCSF_NORMAL			0		// 일반
 #define WCSF_WAR_FIELD		1		// 야전
 #define WCSF_WAR_CASTLE		2		// 공성
-
 
 // 공성 참여 상태
 #define WCJF_NONE			0		// 비참여
@@ -22,48 +18,26 @@
 #define WCJF_ATTACK_GUILD	4		// 공성 길드
 #define WCJF_ATTACK_CHAR	5		// 공성측 용병
 
-
 #define IS_DEFENSE_TEAM(joinflag)		( (joinflag == WCJF_OWNER || joinflag == WCJF_DEFENSE_GUILD || joinflag == WCJF_DEFENSE_CHAR) ? true : false )
 #define IS_ATTACK_TEAM(joinflag)		( (joinflag == WCJF_ATTACK_GUILD || joinflag == WCJF_ATTACK_CHAR) ? true : false )
-
 
 // 야전에서 상대방을 물리칠 때 증가되는 포인트
 #define WCFP_CASTLE_GUARD	5		// 수호병 잡으면 증가되는 포인트
 #define WCFP_PLAYER			1		// 플레이어 잡으면 증가되는 포인트
 
-
 // 공성 필드 전투 시간 : 초단위
-#if defined (BSTEST) || defined (TLDTEST)
-#define WCT_FIELD			(6 * 60)
-#define WCT_WAR				(16 * 60)
-#else // #ifdef BSTEST
 #define WCT_FIELD			(15 * 60)		// 필드전 진행 시간 : 초
 #define WCT_WAR				(60 * 60)		// 필드전 포함 전체 공성 시간 : 초
-#endif // #ifdef BSTEST
 
-
+#define	APPLY_GUILD_GRADE_SKILL_TIME 10	// 길드 직위 편성 버프 시간 (초)
 
 // 공성 가능 길드 조건
-#if defined(TEST_SERVER) || defined (TLD_WAR_TEST)
-
-#define WCGF_ATTACK_LEVEL	1
-#define WCGF_DEFENSE_LEVEL	1
-#define WCGF_CHAR_LEVEL		1
-#define WCGF_ITEM			759
-#define WCGF_MEMBERCOUNT	1
-#define WCGF_MONEY			1
-
-#else
-
 #define WCGF_ATTACK_LEVEL	5
 #define WCGF_DEFENSE_LEVEL	4
 #define WCGF_CHAR_LEVEL		15
 #define WCGF_ITEM			759
 #define WCGF_MEMBERCOUNT	20
 #define WCGF_MONEY			100000
-
-#endif
-
 
 // 공성 신청인 클래스
 class CWarCastleJoin
@@ -78,31 +52,57 @@ class CWarCastleJoin
 
 //	CWarCastleJoin(int index, char bAttack) { m_index = index; m_bAttack = bAttack; m_prev = m_next = NULL; m_point = 0; }
 
-	void IncreasePoint(int val) { m_point += val; }
+	void IncreasePoint(int val)
+	{
+		m_point += val;
+	}
 
 public:
-	CWarCastleJoin(int index, char bAttack) { m_index = index; m_bAttack = bAttack; m_prev = m_next = NULL; m_point = 0; }
+	CWarCastleJoin(int index, char bAttack)
+	{
+		m_index = index;
+		m_bAttack = bAttack;
+		m_prev = m_next = NULL;
+		m_point = 0;
+	}
 
-	int GetIndex() { return m_index; }
-	char IsAttack() { return m_bAttack; }
-	int GetPoint() { return m_point; }
-	CWarCastleJoin* GetNext() { return m_next; }	
-//#ifdef DRATAN_CASTLE
-	void SetPoint(int p) { m_point = p; }
-	void SetPrev(CWarCastleJoin * n) { m_prev = n;}
-	void SetNext(CWarCastleJoin * n) { m_next = n;}
-//#endif // DRATAN_CASTLE
+	int GetIndex()
+	{
+		return m_index;
+	}
+	char IsAttack()
+	{
+		return m_bAttack;
+	}
+	int GetPoint()
+	{
+		return m_point;
+	}
+	CWarCastleJoin* GetNext()
+	{
+		return m_next;
+	}
+	void SetPoint(int p)
+	{
+		m_point = p;
+	}
+	void SetPrev(CWarCastleJoin * n)
+	{
+		m_prev = n;
+	}
+	void SetNext(CWarCastleJoin * n)
+	{
+		m_next = n;
+	}
 };
-
 
 // 공성 클래스
 class CWarCastle
 {
 	// 공성 상태 반영을 위해 추가
-	friend void ProcHelperWarNoticeStart(CNetMsg& msg);
-	friend void ProcHelperWarNoticeStartAttackCastle(CNetMsg& msg);
-	friend void ProcHelperWarNoticeEnd(CNetMsg& msg);
-	friend void do_GM(CPC* ch, CNetMsg& msg);
+	friend void ProcHelperWarNoticeStart(CNetMsg::SP& msg);
+	friend void ProcHelperWarNoticeStartAttackCastle(CNetMsg::SP& msg);
+	friend void ProcHelperWarNoticeEnd(CNetMsg::SP& msg);
 
 protected:
 	int					m_state;							// 공성 상태
@@ -133,29 +133,42 @@ protected:
 	int*				m_posRegenPoint;					// 해당 리젠 지역에 할당된 공성 길드 인덱스
 	int					m_nRegenPoint;						// posRegenPoint의 개수
 
+	char				m_nSendInterval;					// 메세지 보내는 카운트 : Hertbeat 로 1 초씩 카운트
+
+	int					m_oldOwnerCharIndex;				// 공성 시작하면 바로 수성 성중의 인덱스 저장한다.
+
+	int					m_guildGradeSkillTime;
+
 public:
+
 	CWarCastle();
 	virtual ~CWarCastle();
 
 	////////////////////
 	// 공성 정보
 	// 해당 존 공성 정보를 읽음
+	void SetNoticeWarTime(bool value)
+	{
+		m_bNoticeWarTime = value;
+	}
+	void SetNoticeRemain(int value)
+	{
+		m_noticeRemain = value;
+	}
 
-#ifdef DRATAN_CASTLE
 	virtual bool CheckSubServer();
-#else	
-	// 공성 서버 검사
-	bool CheckSubServer();
-#endif // DRATAN_CASTLE
 
 	// 상속 받은 클래스에서 오버라이딩 할 경우에도 반드시 호출 필요함
 	virtual bool LoadCastleData();
 
 	// 상태 반환
-	int GetState() { return m_state; }
+	int GetState()
+	{
+		return m_state;
+	}
 
 	// 공성 상태 변경
-	void CheckWarCastle();
+	void CheckWarCastle(bool forced_end_merac);
 
 	// 해당 지역의 리젠 장소를 반환
 	// ch는 NULL 일수 있음
@@ -165,13 +178,19 @@ public:
 	virtual int GetZoneIndex() = 0;
 
 	// 성문 상태 조사
-	int GetGateState(int mask = 0xffffffff) { return m_gateState & mask; }
+	int GetGateState(int mask = 0xffffffff)
+	{
+		return m_gateState & mask;
+	}
 
 	// 수호병 사망시 성문 열림 설정
 	virtual void UpdateGateState(CNPC* npc) = 0;
 
 	// 권좌 반환
-	CNPC* GetLordSymbol() { return m_lordSymbol; }
+	CNPC* GetLordSymbol()
+	{
+		return m_lordSymbol;
+	}
 
 	// 열려있는 성문이 있는지 검사
 	virtual bool IsOpenGate() = 0;
@@ -198,8 +217,10 @@ public:
 	virtual CNPC* GetGateNPC(int idx) = 0;
 
 	// 상점 리젠 여부
-	bool IsRegenShop() { return m_bRegenShop; }
-
+	bool IsRegenShop()
+	{
+		return m_bRegenShop;
+	}
 
 	////////////////////
 	// 공성 시간 관련
@@ -210,7 +231,10 @@ public:
 
 	// 공성 시작 시간 얻기
 	void GetNextWarTime(struct tm* nextWarTime, bool bHumanable);
-	int GetNextWarTime() { return m_nextWarTime; }
+	int GetNextWarTime()
+	{
+		return m_nextWarTime;
+	}
 
 	// 공성/수성 용병/길드 신청 가능 시간 검사
 	virtual bool IsJoinTime() = 0;
@@ -221,15 +245,26 @@ public:
 	// 길드전 종료까지 남은 시간 구하기
 	int GetRemainWarTime();
 
-
 	////////////////////
 	// 참여 유저 관련
 
 	// 성주 정보 구하기
-	int GetOwnerGuildIndex() { return m_ownerGuildIndex; }
-	const char* GetOwnerGuildName() { return (const char*)m_ownerGuildName; }
-	int GetOwnerCharIndex() { return m_ownerCharIndex; }
-	const char* GetOwnerCharName() { return (const char*)m_ownerCharName; }
+	int GetOwnerGuildIndex()
+	{
+		return m_ownerGuildIndex;
+	}
+	const char* GetOwnerGuildName()
+	{
+		return (const char*)m_ownerGuildName;
+	}
+	int GetOwnerCharIndex()
+	{
+		return m_ownerCharIndex;
+	}
+	const char* GetOwnerCharName()
+	{
+		return (const char*)m_ownerCharName;
+	}
 
 	// 수성 용병 추가
 	bool AddDefenseChar(int index);
@@ -268,7 +303,10 @@ public:
 	bool IsDefenseChar(int index);
 
 	// 공성측 길드 수
-	int GetCountAttackGuild() { return m_countAttackGuild; }
+	int GetCountAttackGuild()
+	{
+		return m_countAttackGuild;
+	}
 
 	// 최상위 공성길드 정보 얻기
 	void GetTop3AttackGuild(int guildindex[3], char guildname[3][MAX_GUILD_NAME_LENGTH + 1], int guildpoint[3]);
@@ -276,8 +314,10 @@ public:
 	// Top3 길드중 하나인지 검사
 	bool IsTop3Guild(int guildindex);
 
-	bool IsWarCastleReady() { return m_bWarCastleReady; }
-
+	bool IsWarCastleReady()
+	{
+		return m_bWarCastleReady;
+	}
 
 	////////////////////
 	// 포인트 관련
@@ -297,7 +337,6 @@ public:
 	// 길드 정보가 없거나, 수성측 권좌 포인트 요청등 잘못된 요청에서는 -1
 	int GetGuildPoint(int guildindex);
 
-
 	///////////////////
 	// 성주 아이템 정보
 
@@ -313,8 +352,26 @@ public:
 	// 공성 지역 중 수성 지역에서 수성 제외 유저 몰아내기
 	void GetOutNonDefense();
 
-protected:
+	void SendCastleState( int zoneindex );	// 게이트 상태 전송
 
+	void GuildGradeSkillAll( bool bApply);
+	void ApplyGuildGradeSkillAll( )
+	{
+		GuildGradeSkillAll( true );
+	}
+	void CureGuildGradeSkillAll( )
+	{
+		GuildGradeSkillAll( false );
+	}
+
+#ifdef WARCASTLE_STATE_CHANNEL_CYNC
+	void SetStateChannelCync( int state )
+	{
+		SetState( state);
+	}
+#endif
+
+protected:
 
 	////////////////////
 	// 진행 상태 관련
@@ -329,11 +386,13 @@ protected:
 	void CheckWarCastleStartWarCastle();
 
 	// 공성 끝 처리
-	void CheckWarCastleEnd();
+	void CheckWarCastleEnd(bool forced_end_merac);
 
 	// 공성 상태 변경
-	void SetState(int state) { m_state = state; }
-
+	void SetState(int state)
+	{
+		m_state = state;
+	}
 
 	////////////////////
 	// 지역 정보 관련
@@ -346,7 +405,6 @@ protected:
 
 	// 리젠 위치 초기화
 	virtual void InitRegenPosition() = 0;
-
 
 	////////////////////
 	// MPC 관련
@@ -393,12 +451,8 @@ protected:
 	// m_state에 따라 공성 NPC를 리젠하거나 없앤다
 	void CheckWarCastleNPC();
 
-
 	////////////////////
 	// 참여자 관련
-
-	// 공성 참여자 검사, WCJF_XXX 반환
-	int CheckJoin(CPC* ch);
 
 	// 필드 전투 최상위 3개 길드 구하기
 	void GetTop3AttackGuild();
@@ -419,6 +473,9 @@ protected:
 	void ResetOwner();
 
 public:
+
+	// 공성 참여자 검사, WCJF_XXX 반환
+	int CheckJoin(CPC* ch);
 
 	// 성 소유자 설정
 	void SetOwner(CGuild* guild);
@@ -446,23 +503,46 @@ public:
 
 	// 현재 서브서버의 공성지역 인덱스 얻기, 없으면 -1
 	static int GetCurSubServerCastleZoneIndex();
+	void SetOldOwnerChar(int ownerIndex)
+	{
+		m_oldOwnerCharIndex = ownerIndex;
+	}
+	int  GetOldOwnerChar()
+	{
+		return m_oldOwnerCharIndex;
+	}
+
+	virtual int GetWarTime() = 0;
+
+	int		GetGuildGradeSkillTime()
+	{
+		return m_guildGradeSkillTime;
+	}
+	void	SetGuildGradeSkillTime(int currenttime)
+	{
+		m_guildGradeSkillTime = currenttime;
+	}
+
+	void endWarCastleMerac()
+	{
+		CheckWarCastleEnd(true);
+	}
+
+	void EndWarRegenPoint();
 };
-
-
 
 // 메라크 공성 클래스
 class CMeracCastle : public CWarCastle
 {
-#ifdef TEST_SERVER
-	friend void do_GM(CPC* ch, CNetMsg& msg);
-#endif
-
 	enum { COUNT_MERAC_GATE_NPC = 6 };
 
 	CNPC*		m_gateNPC[COUNT_MERAC_GATE_NPC];		// 성문 지키는 수호상
 
 public:
 	CMeracCastle();
+#ifdef WARCASTLE_SUBNUMBER_MEMBER_VALUE
+	int					m_subNumber;						// 공성전을 하는 채널 넘버
+#endif // WARCASTLE_SUBNUMBER_MEMBER_VALUE
 
 // virtual function 구현
 protected:
@@ -471,7 +551,10 @@ protected:
 	void InitRegenPosition();
 
 public:
-	int GetZoneIndex() { return ZONE_MERAC; }
+	int GetZoneIndex()
+	{
+		return ZONE_MERAC;
+	}
 	void SetNextWarTime(int nextWarTime);
 	bool SetNextWarTime(int wday, int hour);
 	bool IsJoinTime();
@@ -483,14 +566,21 @@ public:
 	bool TakeLordItem(CPC* pc);
 	int GetLordItemIndex(char job1, char job2);
 	bool IsDefenseWarpPoint(int pos);
-	int GetGateNPCCount() { return (GetGateNPC(0) == NULL) ? 0 : COUNT_MERAC_GATE_NPC; }
-	CNPC* GetGateNPC(int idx) { return (idx < 0 || idx >= COUNT_MERAC_GATE_NPC) ? NULL : m_gateNPC[idx]; }
+	int GetGateNPCCount()
+	{
+		return (GetGateNPC(0) == NULL) ? 0 : COUNT_MERAC_GATE_NPC;
+	}
+	CNPC* GetGateNPC(int idx)
+	{
+		return (idx < 0 || idx >= COUNT_MERAC_GATE_NPC) ? NULL : m_gateNPC[idx];
+	}
 	void GetInnerCastleRect(char* nYlayer, int* nX0x2, int* nZ0x2, int* nX1x2, int* nZ1x2);
 // --- virtual function 구현
+	int GetWarTime()
+	{
+		return WCT_WAR;
+	}
 };
-
-
-
 
 void CheckWarCastle();
 bool LoadCastleData();
@@ -498,6 +588,5 @@ bool IsValidGuildCommandWithWarCastle(CPC* ch, unsigned char subtype);
 
 extern CMeracCastle meracCastle;
 
-#endif // ENABLE_WAR_CASTLE
-
 #endif // __WAR_CASTLE_H__
+//

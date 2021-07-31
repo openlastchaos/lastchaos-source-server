@@ -1,36 +1,25 @@
+#include <boost/foreach.hpp>
 #include "stdhdrs.h"
+
 #include "Log.h"
 #include "Server.h"
 #include "Friend.h"
 #include "CmdMsg.h"
 #include "doFunc.h"
 
-
 CFriendMember::CFriendMember()
-: m_strFriendName(MAX_CHAR_NAME_LENGTH + 1)
+	: m_strFriendName(MAX_CHAR_NAME_LENGTH + 1)
 {
 	m_nChaIndex = -1;
 //	m_nLastConnectDate = 0; //최근접속일자
 	m_nJobType = -1; //종족
 	m_nCondition = 	MSG_FRIEND_CONDITION_OFFLINE; //상태
-#ifdef MESSENGER_NEW
 	m_groupIndex = 0;
-#endif
-#ifdef __GAME_SERVER__
 	m_pPc = NULL;
-#endif
 }
-
 
 CFriendMember::~CFriendMember()
 {
-	/*
-#ifdef __GAME_SERVER__
-	if (m_pPc)
-		m_pPc->m_Friend = NULL;
-	m_pPc = NULL;
-#endif
-	*/
 }
 /*
 int CFriendMember::GetChaIndex()
@@ -45,11 +34,11 @@ void CFriendMember::SetChaIndex(int chaindex)
 
 void CFriendMember::SetName(const char* name)
 {
-	if (name) 
+	if (name)
 	{
 		m_strFriendName = name;
 	}
-	else 
+	else
 	{
 		m_strFriendName = "";
 	}
@@ -73,9 +62,6 @@ void CFriendMember::SetJob(int job)
 }
 
 CFriend::CFriend()
-#ifdef MESSENGER_NEW
-:m_groupList(CFriendGroup::CompByIndex)
-#endif
 {
 	memset(m_pFriendMember, 0, sizeof(CFriendMember*) * FRIEND_MAX_MEMBER);
 //	memset(m_aFriendMeChaIndex, -1, sizeof(int) * FRIEND_MAX_MEMBER);
@@ -93,10 +79,8 @@ CFriend::~CFriend()
 	m_nFriendCnt=0;
 }
 
-
 CFriendMember* CFriend::FindFriendMember(int chaindex)
 {
-	
 	for (int i = 0; i < FRIEND_MAX_MEMBER; i++)
 	{
 		if (m_pFriendMember[i])
@@ -121,35 +105,6 @@ CFriendMember* CFriend::FindFriendMember(const char* name)
 	return NULL;
 }
 
-//친구의 상태 변환
-void CFriend::ChangeCondition(int chaindex, int condition)
-{
-	if (chaindex < 0 || chaindex >= FRIEND_MAX_MEMBER)
-		return ;
-	
-	CFriendMember* pFriendMember;	
-	pFriendMember = FindFriendMember(chaindex);
-	
-	if(pFriendMember == NULL)
-	{
-		return;
-	}
-	
-	for (int i = 0; i < FRIEND_MAX_MEMBER; i++)
-	{
-		if (m_pFriendMember[i] == pFriendMember)
-		{		
-			m_pFriendMember[i]->m_nCondition = condition;
-			//오프라인이라면 마지막 접속종료일자 저장 
-//			if(condition == MSG_FRIEND_CONDITION_OFFLINE)
-//			{
-//				time_t t;
-//				m_pFriendMember[i]->m_nLastConnectDate = time(&t) / 60 / 60 / 24;
-//			}
-		}
-	}
-}
-
 //친구등록
 int CFriend::AddFriend(int chaindex, const char* name, int job, int nCon, int groupIndex)
 {
@@ -157,9 +112,8 @@ int CFriend::AddFriend(int chaindex, const char* name, int job, int nCon, int gr
 	{
 		return -1;
 	}
-		
-	
-	CFriendMember* pFriendMember;	
+
+	CFriendMember* pFriendMember;
 	for (int i = 0; i < FRIEND_MAX_MEMBER; i++)
 	{
 		if (m_pFriendMember[i] == NULL)
@@ -169,13 +123,8 @@ int CFriend::AddFriend(int chaindex, const char* name, int job, int nCon, int gr
 			pFriendMember->SetName(name);
 			pFriendMember->SetCondition(nCon);
 			pFriendMember->SetJob(job);
-#ifdef MESSENGER_NEW
-			CFriendGroup* fgroup = new CFriendGroup(groupIndex, "");
-			void * pos = this->m_groupList.FindData(fgroup);
-			delete fgroup;
-			fgroup = NULL;
-
-			if (pos)
+			map_t::iterator it = m_groupList.find(groupIndex);
+			if (it != m_groupList.end())
 			{
 				pFriendMember->SetGroup(groupIndex);
 			}
@@ -183,7 +132,6 @@ int CFriend::AddFriend(int chaindex, const char* name, int job, int nCon, int gr
 			{
 				pFriendMember->SetGroup(0);
 			}
-#endif
 
 			m_pFriendMember[i] = pFriendMember;
 			m_nFriendCnt++;
@@ -197,7 +145,6 @@ int CFriend::AddFriend(int chaindex, const char* name, int job, int nCon, int gr
 //친구삭제
 void CFriend::RemoveFriend(int chaindex)
 {
-	
 	for (int i = 0; i < FRIEND_MAX_MEMBER; i++)
 	{
 		if (m_pFriendMember[i])
@@ -210,7 +157,6 @@ void CFriend::RemoveFriend(int chaindex)
 			}
 		}
 	}
-
 }
 
 /*
@@ -228,8 +174,7 @@ void CFriend::SetFriendList(int index, int friendindex, const char* name, int jo
 }
 */
 
-//#ifdef __GAME_SERVER__
-void CFriend::SendToAll(CNetMsg& msg)
+void CFriend::SendToAll(CNetMsg::SP& msg)
 {
 	int i;
 	for (i = 0; i < FRIEND_MAX_MEMBER; i++)
@@ -243,67 +188,55 @@ void CFriend::SendToAll(CNetMsg& msg)
 		}
 	}
 }
-//#endif
 
-/*
-void CFriend::SetMyCondition(int index, int condition)
-{		
-	CNetMsg msg;
-	
-	msg.Init(MSG_FRIEND);
-	msg << MSG_FRIEND_SET_CONDITION
-		<< index
-		<< condition;
-
-//#ifdef __GAME_SERVER__
-	SendToAll(msg);
-//#endif
-}
-*/
-
-#ifdef MESSENGER_NEW
 int CFriend::addGroup(const char* gName, int gIndex)
 {
-
-	int count = this->m_groupList.GetCount();
-
-	// 10개 그룹이 넘으면
-	
-	if( count >= FRIEND_GROUP_MAX_NUMBER || strinc(gName, "'") || strinc(gName, "%") || strinc(gName, " ") )
+	// 문자열 검사
+	if (strinc(gName, "'") || strinc(gName, "%") || strinc(gName, " "))
 	{
 		return -1;
 	}
 
-	void* pos;
-	pos = m_groupList.GetHead();
-	CFriendGroup* fgroup = NULL;
-
-	int index = -1;
-
-	for(int i = 0; i < count; i++)
+	// 최대 갯수가 넘으면
+	if (this->m_groupList.size() >= FRIEND_GROUP_MAX_NUMBER)
 	{
-		fgroup = m_groupList.GetData(pos);
-		if( strcmp( (const char*) fgroup->GetGroupName(), gName) == 0 )
-			return -1;
-
-		if( i != fgroup->GetGroupIndex() )
-			index = fgroup->GetGroupIndex();
-		pos = m_groupList.GetNext(pos);
+		return -1;
 	}
 
-	if ( gIndex != -1 )
-		fgroup = new CFriendGroup(gIndex, gName);
+	// 동일 그룹명이 있는지 검색
+	BOOST_FOREACH(map_t::value_type& p, this->m_groupList)
+	{
+		CFriendGroup* pGroup = p.second;
+		if( strcmp( (const char*) pGroup->GetGroupName(), gName) == 0 )
+			return -1;
+	}
+
+	// 디비에서 읽은 데이터이면 바로 입력 처리
+	CFriendGroup* pGroup = NULL;
+	if (gIndex != -1)
+	{
+		pGroup = new CFriendGroup(gIndex, gName);
+	}
 	else
 	{
-		if( index == -1 )
-			index = fgroup->GetGroupIndex() + 1;
+		// 최종 인덱스를 구함
+		if (this->m_groupList.empty())
+		{
+			gIndex = 0;
+		}
+		else
+		{
+			// std::map은 자동으로 오름차순으로 정리되므로 맨마지막 key값이 가장 큼
+			map_t::iterator it = --m_groupList.end();
+			gIndex = (it->first) + 1;
+		}
 
-		fgroup = new CFriendGroup(index, gName);
+		pGroup = new CFriendGroup(gIndex, gName);
 	}
 
-	m_groupList.AddToTail(fgroup);
+	m_groupList.insert(map_t::value_type(gIndex, pGroup));
 
-	return index;
+	return gIndex;
 }
 
 //void	delGroup(int gIndex);
@@ -312,16 +245,10 @@ int CFriend::addGroup(const char* gName, int gIndex)
 
 int CFriend::delGroup(int gIndex)
 {
-	CFriendGroup* fgroup = new CFriendGroup(gIndex, "" );
-
-	void* pos = m_groupList.FindData(fgroup);
-
-	delete fgroup;
-
-	if( pos )
-	{	
-		m_groupList.Remove(pos);
-
+	map_t::iterator it = m_groupList.find(gIndex);
+	if (it != m_groupList.end())
+	{
+		m_groupList.erase(it);
 		return gIndex;
 	}
 
@@ -335,15 +262,10 @@ int CFriend::changeGroupName(int gIndex, const char* newName)
 		return -1;
 	}
 
-	CFriendGroup* fgroup = new CFriendGroup(gIndex, "");
-
-	void* pos = m_groupList.FindData(fgroup);
-
-	delete fgroup;
-
-	if( pos )
+	map_t::iterator it = m_groupList.find(gIndex);
+	if (it != m_groupList.end())
 	{
-		fgroup = m_groupList.GetData(pos);
+		CFriendGroup* fgroup = it->second;
 		fgroup->SetName(newName);
 		return gIndex;
 	}
@@ -366,28 +288,23 @@ int CFriend::moveGroupFriend(int gIndex, int charIndex)
 
 void CFriend::GetGroupIndexString(CLCString& gIndexList, CLCString& gNameList)
 {
-	void* pos = this->m_groupList.GetHead();
-	int count = this->m_groupList.GetCount();
-
 	CFriendGroup* fgroup = NULL;
-	for(int i = 0; i < count; i++)
+	map_t::iterator it = m_groupList.begin();
+	map_t::iterator endit = m_groupList.end();
+	char tmpbuf[1024] = {0,};
+	for(; it != endit; ++it)
 	{
-		fgroup = this->m_groupList.GetData(pos);
+		CFriendGroup* fgroup = it->second;
 
-		if( fgroup )
-		{
-			sprintf(g_buf, "%d", fgroup->GetGroupIndex() );
-			gIndexList += g_buf;
-			gIndexList += " ";
-			gNameList += fgroup->GetGroupName();
-			gNameList += " ";
-		}
-
-		pos = this->m_groupList.GetNext(pos);
+		sprintf(tmpbuf, "%d", fgroup->GetGroupIndex() );
+		gIndexList += tmpbuf;
+		gIndexList += " ";
+		gNameList += fgroup->GetGroupName();
+		gNameList += " ";
 	}
 }
 
 CFriendGroup::~CFriendGroup()
 {
 }
-#endif
+//

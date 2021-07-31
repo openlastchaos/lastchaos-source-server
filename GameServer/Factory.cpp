@@ -1,9 +1,9 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "Factory.h"
-#include "DBCmd.h"
+#include "../ShareLib/DBCmd.h"
 
-#ifdef FACTORY_SYSTEM
 
 ///////////////////
 // CFactoryProto
@@ -25,14 +25,14 @@ CFactoryProto::~CFactoryProto()
 {
 }
 
-void CFactoryProto::InitData(int nPos, 
-							 int nIndex,	int nJob, 
-							 int nSealType, int nItemType, int nItemIdx, 
-							 LONGLONG llMakeExp, 
-							 LONGLONG llNeedExp, 
+void CFactoryProto::InitData(int nPos,
+							 int nIndex,	int nJob,
+							 int nSealType, int nItemType, int nItemIdx,
+							 LONGLONG llMakeExp,
+							 LONGLONG llNeedExp,
 							 LONGLONG llNas,
 							 FACTORY_STUFF * pStuff
-							 )
+							)
 {
 	m_nIndex = nIndex;
 	m_nJob	= nJob;
@@ -53,35 +53,35 @@ void CFactoryProto::InitData(int nPos,
 ///////////////////////
 // CFactoryProtoList
 CFactoryProtoList::CFactoryProtoList()
+	: m_listFactoryItem(NULL)
 {
-	m_listFactoryItem = NULL;
-	m_nCount = 0;
 }
 
 CFactoryProtoList::~CFactoryProtoList()
 {
-	while (m_listFactoryItem)
-	{
+	if (m_listFactoryItem)
 		delete [] m_listFactoryItem;
-		m_listFactoryItem = NULL;
-	}
-	m_nCount = 0;
 }
 
 CFactoryProto* CFactoryProtoList::Find(int nIndex)
 {
-	CFactoryProto key;
-	key.SetIndex(nIndex);
-	return (CFactoryProto*)bsearch(&key, m_listFactoryItem, m_nCount, sizeof(CFactoryProto), CompIndex);
+	map_t::iterator it = map_.find(nIndex);
+	return (it != map_.end()) ? it->second : NULL;
 }
 
 bool CFactoryProtoList::Load()
 {
 	CDBCmd cmd;
-	cmd.Init(&gserver.m_dbdata);
+	cmd.Init(&gserver->m_dbdata);
 	cmd.SetQuery("SELECT * FROM t_factory_item WHERE a_enable = 1 ORDER BY a_index");
 	if (!cmd.Open())
 		return false;
+
+	if (cmd.m_nrecords == 0)
+	{
+		LOG_ERROR("Factory item table is empty.");
+		return true;
+	}
 
 	m_listFactoryItem = new CFactoryProto[cmd.m_nrecords];
 
@@ -96,10 +96,9 @@ bool CFactoryProtoList::Load()
 	FACTORY_STUFF	stuff[MAX_FACTORY_ITEM_STUFF];
 	memset(&stuff, 0x00, sizeof(stuff));
 
-	m_nCount = 0;
+	int count = 0;
 	while (cmd.MoveNext())
 	{
-
 		if (!cmd.GetRec("a_index",		a_index		))	return false;
 		if (!cmd.GetRec("a_job",		a_job		))	return false;
 		if (!cmd.GetRec("a_seal_type",	a_seal_type	))	return false;
@@ -129,24 +128,20 @@ bool CFactoryProtoList::Load()
 			i++;
 		}
 
-		m_listFactoryItem[m_nCount].InitData(m_nCount, a_index, a_job, 
-											a_seal_type, a_item_type, a_item_idx, 
-											a_make_exp, a_need_exp, a_nas, stuff);
-		m_nCount++;
+		m_listFactoryItem[count].InitData(count, a_index, a_job,
+										  a_seal_type, a_item_type, a_item_idx,
+										  a_make_exp, a_need_exp, a_nas, stuff);
+		map_.insert(map_t::value_type(m_listFactoryItem[count].GetIndex(), &m_listFactoryItem[count]));
+
+		++count;
 	}
 
 	return true;
 }
 
-
 ///////////////////////////
 // CFactoryList
 CFactoryList::CFactoryList()
-:m_listDetail(NULL),
-m_listColorful(NULL),
-m_listSharp(NULL),
-m_listHard(NULL),
-m_listConsume(NULL)
 {
 }
 
@@ -159,29 +154,14 @@ bool CFactoryList::Add(CFactoryProto * pFactory)
 	if (!pFactory)
 		return false;
 
-		 if (pFactory->IsDetail()	)	m_listDetail.AddToTail(pFactory);
-	else if (pFactory->IsColorful()	)	m_listColorful.AddToTail(pFactory);
-	else if (pFactory->IsSharp()	)	m_listSharp.AddToTail(pFactory);
-	else if (pFactory->IsHard()		)	m_listHard.AddToTail(pFactory);
-	else if (pFactory->IsConsume()	)	m_listConsume.AddToTail(pFactory);
-	else	return false;
-
+	m_listItem.insert(pFactory);
 	return true;
 }
 
 bool CFactoryList::Find(CFactoryProto * pFactory)
 {
-	if (!pFactory)
-		return false;
-
-		 if (pFactory->IsDetail()	)	m_listDetail.FindData(pFactory);
-	else if (pFactory->IsColorful()	)	m_listColorful.FindData(pFactory);
-	else if (pFactory->IsSharp()	)	m_listSharp.FindData(pFactory);
-	else if (pFactory->IsHard()		)	m_listHard.FindData(pFactory);
-	else if (pFactory->IsConsume()	)	m_listConsume.FindData(pFactory);
-	else	return false;
-
-	return true;
+	set_t::iterator it = m_listItem.find(pFactory);
+	return (it != m_listItem.end()) ? true : false;
 }
 
 CFactoryProto* CFactoryList::Find(int nIndex)
@@ -189,61 +169,23 @@ CFactoryProto* CFactoryList::Find(int nIndex)
 	if (nIndex < 0)
 		return NULL;
 
-	CFactoryProto * p = (CFactoryProto *)m_listDetail.GetHead();
-	while (p)
+	set_t::iterator it = m_listItem.begin();
+	set_t::iterator endit = m_listItem.end();
+	for(; it != endit; ++it)
 	{
-		if (p->GetIndex() == nIndex)
-		{
-			return p;
-			break;
-		}
-		p = (CFactoryProto *)m_listDetail.GetNext(p);
-	}
-			 
-	p = (CFactoryProto *)m_listColorful.GetHead();
-	while (p)
-	{
-		if (p->GetIndex() == nIndex)
-		{
-			return p;
-			break;
-		}
-		p = (CFactoryProto *)m_listColorful.GetNext(p);
-	}
+		CFactoryProto* p = *(it);
 
-	p = (CFactoryProto *)m_listSharp.GetHead();
-	while (p)
-	{
 		if (p->GetIndex() == nIndex)
 		{
 			return p;
-			break;
 		}
-		p = (CFactoryProto *)m_listSharp.GetNext(p);
-	}
-
-	p = (CFactoryProto *)m_listHard.GetHead();
-	while (p)
-	{
-		if (p->GetIndex() == nIndex)
-		{
-			return p;
-			break;
-		}
-		p = (CFactoryProto *)m_listHard.GetNext(p);
-	}
-
-	p = (CFactoryProto *)m_listConsume.GetHead();
-	while (p)
-	{
-		if (p->GetIndex() == nIndex)
-		{
-			return p;
-			break;
-		}
-		p = (CFactoryProto *)m_listConsume.GetNext(p);
 	}
 
 	return NULL;
 }
-#endif // FACTORY_SYSTEM
+
+void CFactoryList::clear()
+{
+	m_listItem.clear();
+}
+

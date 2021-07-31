@@ -1,43 +1,36 @@
 #include "stdhdrs.h"
+
 #include "NPCRegenInfo.h"
 #include "Zone.h"
 #include "Area.h"
 #include "Server.h"
-#include "DBCmd.h"
+#include "../ShareLib/DBCmd.h"
 
 ///////////////////////
 // CNPCRegenInfo member
 
 CNPCRegenInfo::CNPCRegenInfo()
+	: m_index(-1)
+	, m_npcIdx(-1)
+	, m_zoneNo(-1)
+	, m_regenX(0.0f)
+	, m_regenY(0)
+	, m_regenZ(0.0f)
+	, m_regenR(0.0f)
+	, m_regenSec(0)
+	, m_totalNum(0)
+	, m_bAlive(false)
+	, m_lastDieTime(0)
+	, m_numRegen(0)
+	, m_paramHP(0)
+	, m_bRaidMoveRandom(false)
+	, m_bRegen(true)
+	, m_npcProto(NULL)
 {
-	m_index = -1;
-	m_npcIdx = -1;
-	m_zoneNo = -1;
-	m_regenSec = 0;
-	m_lastDieTime = 0;
-	m_regenX = 0.0f;
-	m_regenY = 0;
-	m_regenZ = 0.0f;
-	m_regenR = 0.0f;
-	m_regenSec = 0;
-	m_bAlive = false;
-	m_numRegen = 0;
-	m_totalNum = 0;
-
-	m_paramHP = 0;
-
-#ifdef MONSTER_RAID_SYSTEM
-	m_bRaidMoveRandom = false;
-#endif // MONSTER_RAID_SYSTEM
-
-#ifdef EVENT_XMAS_2006
-	m_bEventXMasMoveRandom = false;
-#endif // EVENT_XMAS_2006
 }
 
 CNPCRegenInfo::~CNPCRegenInfo()
 {
-
 }
 
 void CNPCRegenInfo::clean()
@@ -58,18 +51,15 @@ void CNPCRegenInfo::clean()
 
 	m_paramHP = 0;
 
-#ifdef MONSTER_RAID_SYSTEM
 	m_bRaidMoveRandom = false;
-#endif // MONSTER_RAID_SYSTEM
 
-#ifdef EVENT_XMAS_2006
-	m_bEventXMasMoveRandom = false;
-#endif // EVENT_XMAS_2006
+	m_bRegen = true;			// npc 리제 여부 결정
+
+	m_npcProto = NULL;
 }
 
 ///////////////////////
 // CNPCRegenList member
-
 
 CNPCRegenList::CNPCRegenList()
 {
@@ -98,7 +88,7 @@ void CNPCRegenList::SetCount(int n)
 		m_infoList = new CNPCRegenInfo[n];
 }
 
-void CNPCRegenList::AddRegenInfo(int index, int npc_index, int regenSec, float regenX, int yLayer, float regenZ, float regenR, int totalNum, int zoneNo)
+void CNPCRegenList::AddRegenInfo(int index, int npc_index, int regenSec, float regenX, int yLayer, float regenZ, float regenR, int totalNum, int zoneNo, bool bRegen, CNPCProto* pNpcProto)
 {
 	if (m_wPos >= m_nCount)
 		return ;
@@ -115,19 +105,33 @@ void CNPCRegenList::AddRegenInfo(int index, int npc_index, int regenSec, float r
 
 	m_infoList[m_wPos].m_bAlive = false;
 	m_infoList[m_wPos].m_lastDieTime = 0;
+	m_infoList[m_wPos].m_bRegen = bRegen;
+
+	if (pNpcProto)
+	{
+		m_infoList[m_wPos].m_npcProto = pNpcProto;
+	}
+	else
+	{
+		m_infoList[m_wPos].m_npcProto = gserver->m_npcProtoList.FindProto(npc_index);
+		if (m_infoList[m_wPos].m_npcProto == NULL)
+		{
+			LOG_ERROR("Not found Npc[%d] in Npc_proto", npc_index);
+			return;
+		}
+	}
 
 	m_wPos++;
 }
 
-
-void CNPCRegenList::AddRegenInfo(CNPCRegenInfo* info)
-{
-	if (m_wPos >= m_nCount)
-		return ;
-
-	memcpy(m_infoList + m_wPos, info, sizeof(CNPCRegenInfo));
-	m_wPos++;
-}
+// void CNPCRegenList::AddRegenInfo(CNPCRegenInfo* info)
+// {
+// 	if (m_wPos >= m_nCount)
+// 		return ;
+// 
+// 	memcpy(m_infoList + m_wPos, info, sizeof(CNPCRegenInfo));
+// 	m_wPos++;
+// }
 
 void CNPCRegenList::Init()
 {
@@ -182,7 +186,7 @@ bool CNPCRegenList::SetRegened(CArea* pArea, int idx, int zoneNo, float x, int y
 							pArea->m_regenList[j] = -1;
 							return true;
 						}
-					}	
+					}
 				}
 			}
 		}
@@ -199,7 +203,7 @@ bool CNPCRegenList::Find(int idx, int zoneNo, bool pdZone, float x, int y, float
 		{
 			if( !pdZone )
 			{
-				if ( m_infoList[i].m_npcIdx == idx) 
+				if ( m_infoList[i].m_npcIdx == idx)
 					return true;
 			}
 			else
@@ -215,7 +219,7 @@ bool CNPCRegenList::Find(int idx, int zoneNo, bool pdZone, float x, int y, float
 				//	bCurrectY = true;
 				if( (ceil(m_infoList[i].m_regenZ) > ceil(z-10)) && (ceil(m_infoList[i].m_regenZ) < ceil(z+10)) )
 					bCurrectZ = true;
-					
+
 				if ( m_infoList[i].m_npcIdx == idx && bCurrectX && bCurrectY && bCurrectZ )
 					return true;
 			}
@@ -223,7 +227,6 @@ bool CNPCRegenList::Find(int idx, int zoneNo, bool pdZone, float x, int y, float
 	}
 
 	return false;
-
 }
 
 CNPCRegenInfo * CNPCRegenList::GetNpcRegenInfo(int idx)
@@ -236,7 +239,6 @@ CNPCRegenInfo * CNPCRegenList::GetNpcRegenInfo(int idx)
 	return &m_infoList[idx];
 }
 
-
 bool CNPCRegenList::DelRegenInfo(CNPCRegenInfo * p)
 {
 	for(int i = 0; i < m_wPos; i++)
@@ -244,14 +246,15 @@ bool CNPCRegenList::DelRegenInfo(CNPCRegenInfo * p)
 		if(p == &m_infoList[i])
 		{
 			if(i+1 == m_wPos)
-			{	// 끝부분
+			{
+				// 끝부분
 				p->clean();
 			}
 			else
 			{
 				memcpy(&m_infoList[i], &m_infoList[i+1], sizeof(CNPCRegenInfo)*(m_wPos-(i+1)));
 			}
-			
+
 			m_wPos--;
 
 			return true;
@@ -260,3 +263,4 @@ bool CNPCRegenList::DelRegenInfo(CNPCRegenInfo * p)
 
 	return false;
 }
+//

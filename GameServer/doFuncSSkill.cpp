@@ -1,53 +1,49 @@
 #include "stdhdrs.h"
-#include "Log.h"
-#include "Cmd.h"
-#include "Character.h"
-#include "Server.h"
-#include "CmdMsg.h"
-#include "doFunc.h"
-#include "DratanCastle.h"
 
-void do_SSkill(CPC* ch, CNetMsg& msg)
+#include "Log.h"
+#include "Character.h"
+#include "DratanCastle.h"
+#include "../ShareLib/packetType/ptype_old_do_sskill.h"
+
+void do_SSkill(CPC* ch, CNetMsg::SP& msg)
 {
-#ifdef DRATAN_CASTLE
 	CDratanCastle * pCastle = CDratanCastle::CreateInstance();
-	if (pCastle != NULL)
-	{
-		pCastle->CheckRespond(ch);
-	}
-#endif // DRATAN_CASTLE
+	pCastle->CheckRespond(ch);
 
 	if (DEAD(ch))
 		return;
 
-	msg.MoveFirst();
+	RequestClient::sskill* packet = reinterpret_cast<RequestClient::sskill*>(msg->m_buf);
 
-	unsigned char subtype;
-
-	msg >> subtype;
-
-	if (subtype != MSG_SSKILL_LEARN)
-		return;
-
-	int index;
-	msg >> index;
-
-	CNetMsg errMsg;
-
-	// index가 0이하면 리턴
-	if (index <= 0)
+	if (packet->subType != MSG_SSKILL_LEARN)
 	{
-		SSkillLearnErrorMsg(errMsg, MSG_SSKILL_LEARN_ERROR_SYSTEM);
-		SEND_Q(errMsg, ch->m_desc);
+		LOG_ERROR("HACKING : invalid subtype[%d]. charIndex[%d]", packet->subType, ch->m_index);
+		ch->m_desc->Close("invalid subtype");
 		return;
 	}
 
-	CSSkillProto* proto = gserver.m_sSkillProtoList.FindProto(index);
-
-	if (!proto)
+	CNPC* pNpc = (CNPC*)ch->m_pArea->FindCharInCell(ch, packet->npcIndex, MSG_CHAR_NPC, true);
+	if (pNpc == NULL)
 	{
-		SSkillLearnErrorMsg(errMsg, MSG_SSKILL_LEARN_ERROR_SYSTEM);
-		SEND_Q(errMsg, ch->m_desc);
+		CNetMsg::SP rmsg(new CNetMsg);
+		ResponseClient::makeSSkillLearnError(rmsg, MSG_SSKILL_LEARN_ERROR_NOT_EXIST_NPC);
+		SEND_Q(rmsg, ch->m_desc);
+		return ;
+	}
+
+	// index가 0이하면 리턴
+	if (packet->sskillIndex <= 0)
+	{
+		LOG_ERROR("HACKING : invalid sskill index[%d]. charIndex[%d]", packet->sskillIndex, ch->m_index);
+		ch->m_desc->Close("invalid sskill index");
+		return;
+	}
+
+	CSSkillProto* proto = gserver->m_sSkillProtoList.FindProto(packet->sskillIndex);
+	if (proto == NULL)
+	{
+		LOG_ERROR("HAKCING : not found sskill[%d]. charIndex[%d]", packet->sskillIndex, ch->m_index);
+		ch->m_desc->Close("not found sskill");
 		return;
 	}
 
@@ -61,15 +57,16 @@ void do_SSkill(CPC* ch, CNetMsg& msg)
 			// 있는 스킬보다 낮은 우선순위의 스킬을 배우려 하면 Error
 			if (node->m_sskill->m_proto->m_preference != -1 && node->m_sskill->m_proto->m_preference > proto->m_preference)
 			{
-				SSkillLearnErrorMsg(errMsg, MSG_SSKILL_LEARN_ERROR_SYSTEM);
-				SEND_Q(errMsg, ch->m_desc);
+				CNetMsg::SP rmsg(new CNetMsg);
+				ResponseClient::makeSSkillLearnError(rmsg, MSG_SSKILL_LEARN_ERROR_SYSTEM);
+				SEND_Q(rmsg, ch->m_desc);
 				return;
 			}
 		}
 		node = node->m_next;
 	}
 
-	CSSkill* sskill = ch->m_sSkillList.Find(index);
+	CSSkill* sskill = ch->m_sSkillList.Find(packet->sskillIndex);
 	int level = 1;
 
 	if (sskill)
@@ -83,16 +80,18 @@ void do_SSkill(CPC* ch, CNetMsg& msg)
 	// 필요 Level 검사
 	if (proto->m_needLevel[level - 1] > ch->m_level)
 	{
-		SSkillLearnErrorMsg(errMsg, MSG_SSKILL_LEARN_ERROR_LEVEL);
-		SEND_Q(errMsg, ch->m_desc);
+		CNetMsg::SP rmsg(new CNetMsg);
+		ResponseClient::makeSSkillLearnError(rmsg, MSG_SSKILL_LEARN_ERROR_LEVEL);
+		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
 
 	// 필요 SP 검사
 	if (proto->m_needSP[level - 1] * 10000 > ch->m_skillPoint)
 	{
-		SSkillLearnErrorMsg(errMsg, MSG_SSKILL_LEARN_ERROR_SP);
-		SEND_Q(errMsg, ch->m_desc);
+		CNetMsg::SP rmsg(new CNetMsg);
+		ResponseClient::makeSSkillLearnError(rmsg, MSG_SSKILL_LEARN_ERROR_SP);
+		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
 
@@ -104,50 +103,20 @@ void do_SSkill(CPC* ch, CNetMsg& msg)
 		// 필요 sskill이 아예 없다
 		if (!check)
 		{
-			SSkillLearnErrorMsg(errMsg, MSG_SSKILL_LEARN_ERROR_SSKILL);
-			SEND_Q(errMsg, ch->m_desc);
+			CNetMsg::SP rmsg(new CNetMsg);
+			ResponseClient::makeSSkillLearnError(rmsg, MSG_SSKILL_LEARN_ERROR_SSKILL);
+			SEND_Q(rmsg, ch->m_desc);
 			return;
 		}
 		//  필요 sskill level이 안된다
 		else if (proto->m_needSSkillLevel > check->m_level)
 		{
-			SSkillLearnErrorMsg(errMsg, MSG_SSKILL_LEARN_ERROR_SSKILL_LEVEL);
-			SEND_Q(errMsg, ch->m_desc);
+			CNetMsg::SP rmsg(new CNetMsg);
+			ResponseClient::makeSSkillLearnError(rmsg, MSG_SSKILL_LEARN_ERROR_SSKILL_LEVEL);
+			SEND_Q(rmsg, ch->m_desc);
 			return;
 		}
 	}
-
-	// 기존에 같은 타입에 우선순위가 낮은 SSkill 삭제 루틴
-	//  [11/6/2008 KwonYongDae] 기존 스킬 삭제 없음 
-/*
-	CSSkillNode* nodeNext = ch->m_sSkillList.m_head;
-	while ((node = nodeNext))
-	{
-		nodeNext = node->m_next;
-
-		// 우선순위가 없으면 상관없음
-		if (node->m_sskill->m_proto->m_preference == -1)
-			continue;
-
-		// 타입이 같고 배우려는 스킬보다 우선순위가 낮으면 삭제
-		if (node->m_sskill->m_proto->m_type == proto->m_type && node->m_sskill->m_proto->m_preference < proto->m_preference)
-		{
-			// 삭제 메시지 전송
-			CNetMsg removeMsg;
-			SSkillRemoveMsg(removeMsg, node->m_sskill);
-			SEND_Q(removeMsg, ch->m_desc);
-
-			// 조건 만족 조건이 되었던 스킬 삭제
-			if (!ch->m_sSkillList.Remove(node->m_sskill))
-			{
-				SSkillLearnErrorMsg(errMsg, MSG_SSKILL_LEARN_ERROR_SYSTEM);
-				SEND_Q(errMsg, ch->m_desc);
-				return;
-			}
-
-		}
-	}
-*/
 
 	// 기존에 스킬이 있었다면 Level Up
 	if (sskill)
@@ -155,8 +124,9 @@ void do_SSkill(CPC* ch, CNetMsg& msg)
 		// 최고렙 초과
 		if (sskill->m_level >= sskill->m_proto->m_maxLevel)
 		{
-			SSkillLearnErrorMsg(errMsg, MSG_SSKILL_LEARN_ERROR_SYSTEM);
-			SEND_Q(errMsg, ch->m_desc);
+			CNetMsg::SP rmsg(new CNetMsg);
+			ResponseClient::makeSSkillLearnError(rmsg, MSG_SSKILL_LEARN_ERROR_SYSTEM);
+			SEND_Q(rmsg, ch->m_desc);
 			return;
 		}
 
@@ -164,28 +134,38 @@ void do_SSkill(CPC* ch, CNetMsg& msg)
 	}
 	else
 	{
-		sskill = gserver.m_sSkillProtoList.Create(index, 1);
+		sskill = gserver->m_sSkillProtoList.Create(packet->sskillIndex, 1);
 		if (!sskill)
 		{
-			SSkillLearnErrorMsg(errMsg, MSG_SSKILL_LEARN_ERROR_SYSTEM);
-			SEND_Q(errMsg, ch->m_desc);
+			CNetMsg::SP rmsg(new CNetMsg);
+			ResponseClient::makeSSkillLearnError(rmsg, MSG_SSKILL_LEARN_ERROR_SYSTEM);
+			SEND_Q(rmsg, ch->m_desc);
 			return;
 		}
 
 		if (!ch->m_sSkillList.Add(sskill))
 		{
-			SSkillLearnErrorMsg(errMsg, MSG_SSKILL_LEARN_ERROR_SYSTEM);
-			SEND_Q(errMsg, ch->m_desc);
+			CNetMsg::SP rmsg(new CNetMsg);
+			ResponseClient::makeSSkillLearnError(rmsg, MSG_SSKILL_LEARN_ERROR_SYSTEM);
+			SEND_Q(rmsg, ch->m_desc);
 			return;
 		}
 	}
 
 	// SP 소모
 	ch->m_skillPoint -= proto->m_needSP[level - 1] * 10000;
-	ch->m_bChangeStatus = true;
 
-	// Learn Msg 전송
-	CNetMsg learnMsg;
-	SSkillLearnMsg(learnMsg, sskill);
-	SEND_Q(learnMsg, ch->m_desc);
+	{
+		// Learn Msg 전송
+		CNetMsg::SP rmsg(new CNetMsg);
+		ResponseClient::makeSSkillLearn(rmsg, sskill);
+		SEND_Q(rmsg, ch->m_desc);
+	}
+
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		StatusMsg(rmsg, ch);
+		SEND_Q(rmsg, ch->m_desc);
+	}
 }
+

@@ -13,7 +13,7 @@ protected:
 
 public:
 	CLCListNode(int nID, DATATYPE data)
-	: m_data(data)
+		: m_data(data)
 	{
 		m_nID = nID;
 		m_data = data;
@@ -30,12 +30,30 @@ public:
 		m_next = NULL;
 	}
 
-	void			Prev(CLCListNode* prev)	{ m_prev = prev; }
-	void			Next(CLCListNode* next)	{ m_next = next; }
-	CLCListNode*	Prev()					{ return m_prev; }
-	CLCListNode*	Next()					{ return m_next; }
-	DATATYPE		Data()					{ return m_data; }
-	int				ID()					{ return m_nID;  }
+	void			Prev(CLCListNode* prev)
+	{
+		m_prev = prev;
+	}
+	void			Next(CLCListNode* next)
+	{
+		m_next = next;
+	}
+	CLCListNode*	Prev()
+	{
+		return m_prev;
+	}
+	CLCListNode*	Next()
+	{
+		return m_next;
+	}
+	DATATYPE		Data()
+	{
+		return m_data;
+	}
+	int				ID()
+	{
+		return m_nID;
+	}
 };
 
 template <class DATATYPE>
@@ -168,22 +186,36 @@ public:
 	////////////////////
 	// Function name	: GetHead
 	// Description	    : 헤더 포인터 반환
-	void* GetHead()				{ return (void*)m_head; }
+	void* GetHead()
+	{
+		return (void*)m_head;
+	}
 
 	////////////////////
 	// Function name	: GetTail
 	// Description	    : 테일 포인터 반환
-	void* GetTail()				{ return (void*)m_tail; }
+	void* GetTail()
+	{
+		return (void*)m_tail;
+	}
 
 	////////////////////
 	// Function name	: GetPrev
 	// Description	    : pos 이전 노드 포인터 반환
-	void* GetPrev(void* pos)	{ CLCListNode<DATATYPE>* p = (CLCListNode<DATATYPE>*)pos; return ((p->ID() == m_nID)) ? p->Prev() : NULL; }
+	void* GetPrev(void* pos)
+	{
+		CLCListNode<DATATYPE>* p = (CLCListNode<DATATYPE>*)pos;
+		return ((p->ID() == m_nID)) ? p->Prev() : NULL;
+	}
 
 	////////////////////
 	// Function name	: GetNext
 	// Description	    : pos 다음 노드 포인터 반환
-	void* GetNext(void* pos)	{ CLCListNode<DATATYPE>* p = (CLCListNode<DATATYPE>*)pos; return ((p->ID() == m_nID)) ? p->Next() : NULL; }
+	void* GetNext(void* pos)
+	{
+		CLCListNode<DATATYPE>* p = (CLCListNode<DATATYPE>*)pos;
+		return ((p->ID() == m_nID)) ? p->Next() : NULL;
+	}
 
 	////////////////////
 	// Function name	: GetData
@@ -204,13 +236,16 @@ public:
 	////////////////////
 	// Function name	: GetCount
 	// Description	    : 리스트의 데이터 수를 반환
-	int GetCount()				{ return m_nCount; }
+	int GetCount()
+	{
+		return m_nCount;
+	}
 
 
 	////////////////////
 	// Function name	: FindDataWithCompareFunction
 	// Description	    : 데이터 노드 찾기
-	// Return type		: void* 
+	// Return type		: void*
 	//                  : 찾은 노드 포인터, 없으면 NULL
 	// Argument         : DATATYPE data
 	//                  : 찾을 데이터
@@ -245,7 +280,7 @@ public:
 	////////////////////
 	// Function name	: FindData
 	// Description	    : 데이터 노드 찾기
-	// Return type		: void* 
+	// Return type		: void*
 	//                  : 찾은 노드 포인터, 없으면 NULL
 	// Argument         : DATATYPE data
 	//                  : 찾을 데이터
@@ -258,7 +293,7 @@ public:
 	////////////////////
 	// Function name	: GetPosition
 	// Description	    : nIndex번째에 해당하는 데이터를 반환, 0 base
-	// Return type		: void* 
+	// Return type		: void*
 	//                  : 해당 노드 포인터
 	// Argument         : int nIndex
 	//                  : 찾고자 하는 노드의 위치
@@ -282,3 +317,5 @@ public:
 };
 
 #endif // __LCLIST_H__
+//
+

@@ -1,6 +1,8 @@
+#include <stdlib.h>
 #include "stdhdrs.h"
+
 #include "ConfigFile.h"
-#include "CryptMem.h"
+#include "../ShareLib/CryptMem.h"
 
 CConfigFile::CConfigFile()
 {
@@ -27,7 +29,10 @@ bool CConfigFile::Load(const char* filename, bool bCrypt)
 {
 	FILE* fp = fopen(filename, "rb");
 	if (!fp)
+	{
+		LOG_INFO("File Open Error");
 		return false;
+	}
 
 	fseek(fp, 0, SEEK_END);
 	int size = ftell(fp);
@@ -78,9 +83,9 @@ SKIP_SPACE:
 START_GROUP:
 	gp = 0;
 	memset(group, 0, 1024);
-	goto GROUP;
+	goto GROUP_DATA;
 
-GROUP:
+GROUP_DATA:
 	if (i >= size)
 		goto END_FUNC;
 
@@ -92,7 +97,7 @@ GROUP:
 
 	group[gp++] = buf[i];
 	i++;
-	goto GROUP;
+	goto GROUP_DATA;
 
 END_GROUP:
 	group[gp++] = '\0';
@@ -142,8 +147,18 @@ FIND_EOL:
 
 SAVE:
 	value[vp++] = '\0';
+#ifdef BUGFIX_REMOVE_SPACE
+	if (name[0] && value[0])
+	{
+		TrimString(group);
+		TrimString(name);
+		TrimString(value);
+		Add(group, name, value);
+	}
+#else
 	if (name[0] && value[0])
 		Add(group, name, value);
+#endif
 	goto SKIP_SPACE;
 
 START_COMMENTS:
@@ -178,43 +193,107 @@ bool CConfigFile::Add(const char* group, const char* name, const char* value)
 			unsigned char v = 0;
 			switch (*value)
 			{
-			case '0':	v += 0;		break;
-			case '1':	v += 1;		break;
-			case '2':	v += 2;		break;
-			case '3':	v += 3;		break;
-			case '4':	v += 4;		break;
-			case '5':	v += 5;		break;
-			case '6':	v += 6;		break;
-			case '7':	v += 7;		break;
-			case '8':	v += 8;		break;
-			case '9':	v += 9;		break;
-			case 'A':	v += 10;	break;
-			case 'B':	v += 11;	break;
-			case 'C':	v += 12;	break;
-			case 'D':	v += 13;	break;
-			case 'E':	v += 14;	break;
-			case 'F':	v += 15;	break;
+			case '0':
+				v += 0;
+				break;
+			case '1':
+				v += 1;
+				break;
+			case '2':
+				v += 2;
+				break;
+			case '3':
+				v += 3;
+				break;
+			case '4':
+				v += 4;
+				break;
+			case '5':
+				v += 5;
+				break;
+			case '6':
+				v += 6;
+				break;
+			case '7':
+				v += 7;
+				break;
+			case '8':
+				v += 8;
+				break;
+			case '9':
+				v += 9;
+				break;
+			case 'A':
+				v += 10;
+				break;
+			case 'B':
+				v += 11;
+				break;
+			case 'C':
+				v += 12;
+				break;
+			case 'D':
+				v += 13;
+				break;
+			case 'E':
+				v += 14;
+				break;
+			case 'F':
+				v += 15;
+				break;
 			}
 			value++;
 			v <<= 4;
 			switch (*value)
 			{
-			case '0':	v += 0;		break;
-			case '1':	v += 1;		break;
-			case '2':	v += 2;		break;
-			case '3':	v += 3;		break;
-			case '4':	v += 4;		break;
-			case '5':	v += 5;		break;
-			case '6':	v += 6;		break;
-			case '7':	v += 7;		break;
-			case '8':	v += 8;		break;
-			case '9':	v += 9;		break;
-			case 'A':	v += 10;	break;
-			case 'B':	v += 11;	break;
-			case 'C':	v += 12;	break;
-			case 'D':	v += 13;	break;
-			case 'E':	v += 14;	break;
-			case 'F':	v += 15;	break;
+			case '0':
+				v += 0;
+				break;
+			case '1':
+				v += 1;
+				break;
+			case '2':
+				v += 2;
+				break;
+			case '3':
+				v += 3;
+				break;
+			case '4':
+				v += 4;
+				break;
+			case '5':
+				v += 5;
+				break;
+			case '6':
+				v += 6;
+				break;
+			case '7':
+				v += 7;
+				break;
+			case '8':
+				v += 8;
+				break;
+			case '9':
+				v += 9;
+				break;
+			case 'A':
+				v += 10;
+				break;
+			case 'B':
+				v += 11;
+				break;
+			case 'C':
+				v += 12;
+				break;
+			case 'D':
+				v += 13;
+				break;
+			case 'E':
+				v += 14;
+				break;
+			case 'F':
+				v += 15;
+				break;
 			}
 			value++;
 
@@ -287,52 +366,4 @@ int CConfigFile::Comp(const void* p1, const void* p2)
 		return (ret < 0) ? -1 : 1;
 
 	return 0;
-}
-
-char* CConfigFile::NextToken(char* buf, const char* src, int& start, const char* delim)
-{
-	char* ret = buf;
-	src += start;
-
-	while (*src)
-	{
-		if (delim != NULL)
-		{
-			if (strchr(delim, *src) == NULL)
-				break;
-		}
-		else
-		{
-			if (!strchr("\r\n\t ", *src))
-				break;
-		}
-		src++;
-		start++;
-	}
-
-	bool isDelim = false;
-	bool bFound = false;
-
-	while (*src)
-	{
-		if (delim != NULL)
-		{
-			if (strchr(delim, *src) != NULL)
-				isDelim = true;
-		}
-		else
-		{
-			if (strchr("\r\n\t ", *src))
-				isDelim = true;
-		}
-
-		if (isDelim)
-			break;
-
-		*buf++ = *src++;
-		start++;
-		bFound = true;
-	}
-	*buf = '\0';
-	return (bFound) ? ret : NULL;
 }

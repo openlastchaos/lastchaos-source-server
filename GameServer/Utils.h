@@ -1,24 +1,17 @@
 #ifndef  __GAME_UTILS_H__
 #define  __GAME_UTILS_H__
 
-#include "LCString.h"
-#include "LCList.h"
+#include <string>
+#include <time.h>
+#include "../ShareLib/LCString.h"
 
-#ifdef __GAME_SERVER__
 #include "Character.h"
 float GetDistance(CCharacter* ch, CCharacter* tch);
 float GetDistance(float x, float z, float h, CCharacter* tch);
-void GetSerial(char *buf, int index);
-void GetSerial(CLCString& buf, int index);
-#endif
+std::string GetSerial();
 
 // 널 타임
 extern struct timeval a_NullTime;
-
-// 나중에 지워야할 전역 버퍼
-extern char		g_buf[MAX_STRING_LENGTH];
-extern char		g_buf2[MAX_STRING_LENGTH];
-extern char		g_buf3[MAX_STRING_LENGTH];
 
 
 char* __ltoa(int value, char *string);
@@ -29,21 +22,17 @@ float get_sin(float radian);
 float get_cos(float radian);
 void GetTimeofDay(struct timeval *t, struct timezone *dummy);
 void TimeDiff(struct timeval *rslt, struct timeval *a, struct timeval *b);
-void TimeAdd(struct timeval *rslt, struct timeval *a, struct timeval *b);
 float GetDistance(float x1, float x2, float z1, float z2, float h1, float h2);
 const char* SkipSpaces(const char* string);
-char* RemoveTailSpaces(char* string);
+const char* SkipSpecialCharacter(const char* string);
 char* TrimString(char* string);
+void TrimString(std::string& data);
 const char* AnyOneArg(const char* argument, char* first_arg, bool toLower = false);
-#ifndef __BILLING_SERVER__
-char* StrDup(const char* source);
-char* StrCat(char* dest, const char* src);
-#endif
+const char* GetToken(const char* arg1, char* arg2, bool toLower);
 char* IntCat(char *dest, int i, bool bInsertSpace = true);
 char* IntCat(char *dest, LONGLONG ll, bool bInsertSpace = true);
 char* IntCat0(char* dest, int i, int width, bool bInsertSpace = true);
 char* IntCat0(char* dest, LONGLONG i, int width, bool bInsertSpace = true);
-char* FloatCat(char *dest, float f, int place, bool bInsertSpace = true);
 bool strinc(const char *str, const char *inc);
 void IPtoi(const char *org_IP,int *i_one, int *i_two, int *i_thr, int *i_for);
 
@@ -51,7 +40,9 @@ int GetRandom(int from, int to);
 
 bool CheckIP(const char *u_IP);
 
-char* TransDateStr(int time, char* convbuf);	//0627 // 광호 수정
+
+// [selo: 101115] 러시아어 이외의 글자가 있는지 확인
+bool CheckNoRussianCharacter(const CLCString& str);
 
 ///////////////////////////////////
 // 매크로 & 인라인 함수들
@@ -63,8 +54,8 @@ char* TransDateStr(int time, char* convbuf);	//0627 // 광호 수정
 #define ABS(c)		((c) < 0 ? -(c) : (c))									// 절대값
 #define SIGN(i)		((i) < 0 ? (-1) : (1))									// 부호
 #define ISNEWL(ch) ((ch) == '\n' || (ch) == '\r')							// 개행 문자 검사
-#define is_space(c)		(c == 0x20 || (c >= 0x09 && c <= 0x0D))				// 공백 검사
-
+#define is_space_in_util(c)		(c == 0x20 || (c >= 0x09 && c <= 0x0D))				// 공백 검사
+#define is_special_in_util(c)	( !(c >=0x30 && c <= 0x39) && !(c >= 0x41 && c <= 0x5A) && !(c >= 0x61 && c <= 0x7A) ) // 숫자, 영문자를 제외한 특수문자 검사
 
 // LINKED LIST MANAGEMENT
 
@@ -93,11 +84,10 @@ char* TransDateStr(int time, char* convbuf);	//0627 // 광호 수정
 			item->before = NULL; \
 			head = item; }
 
-
 ////////////////////
 // Function name	: Rad2Deg
 // Description	    : 라디안을 도 단위 각도로 변환
-// Return type		: float 
+// Return type		: float
 //					: 도 단위 각도
 // Argument         : float rad
 //					: 라디안 각도
@@ -111,11 +101,10 @@ inline float Rad2Deg(float rad)
 	return deg;
 }
 
-
 ////////////////////
 // Function name	: Deg2Rad
 // Description	    : 도 단위 각도를 라디안으로 변환
-// Return type		: float 
+// Return type		: float
 //					: 라디안 각도
 // Argument         : float deg
 //					: 도 단위 각도
@@ -129,31 +118,7 @@ inline float Deg2Rad(float deg)
 	return deg * PI / 180;
 }
 
-#ifdef __BILLING_SERVER__
-////////////////////
-// Function name	: DT2TM
-// Description	    : DBTIMESTAMP에서 struct tm으로 변환 (분단위만)
-inline struct tm DT2TM(DBTIMESTAMP dt)
-{
-	struct tm ret;
-	memset(&ret, 0, sizeof(ret));
-	ret.tm_year = dt.year - 1900;
-	ret.tm_mon = dt.month - 1;
-	ret.tm_mday = dt.day;
-	ret.tm_hour = dt.hour;
-	ret.tm_min = dt.minute;
-	return ret;
-}
-#endif
-
-inline struct tm NOW()
-{
-	time_t t;
-	time(&t);
-	struct tm ret;
-	memcpy(&ret, localtime(&t), sizeof(ret));
-	return ret;
-}
+struct tm NOW();
 
 // nSizeOfDest는 NULL을 포함
 inline void BackSlash(char* dest, int nSizeOfDest, const char* src)
@@ -208,24 +173,31 @@ inline void StrLwr(char* src)
 #define strcmp2(a, b)	strcasecmp(a, b)
 #endif
 
-#ifdef CHECK_LIMIT_AGE
-bool CheckBirthDay(const char* strJumin, int nLimitAge);
-#endif // CHECK_LIMIT_AGE
-
-#ifdef CASH_ITEM_COUPON
-struct CASH_COUPON {
-	CLCString	name;
-	int			id;
-	CLCString	serial;
-	int			limitAmount;
-	int			amount;
-	CASH_COUPON():name(51),serial(21)
+struct RECTF
+{
+	float left;
+	float top;
+	float right;
+	float bottom;
+	RECTF()
 	{
-		id=0;
-		amount=0;
-		limitAmount=0;
+		left=top=right=bottom=0.0f;
 	}
 };
-#endif //CASH_ITEM_COUPON
+
+struct POSF
+{
+	float x;
+	float y;
+	POSF()
+	{
+		x=y=0.0f;
+	}
+};
+
+bool isToday(time_t unixtime);
+
+char* findPercentChar(char* buf);
 
 #endif
+//

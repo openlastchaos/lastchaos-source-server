@@ -1,48 +1,43 @@
+#define __SERVER_CPP__
+
+#include <boost/format.hpp>
 #include "stdhdrs.h"
+
+#include "../ShareLib/bnf.h"
 #include "Log.h"
 #include "Server.h"
 #include "CmdMsg.h"
-#include "DBCmd.h"
+#include "../ShareLib/DBCmd.h"
+#include "../ShareLib/packetType/ptype_syndicate.h"
 
-volatile LC_THREAD_T		gThreadIDGameThread;
-volatile LC_THREAD_T		gThreadIDDBThread;
+#ifdef PREMIUM_CHAR
+#include "../ShareLib/packetType/ptype_premium_char.h"
+#endif
 
 CServer gserver;
 
 void ServerSrandom(unsigned long initial_seed);
 
 CServer::CServer()
-: m_ssock(-1)
-, m_listParty(CParty::CompParty)
-#ifdef PARTY_MATCHING
-, m_listPartyMatchMember(CPartyMatchMember::CompByIndex)
-, m_listPartyMatchParty(CPartyMatchParty::CompByBossIndex)
-#endif // PARTY_MATCHING
-
-#ifdef EXPEDITION_RAID
-, m_listExped(CExpedition::CompExpedition)
-#endif //EXPEDITION_RAID
 {
 	m_desclist = NULL;
 	m_nDesc = 0;
-	FD_ZERO(&m_input_set);
-	FD_ZERO(&m_output_set);
-	FD_ZERO(&m_exc_set);
-	FD_ZERO(&m_null_set);
 
 	m_seqGen = 1;
 
 	m_serverpath = GetServerPath();
 	m_maxplayers = 0;
 	m_bshutdown = false;
-	m_nameserverisslow = true;
 
 	m_pulse = 0;
-	m_pulseServerTime = 0;
 
 	m_nMoonStoneNas = 0;
 
 	mysql_init(&m_dbchar);
+
+#ifdef EXTREME_CUBE_VER2
+	m_CubePointUpdateTime = 0;
+#endif // EXTREME_CUBE_VER2
 }
 
 CServer::~CServer()
@@ -50,36 +45,58 @@ CServer::~CServer()
 	if (m_serverpath)
 		delete[] m_serverpath;
 
-	while (m_listParty.GetCount() > 0)
 	{
-		CParty* pParty = m_listParty.GetData(m_listParty.GetHead());
-		m_listParty.Remove(m_listParty.GetHead());
-		delete pParty;
+		map_party_t::iterator it = m_listParty.begin();
+		map_party_t::iterator endit = m_listParty.end();
+		for (; it != endit; ++it)
+		{
+			delete it->second;
+		}
+		m_listParty.clear();
 	}
 
-#ifdef EXPEDITION_RAID
-	while (m_listExped.GetCount() > 0)
 	{
-		CExpedition* pExped = m_listExped.GetData(m_listExped.GetHead());
-		m_listExped.Remove(m_listExped.GetHead());
-		delete pExped;
+		map_expedition_t::iterator it = m_listExped.begin();
+		map_expedition_t::iterator endit = m_listExped.end();
+		for (; it != endit; ++it)
+		{
+			delete it->second;
+		}
+		m_listExped.clear();
 	}
-#endif //EXPEDITION_RAID
 
-#ifdef PARTY_MATCHING
-	while (m_listPartyMatchMember.GetCount() > 0)
 	{
-		CPartyMatchMember* pMember = m_listPartyMatchMember.GetData(m_listPartyMatchMember.GetHead());
-		m_listPartyMatchMember.Remove(m_listPartyMatchMember.GetHead());
-		delete pMember;
+		map_partymatchmember_t::iterator it = m_listPartyMatchMember.begin();
+		map_partymatchmember_t::iterator endit = m_listPartyMatchMember.end();
+		for (; it != endit; ++it)
+		{
+			delete it->second;
+		}
+		m_listPartyMatchMember.clear();
 	}
-	while (m_listPartyMatchParty.GetCount() > 0)
 	{
-		CPartyMatchParty* pParty = m_listPartyMatchParty.GetData(m_listPartyMatchParty.GetHead());
-		m_listPartyMatchParty.Remove(m_listPartyMatchParty.GetHead());
-		delete pParty;
+		map_partymatchparty_t::iterator it = m_listPartyMatchParty.begin();
+		map_partymatchparty_t::iterator endit = m_listPartyMatchParty.end();
+		for (; it != endit; ++it)
+		{
+			delete it->second;
+		}
+		m_listPartyMatchParty.clear();
 	}
-#endif // PARTY_MATCHING
+#ifdef DEV_GUILD_STASH
+	std::map<int,CGuildStash*>::iterator itr = m_guildstash.begin();
+	std::map<int, CGuildStash*>::iterator itrEnd = m_guildstash.end();
+	for( ; itr != itrEnd ; ++itr )
+	{
+		CGuildStash* delStash = itr->second;
+		if( delStash )
+		{
+			delStash->RemoveItem();
+			delete delStash;
+		}
+	}
+	m_guildstash.clear();
+#endif //DEV_GUILD_STASH
 }
 
 char* CServer::GetServerPath()
@@ -90,8 +107,10 @@ char* CServer::GetServerPath()
 	int path_len = strlen(szBuffer);
 	int i;
 
-	for (i = path_len - 1; i >= 0; i-- ) {
-		if (szBuffer[i] == '\\')  {
+	for (i = path_len - 1; i >= 0; i-- )
+	{
+		if (szBuffer[i] == '\\')
+		{
 			szBuffer[i+1] = '\0';
 			break;
 		}
@@ -127,15 +146,13 @@ bool CServer::LoadSettingFile()
 bool CServer::InitGame()
 {
 	ServerSrandom(time(0));
-	MakeMath();
 
 	GAMELOG << init("SYSTEM") << "Finding player limit." << end;
 	m_maxplayers = GetMaxPlayers();
 
-	GAMELOG << init("SYSTEM") << "Opening mother connection." << end;
-	m_ssock = InitSocket();
-
 	GAMELOG << init("SYSTEM") << "Entering game loop." << end;
+
+	this->initTime();
 
 	return true;
 }
@@ -147,10 +164,10 @@ int CServer::GetMaxPlayers()
 #else
 	int max_descs = 0;
 	const char *method;
-/*
- * First, we'll try using getrlimit/setrlimit.  This will probably work
- * on most systems.  HAS_RLIMIT is defined in sysdep.h.
- */
+	/*
+	 * First, we'll try using getrlimit/setrlimit.  This will probably work
+	 * on most systems.  HAS_RLIMIT is defined in sysdep.h.
+	 */
 #ifdef HAS_RLIMIT
 	{
 		struct rlimit limit;
@@ -187,14 +204,15 @@ int CServer::GetMaxPlayers()
 	max_descs = OPEN_MAX;		/* Uh oh.. rlimit didn't work, but we have
 				 * OPEN_MAX */
 #elif defined (_SC_OPEN_MAX)
-   /*
+	/*
 	* Okay, you don't have getrlimit() and you don't have OPEN_MAX.  Time to
 	* try the POSIX sysconf() function.  (See Stevens' _Advanced Programming
 	* in the UNIX Environment_).
 	*/
 	method = "POSIX sysconf";
 	errno = 0;
-	if ((max_descs = sysconf(_SC_OPEN_MAX)) < 0) {
+	if ((max_descs = sysconf(_SC_OPEN_MAX)) < 0)
+	{
 		if (errno == 0)
 			max_descs = m_MaxPlaying + NUM_RESERVED_DESCS;
 		else
@@ -224,317 +242,25 @@ int CServer::GetMaxPlayers()
 #endif /* CIRCLE_UNIX */
 }
 
-socket_t CServer::InitSocket()
-{
-	socket_t s;
-	struct sockaddr_in sa;
-	int opt;
-
-#ifdef CIRCLE_WINDOWS
-	// 윈속 초기화
-	{
-		WORD wVersionRequested;
-		WSADATA wsaData;
-
-		wVersionRequested = MAKEWORD(1, 1);
-
-		if (WSAStartup(wVersionRequested, &wsaData) != 0)
-		{
-			puts("SYSERR: WinSock not available!");
-			exit(1);
-		}
-		if ((wsaData.iMaxSockets - 4) < m_maxplayers)
-		{
-			m_maxplayers = wsaData.iMaxSockets - 4;
-		}
-		GAMELOG << init("SYSTEM") << "Max players set to" << m_maxplayers << end;
-
-		// 소켓 생성
-		if ((s = socket(PF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
-		{
-			puts("SYSERR: Error opening network connection : Winsock error");
-			exit(1);
-		}
-	}
-#else
-	// 소켓 생성
-	if ((s = socket(PF_INET, SOCK_STREAM, 0)) < 0)
-	{
-		GAMELOG << init("SYS_ERR") << "Error creating socket" << end;
-		exit(1);
-	}
-#endif	/* CIRCLE_WINDOWS */
-
-#if defined(SO_REUSEADDR) && !defined(CIRCLE_MACINTOSH)
-	opt = 1;
-	if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char *) &opt, sizeof(opt)) < 0)
-	{
-		puts("SYSERR: setsockopt REUSEADDR");
-		exit(1);
-	}
-#endif
-
-	SetSendbuf(s);
-
-	/*
-	 * The GUSI sockets library is derived from BSD, so it defines
-	 * SO_LINGER, even though setsockopt() is unimplimented.
-	 *	(from Dean Takemori <dean@UHHEPH.PHYS.HAWAII.EDU>)
-	 */
-#if defined(SO_LINGER) && !defined(CIRCLE_MACINTOSH)
-	{
-		struct linger ld;
-		
-		ld.l_onoff = 0;
-		ld.l_linger = 0;
-		if (setsockopt(s, SOL_SOCKET, SO_LINGER, (char *) &ld, sizeof(ld)) < 0)
-			GAMELOG << init("SYS_ERR") << "setsockopt SO_LINGER" << end;	/* Not fatal I suppose. */
-	}
-#endif
-
-	/* Clear the structure */
-	memset((char *)&sa, 0, sizeof(sa));
-
-	sa.sin_family = AF_INET;
-	sa.sin_port = htons((unsigned short)atoi(gserver.m_config.Find("Server", "Port")));
-	sa.sin_addr = *(GetBindAddr());
-
-	if (bind(s, (struct sockaddr *) &sa, sizeof(sa)) < 0) {
-		GAMELOG << init("SYS_ERR") << "bind" << end;
-		CLOSE_SOCKET(s);
-		FILE *fp = fopen (".shutdown", "w");
-		fclose (fp);
-		exit(1);
-	}
-	Nonblock(s);
-	listen(s, 57);
-
-	return (s);
-}
-
-int CServer::SetSendbuf(socket_t s)
-{
-#if defined(SO_SNDBUF) && !defined(CIRCLE_MACINTOSH)
-	int opt = MAX_SOCK_BUF;
-
-	if (setsockopt(s, SOL_SOCKET, SO_SNDBUF, (char *) &opt, sizeof(opt)) < 0)
-	{
-		GAMELOG << init("SYS_ERR") << "setsockopt SNDBUF" << end;
-		return (-1);
-	}
-
-# if 0
-	if (setsockopt(s, SOL_SOCKET, SO_RCVBUF, (char *) &opt, sizeof(opt)) < 0)
-	{
-		GAMELOG << init("SYS_ERR") << "setsockopt RCVBUF" << end;
-		return (-1);
-	}
-# endif
-
-#endif
-
-	return (0);
-}
-
-struct in_addr* CServer::GetBindAddr()
-{
-	static struct in_addr bind_addr;
-
-	memset(&bind_addr, 0, sizeof(bind_addr));
-
-	if (strcmp(m_config.Find("Server", "IP"), "ALL") == 0)
-		bind_addr.s_addr = htonl(INADDR_ANY);
-	else
-	{
-		unsigned long addr = inet_addr(m_config.Find("Server", "IP"));
-		if (addr < 0)
-		{
-			bind_addr.s_addr = htonl(INADDR_ANY);
-			GAMELOG << init("SYS_ERR") << "Invalid IP address" << end;
-		}
-		else
-			bind_addr.s_addr = addr;
-	}
-
-	/* Put the address that we've finally decided on into the logs */
-	if (bind_addr.s_addr == htonl(INADDR_ANY))
-		GAMELOG << init("SYSTEM") << "Binding to all IP interfaces on this m_host." << end;
-	else
-	{
-		GAMELOG << init("SYSTEM") << "Binding only to IP address" << inet_ntoa(bind_addr) << end;
-	}
-
-	return (&bind_addr);
-}
-
-#if defined(CIRCLE_WINDOWS)
-void CServer::Nonblock(socket_t s)
-{
-	unsigned long val = 1;
-	ioctlsocket(s, FIONBIO, &val);
-}
-#else
-#  ifndef O_NONBLOCK
-#    define O_NONBLOCK O_NDELAY
-#  endif
-void CServer::Nonblock(socket_t s)
-{
-	int flags;
-	flags = fcntl(s, F_GETFL, 0);
-	flags |= O_NONBLOCK;
-	if (fcntl(s, F_SETFL, flags) < 0)
-	{
-		GAMELOG << init("SYS_ERR") << "Fatal error executing nonblock (CServer.cpp)" << end;
-		exit(1);
-	}
-}
-#endif
-
-#ifdef CIRCLE_WINDOWS
-void CServer::ServerSleep(struct timeval* timeout)
-{
-	Sleep(timeout->tv_sec * 1000 + timeout->tv_usec / 1000);
-}
-#else
-void CServer::ServerSleep(struct timeval* timeout)
-{
-	if (select(0, (fd_set *) 0, (fd_set *) 0, (fd_set *) 0, timeout) < 0)
-	{
-		if (errno != EINTR)
-		{
-			GAMELOG << init("SYS_ERR") << "Select sleep!!" << end;
-			exit(1);
-		}
-	}
-}
-#endif /* end of CIRCLE_WINDOWS */
-
-int CServer::NewDescriptor(int s)
-{
-	socket_t m_desc;
-	socklen_t i;
-	static int last_desc = 0;	/* last descriptor number */
-	CDescriptor* newd;
-	struct sockaddr_in peer;
-	struct hostent *from;
-
-	i = sizeof(peer);
-	if ((m_desc = accept(s, (struct sockaddr *)&peer, &i)) == INVALID_SOCKET)
-		return (-1);
-
-	/* keep it from blocking */
-	Nonblock(m_desc);
-
-	/* set the send buffer size */
-	if (SetSendbuf(m_desc) < 0)
-	{
-		CLOSE_SOCKET(m_desc);
-		return (0);
-	}
-
-	/* create a new descriptor */
-	newd = new CDescriptor;
-
-	/* find the sitename */
-	if (m_nameserverisslow
-			|| !(from = gethostbyaddr((char*)&peer.sin_addr, sizeof(peer.sin_addr), AF_INET)))
-	{
-		/* resolution failed */
-		if (!m_nameserverisslow)
-			GAMELOG << init("SYS_ERR") << "gethostbyaddr" << end;
-
-		/* find the numeric site address */
-		newd->m_host.CopyFrom((char*)inet_ntoa(peer.sin_addr), HOST_LENGTH);
-	} else {
-		newd->m_host.CopyFrom(from->h_name, HOST_LENGTH);
-	}
-
-	/* initialize descriptor data */
-	newd->m_desc = m_desc;
-	STATE(newd) = CON_GET_LOGIN;
-
-	/*
-	* This isn't exactly optimal but allows us to make a design choice.
-	* Do we embed the history in CDescriptor or keep it dynamically
-	* allocated and allow a user defined history size?
-	*/
-	if (++last_desc == 100000000)
-		last_desc = 1;
-	newd->m_descnum = last_desc;
-
-	/* prepend to list */
-	ADD_TO_BILIST(newd, m_desclist, m_pPrev, m_pNext);
-
-	return (0);
-}
-
-void CServer::CloseSocket(CDescriptor* d)
-{
-	if (d->m_logined >= 1 && STATE(d) != CON_DISCONNECT)
-	{
-		STATE(d) = CON_DISCONNECT;
-		d->m_logined = 2;		// m_logined but not play ==> want to disconnect
-		return;
-	}
-	else
-	{
-		if (STATE(d) != CON_CLOSE && STATE(d) != CON_DISCONNECT)
-		{
-			const char* kstrExceptionIP= "222.234.226.20";
-			if( strncmp( d->m_host, kstrExceptionIP, d->m_host.Length() ) != 0 )
-			{
-				GAMELOG << init("SYS_ERR") << "Close Socket Error :" << STATE(d) << delim << d->m_host << end;
-			}
-		}
-	}
-
-	REMOVE_FROM_BILIST(d, m_desclist, m_pPrev, m_pNext);
-	d->CloseSocket();
-
-	m_msgList.RemoveServer(d);
-
-	delete d;
-}
-
-void CServer::SendOutput(CDescriptor* d)
-{
-	if (d == NULL) return;
-	if (d->m_bclosed) return;
-	if (d->m_outBuf.GetNextPoint())
-	{
-		if (FD_ISSET(d->m_desc, &m_output_set))
-		{
-			if (d->ProcessOutput() < 0)
-				d->m_bclosed = true;
-		}
-	}
-}
-
-void CServer::SetServerTime()
-{
-	time_t ct;
-	struct tm *ti;
-	
-	ct = time(0);
-	ti = localtime(&ct);
-	m_serverTime.year	= (ti->tm_year % 100) % 62;
-	m_serverTime.month	= (ti->tm_mon + 1) % 62;
-	m_serverTime.day	= ti->tm_mday % 62;
-	m_serverTime.hour	= ti->tm_hour % 62;
-	m_serverTime.min	= ti->tm_min % 62;
-	m_serverTime.sec	= ti->tm_sec % 62;
-}
-
 bool CServer::ConnectDB()
 {
 	if (!mysql_real_connect (
-		&m_dbchar,
-		m_config.Find("Char DB", "IP"),
-		m_config.Find("Char DB", "User"),
-		m_config.Find("Char DB", "Password"),
-		m_config.Find("Char DB", "DBName"),
-		0, NULL, 0))
+				&m_dbchar,
+				m_config.Find("Char DB", "IP"),
+				m_config.Find("Char DB", "User"),
+				m_config.Find("Char DB", "Password"),
+				m_config.Find("Char DB", "DBName"),
+				0, NULL, 0))
+	{
+		LOG_ERROR("Can't connect data DB : ip[%s] id[%s] pw[%s] dbname[%s] error[%s]",
+				  m_config.Find("Char DB", "IP"),
+				  m_config.Find("Char DB", "User"),
+				  m_config.Find("Char DB", "Password"),
+				  m_config.Find("Char DB", "DBName"),
+				  mysql_error(&m_dbchar)
+				 );
 		return false;
+	}
 	return true;
 }
 
@@ -557,10 +283,8 @@ bool CServer::LoadSettings()
 	CDBCmd cmd;
 	cmd.Init(&m_dbchar);
 
-#ifdef NEW_GUILD
-
 	// check t_extend_guild, t_extend_guildmember, t_characters_guildpoint
-	//<===! kjban add 
+	//<===! kjban add
 	CDBCmd cmdNewGuild;
 	int cnt;
 
@@ -574,9 +298,10 @@ bool CServer::LoadSettings()
 
 	cmdNewGuild.MoveFirst();
 	cmdNewGuild.GetRec(0, cnt);
-	
+
 	if(cnt == 0)
-	{	// 테이블에 내용이 없을때
+	{
+		// 테이블에 내용이 없을때
 		cmdNewGuild.SetQuery("insert into t_characters_guildpoint select a_index, 0, 0 from t_characters");
 		cmdNewGuild.Open();
 	}
@@ -590,9 +315,10 @@ bool CServer::LoadSettings()
 
 	cmdNewGuild.MoveFirst();
 	cmdNewGuild.GetRec(0, cnt);
-	
+
 	if(cnt == 0)
-	{	// 테이블에 내용이 없을때
+	{
+		// 테이블에 내용이 없을때
 		cmdNewGuild.SetQuery("insert into t_extend_guild select a_index, 0, 5+a_level*5, 0, '', '', '' from t_guild");
 		cmdNewGuild.Open();
 	}
@@ -606,19 +332,22 @@ bool CServer::LoadSettings()
 
 	cmdNewGuild.MoveFirst();
 	cmdNewGuild.GetRec(0, cnt);
-	
+
 	if(cnt == 0)
-	{	// 테이블에 내용이 없을때
+	{
+		// 테이블에 내용이 없을때
 		cmdNewGuild.SetQuery("insert into t_extend_guildmember select a_guild_index, a_char_index, '', 0, 0, 0 from t_guildmember");
 		cmdNewGuild.Open();
 	}
 	//!===>
 
-	cmd.SetQuery( "SELECT g.*, eg.a_guild_point, eg.a_guild_incline, eg.a_guild_maxmember, eg.a_guild_land, eg.a_skill_index, eg.a_skill_level"
+#ifdef DEV_GUILD_MARK
+	cmd.SetQuery( "SELECT g.*, eg.a_guild_point, eg.a_guild_incline, eg.a_guild_maxmember, eg.a_guild_land, eg.a_passiveskill_index, eg.a_passiveskill_level, eg.a_gm_row, eg.a_gm_col, eg.a_bg_row, eg.a_bg_col, eg.a_marktime, eg.a_kick_status, eg.a_kick_request_char_index, eg.a_kick_request_time"
 				  " FROM t_guild AS g, t_extend_guild AS eg WHERE g.a_index = eg.a_guild_index AND g.a_enable = 1 ORDER BY g.a_index " );
 #else
-	cmd.SetQuery("SELECT * FROM t_guild WHERE a_enable=1 ORDER BY a_index");
-#endif // NEW_GUILD
+	cmd.SetQuery( "SELECT g.*, eg.a_guild_point, eg.a_guild_incline, eg.a_guild_maxmember, eg.a_guild_land, eg.a_passiveskill_index, eg.a_passiveskill_level, eg.a_kick_status, eg.a_kick_request_char_index, eg.a_kick_request_time"
+				  " FROM t_guild AS g, t_extend_guild AS eg WHERE g.a_index = eg.a_guild_index AND g.a_enable = 1 ORDER BY g.a_index " );
+#endif
 	if (!cmd.Open())
 	{
 		GAMELOG << init("SYS_ERR")
@@ -641,6 +370,17 @@ bool CServer::LoadSettings()
 		int battleTime;
 		int battleKillCount;
 		int battleState;
+#ifdef DEV_GUILD_MARK
+		char gm_row;
+		char gm_col;
+		char bg_row;
+		char bg_col;
+		int markTime;
+#endif
+		int kickStatus			= GMKS_NORMAL;
+		int kickRequestChar		= 0;
+		int kickRequestTime		= 0;
+		//int lastTimeBossChange	= 0;
 
 		cmd.GetRec("a_index", guildindex);
 		cmd.GetRec("a_name", guildname);
@@ -652,8 +392,18 @@ bool CServer::LoadSettings()
 		cmd.GetRec("a_battle_time",		battleTime);
 		cmd.GetRec("a_battle_killcount",battleKillCount);
 		cmd.GetRec("a_battle_state",	battleState);
+#ifdef DEV_GUILD_MARK
+		cmd.GetRec("a_gm_row", gm_row);
+		cmd.GetRec("a_gm_col", gm_col);
+		cmd.GetRec("a_bg_row", bg_row);
+		cmd.GetRec("a_bg_col", bg_col);
+		cmd.GetRec("a_marktime", markTime);
+#endif
 
-#ifdef NEW_GUILD
+		cmd.GetRec("a_kick_status", kickStatus);
+		cmd.GetRec("a_kick_request_char_index", kickRequestChar);
+		cmd.GetRec("a_kick_request_time", kickRequestTime);
+
 		int guildpoint;
 		int incline;
 		CLCString	guildland(256);
@@ -663,7 +413,7 @@ bool CServer::LoadSettings()
 // 		char tbuf[256];
 //		const char* pland = guildland;
 		int land[256];
-		
+
 		memset( land, -1, sizeof(land) );
 
 		cmd.GetRec( "a_guild_point", guildpoint );
@@ -682,29 +432,26 @@ bool CServer::LoadSettings()
 					<< "Cannot load castle"
 					<< end;
 			return false;
-		}	
+		}
 		int landcount = Castle.m_nrecords;
 		if( landcount > 0 && Castle.MoveFirst() )
 		{
-			int i =0;			
-		
+			int i =0;
+
 			do
 			{
-				Castle.GetRec( "a_zone_index", land[i] ); 
+				Castle.GetRec( "a_zone_index", land[i] );
 				i++;
-			}while( Castle.MoveNext() );
+			}
+			while( Castle.MoveNext() );
 		}
 
-//#endif // NEW_GUILD
-		
-		sprintf(g_buf, "SELECT g.*, eg.a_position_name, eg.a_contribute_exp, eg.a_contribute_fame, a_point"
-			" FROM t_guildmember AS g, t_extend_guildmember AS eg "
-			" WHERE g.a_guild_index = eg.a_guild_index AND g.a_char_index = eg.a_char_index AND g.a_guild_index =%d ", guildindex);
-	
-#else
-		sprintf(g_buf, "SELECT * FROM t_guildmember WHERE a_guild_index=%d order by a_char_index", guildindex);		
-#endif // NEW_GUILD
-		cmd2.SetQuery(g_buf);
+		std::string select_guild_member_query = boost::str(boost::format(
+				"SELECT g.*, eg.a_position_name, eg.a_contribute_exp, eg.a_contribute_fame, a_point"
+				" FROM t_guildmember AS g, t_extend_guildmember AS eg "
+				" WHERE g.a_guild_index = eg.a_guild_index AND g.a_char_index = eg.a_char_index AND g.a_guild_index = %d ")
+												% guildindex);
+		cmd2.SetQuery(select_guild_member_query);
 		if (!cmd2.Open())
 		{
 			GAMELOG << init("SYS_ERR")
@@ -726,90 +473,25 @@ bool CServer::LoadSettings()
 			continue ;
 
 		m_guildlist.add(guild);
-#ifdef NEW_GUILD
-		GAMELOG << init("NEW_GUILD" ) 
-			<< "guildIndex" << delim << guild->index() << delim 
-			<< "guildPoint" << delim << guildpoint << delim 
-			<< "incline" << delim << incline << delim
-			<< "landcount" << delim << landcount << delim
-			<< "Maxmember" << delim << maxmember << delim;	
-#ifdef NEW_GUILD_BUG_FIX
-		const char* pIndex = guildskillindex;
-		const char* pLevel = guildskillLevel;
-		char tbuf[256];
-
-		int sindex[256];
-		int sLevel[256];
-		memset( sindex, 0, 256 );
-		memset( sLevel, 0, 256 );
-	
-		cmd.GetRec( "a_skill_index", guildskillindex );
-		cmd.GetRec( "a_skill_level", guildskillLevel );
-
-		int roopcount = 0;
-		while (*pIndex && *pLevel)
-		{
-			int i, l;
-			pIndex = AnyOneArg(pIndex, tbuf);
-			i = atoi(tbuf);
-			pLevel = AnyOneArg(pLevel, tbuf);
-			l = atoi(tbuf);
-
-			sindex[roopcount] = i;
-			sLevel[roopcount] = l;
-			roopcount++;
-		}		
-
-		if( sindex[1] == 444 && sLevel[1] > 0 && sLevel[1] < 6 )
-		{	
-			// 일단 정확한 레벨에 의한 MAXMEMBER 확인
-			int bugFixMaxMeber = 0;
-			if( sLevel[1] * 5 + 30 != maxmember )
-			{
-				bugFixMaxMeber = sLevel[1] * 5 + 30;
-			
-				CDBCmd bugFixCmd;
-				bugFixCmd.Init(&m_dbchar);
-				sprintf(g_buf, "SELECT count(a_guild_index) as memberCount FROM t_guildmember WHERE a_guild_index=%d group by a_guild_index", guild->index() );		
-				bugFixCmd.SetQuery(g_buf);
-				int bugFixLevel=sLevel[1];
-				if( bugFixCmd.Open() && bugFixCmd.MoveNext() )
-				{
-					int nMemberCount=0;
-					bugFixCmd.GetRec("memberCount", nMemberCount );
-					if( nMemberCount > bugFixMaxMeber )		// 버그 조정
-					{
-						if ( nMemberCount>91 && nMemberCount <= 100 )		{ bugFixLevel = 10; bugFixMaxMeber=100; }
-						else if ( nMemberCount>82 && nMemberCount <= 91 )	{ bugFixLevel = 9; bugFixMaxMeber=91; }
-						else if ( nMemberCount>73 && nMemberCount <= 82 )	{ bugFixLevel = 8; bugFixMaxMeber=82; }
-						else if ( nMemberCount>64 && nMemberCount <= 73 )	{ bugFixLevel = 7; bugFixMaxMeber=73; }
-						else if ( nMemberCount>55 && nMemberCount <= 64 )	{ bugFixLevel = 6; bugFixMaxMeber=64; }
-						else if ( nMemberCount>50 && nMemberCount <= 55 )	{ bugFixLevel = 5; bugFixMaxMeber=55; }
-						else if ( nMemberCount>45 && nMemberCount <= 50 )	{ bugFixLevel = 4; bugFixMaxMeber=50; }
-						else if ( nMemberCount>40 && nMemberCount <= 45 )	{ bugFixLevel = 3; bugFixMaxMeber=45; }
-						else if ( nMemberCount>35 && nMemberCount <= 40 )	{ bugFixLevel = 2; bugFixMaxMeber=40; }
-						else if ( nMemberCount>30 && nMemberCount <= 35 )	{ bugFixLevel = 1; bugFixMaxMeber=35; }
-					}
-				}
-
-				// UPDATE BugFixLevel BugFixMaxMember
-				maxmember = bugFixMaxMeber;
-
-				sprintf(g_buf, "UPDATE t_extend_guild SET a_guild_maxmember=%d, a_skill_level='1 %d' WHERE a_guild_index=%d ", bugFixMaxMeber, bugFixLevel,  guild->index() );		
-				bugFixCmd.SetQuery(g_buf);
-				bugFixCmd.Update();				
-			}
-		}
-#endif // NEW_GUILD_BUG_FIX
+		GAMELOG << init("NEW_GUILD" )
+				<< "guildIndex" << delim << guild->index() << delim
+				<< "guildPoint" << delim << guildpoint << delim
+				<< "incline" << delim << incline << delim
+				<< "landcount" << delim << landcount << delim
+				<< "Maxmember" << delim << maxmember << delim;
 		guild->guildPoint( guildpoint );
 		guild->incline( incline );
 		guild->landcount( landcount );
 		if( landcount >  0 )
 			guild->land( landcount, land );
 		guild->setMaxmember( maxmember );
+#ifdef DEV_GUILD_MARK
+		guild->SetGuildMark(gm_row, gm_col, bg_row, bg_col, markTime);
+#endif
 
-		
-#endif // NEW_GUILD
+		guild->getGuildKick()->setKickStatus(kickStatus);
+		guild->getGuildKick()->setKickReuestChar(kickRequestChar);
+		guild->getGuildKick()->setKickRequestTime(kickRequestTime);
 
 		bool bFoundBoss = false;
 
@@ -823,7 +505,6 @@ bool CServer::LoadSettings()
 			cmd2.GetRec("a_char_name", charname);
 			cmd2.GetRec("a_pos", pos);
 
-
 			int listidx = guild->addmember(charindex, charname);
 			switch (pos)
 			{
@@ -836,7 +517,7 @@ bool CServer::LoadSettings()
 				guild->appoint(listidx);
 				break;
 			}
-#ifdef NEW_GUILD
+
 			CLCString positionname( GUILD_POSITION_NAME + 1 );
 			//char positionname[GUILD_POSITION_NAME+1];
 			int	contributeExp;
@@ -852,8 +533,20 @@ bool CServer::LoadSettings()
 			guild->member(listidx)->contributeFame( contributeFame );
 			guild->member(listidx)->positionName( positionname );
 			guild->member(listidx)->cumulatePoint( point );
-#endif // NEW_GUILD
 
+			switch( pos )
+			{
+			case MSG_GUILD_POSITION_RUSH_CAPTAIN:		// 돌격조 대장
+			case MSG_GUILD_POSITION_SUPPORT_CAPTAIN:	// 지원조 대장
+			case MSG_GUILD_POSITION_RECON_CAPTAIN:		// 정찰조 대장
+			case MSG_GUILD_POSITION_RUSH_MEMBER:		// 돌격조원
+			case MSG_GUILD_POSITION_SUPPORT_MEMBER:		// 지원조원
+			case MSG_GUILD_POSITION_RECON_MEMBER:		// 정찰조원
+			case MSG_GUILD_POSITION_MEMBER:				// 일반 길드원
+				guild->member(listidx)->pos(pos);
+				break;
+			}
+			guild->AddGradeExPosCount(pos);
 		}
 
 		if (!bFoundBoss)
@@ -863,11 +556,10 @@ bool CServer::LoadSettings()
 		}
 	}
 
-#ifdef GUILD_MARK_TABLE
 	CDBCmd cmd3;
-	cmd3.Init(&m_dbchar);	
-	sprintf(g_buf, "SELECT * FROM t_guildmark WHERE a_server=%d", gserver.m_serverno);
-	cmd3.SetQuery(g_buf);
+	cmd3.Init(&m_dbchar);
+	std::string select_quild_mak_query = boost::str(boost::format("SELECT * FROM t_guildmark WHERE a_server = %d") % gserver.m_serverno);
+	cmd3.SetQuery(select_quild_mak_query);
 
 	if (!cmd3.Open())
 	{
@@ -876,7 +568,7 @@ bool CServer::LoadSettings()
 				<< end;
 		return false;
 	}
-	
+
 	int rank = 0, idx = 0;
 	while(cmd3.MoveNext())
 	{
@@ -887,19 +579,6 @@ bool CServer::LoadSettings()
 			gserver.m_nGuildMarkTable[rank-1] = idx;
 		}
 	}
-
-#endif // GUILD_MARK_TABLE
-
-#ifdef REWARD_IDC2007
-	cmd.SetQuery("SELECT * FROM t_reward_idc2007 LIMIT 1");
-	if(!cmd.Open())
-	{
-		GAMELOG << init("SYS_ERR")
-			<< "cannot load t_reward_idc2007"
-			<< end;
-		return false;
-	}
-#endif // REWARD_IDC2007
 
 #ifdef EXTREME_CUBE
 	cmd.SetQuery("SELECT * FROM t_cubepoint LIMIT 1");
@@ -918,38 +597,53 @@ bool CServer::LoadSettings()
 				<< end;
 		return false;
 	}
-#endif // EXTREME_CUBE
-
-#ifdef SAVE_MOONSTONE_MIX
-	cmd.SetQuery("SELECT * FROM t_event_moonstone LIMIT 1");
+#ifdef EXTREME_CUBE_VER2
+	cmd.SetQuery("SELECT * FROM t_cuberank LIMIT 1");
 	if(!cmd.Open())
 	{
 		GAMELOG << init("SYS_ERR")
-				<< "cannot load t_event_moonstone"
+				<< "cannot load t_cuberank"
+				<< end;
+		return false;
+	}
+#endif // EXTREME_CUBE_VER2
+#endif // EXTREME_CUBE
+
+	cmd.SetQuery("SELECT * FROM t_trigger_saveinfo LIMIT 1");
+	if(!cmd.Open())
+	{
+		GAMELOG << init("SYS_ERR")
+				<< "cannot load t_trigger_saveinfo"
 				<< end;
 		return false;
 	}
 
-#endif // SAVE_MOONSTONE_MIX
-	
-
-#ifdef TRADE_AGENT		//거래 대행(경매) 
-
-	// LOADING
+#ifdef EXTREME_CUBE_VER2
+	int updatetime;
+	updatetime = SetCurCubePointUpdateTime();
+	CheckCubeReward();
 	GAMELOG << init("SYSTEM")
-			<< "Load TradeAgent...."
-			<< end;
+			<< "SetCubeUpdateTime" << delim << updatetime << end;
+#endif // EXTREME_CUBE_VER2
 
-	// DB 데이타 로드 
-	gserver.m_TradeAgentList.Load();
+#ifdef DEV_GUILD_STASH
+	GAMELOG << init("SYSTEM") << "BACKUP GUILD_STASH LOG";
+	cmd.SetQuery("INSERT DELAYED INTO t_guild_stash_log_backup SELECT * FROM t_guild_stash_log where a_date < DATE_SUB( NOW(), INTERVAL 1 MONTH );");
+	if( cmd.Update() )
+	{
+		GAMELOG << delim << "DELETE GUILD_STASH LOG";
+		cmd.SetQuery("DELETE FROM t_guild_stash_log where a_date < DATE_SUB( NOW(), INTERVAL 1 MONTH );");
+		cmd.Update();
+	}
+	GAMELOG << end;
+#endif // DEV_GUILD_STASH
 
-#endif	//TRADE_AGENT
-
-
+	// RVR 창조의 보석 로딩
+	m_syndicate.load();
 	return true;
 }
 
-void CServer::SendToAllGameServer(CNetMsg& msg)
+void CServer::SendToAllGameServer(CNetMsg::SP msg)
 {
 	CDescriptor* d = m_desclist;
 	while (d)
@@ -966,37 +660,40 @@ bool CServer::DeleteGuild(int guildindex)
 {
 	// DB
 	struct tm ti = NOW();
-	sprintf(g_buf, "UPDATE t_guild SET a_name=CONCAT(a_name,'_%02d%02d%02d%02d%02d%02d'), a_enable=0, a_recentdate=NOW() WHERE a_index=%d",
-			ti.tm_year, ti.tm_mon, ti.tm_mday, ti.tm_hour, ti.tm_min, ti.tm_sec, guildindex);
+	std::string update_guild_query = boost::str(boost::format("UPDATE t_guild SET a_name=CONCAT(a_name,'_%02d%02d%02d%02d%02d%02d'), a_enable=0, a_recentdate=NOW() WHERE a_index=%d")
+									 % ti.tm_year % ti.tm_mon % ti.tm_mday % ti.tm_hour % ti.tm_min % ti.tm_sec % guildindex);
 	CDBCmd cmd;
 	cmd.Init(&gserver.m_dbchar);
-	cmd.SetQuery(g_buf);
+	cmd.SetQuery(update_guild_query);
 	if (!cmd.Update())
 		return false;
 
+#ifdef DEV_GUILD_STASH
+	std::string update_guild_stash_query = boost::str(boost::format("UPDATE t_guild_stash_info SET a_enable=0 WHERE a_guild_idx = %d")% guildindex);
+	cmd.SetQuery(update_guild_stash_query);
+	cmd.Update();
+#endif //DEV_GUILD_STASH
 	return true;
 }
 
 bool CServer::DeleteGuildMember(int guildindex, const char* guildname, int charindex, const char* charname, bool bKick)
 {
 	// DB
-	sprintf(g_buf, "DELETE FROM t_guildmember WHERE a_guild_index=%d AND a_char_index=%d", guildindex, charindex);
+	std::string delete_guild_member_query = boost::str(boost::format("DELETE FROM t_guildmember WHERE a_guild_index = %d AND a_char_index = %d") % guildindex % charindex);
 	CDBCmd cmd;
 	cmd.Init(&gserver.m_dbchar);
-	cmd.SetQuery(g_buf);
+	cmd.SetQuery(delete_guild_member_query);
 	if (!cmd.Update())
 		return false;
 
-#ifdef NEW_GUILD
-	sprintf(g_buf, "DELETE FROM t_extend_guildmember WHERE a_guild_index=%d AND a_char_index=%d", guildindex, charindex);
+	std::string delete_extend_guild_member_query = boost::str(boost::format("DELETE FROM t_extend_guildmember WHERE a_guild_index = %d AND a_char_index = %d") % guildindex % charindex);
 	cmd.Init(&gserver.m_dbchar);
-	cmd.SetQuery(g_buf);
+	cmd.SetQuery(delete_extend_guild_member_query);
 	if (!cmd.Update())
 		return false;
-#endif // NEW_GUILD
 
-	sprintf(g_buf, "UPDATE t_guild SET a_recentdate=NOW() WHERE a_index=%d", guildindex);
-	cmd.SetQuery(g_buf);
+	std::string udpate_guild_query = boost::str(boost::format("UPDATE t_guild SET a_recentdate=NOW() WHERE a_index = %d") % guildindex);
+	cmd.SetQuery(udpate_guild_query);
 	cmd.Update();
 
 	if (bKick)
@@ -1023,7 +720,7 @@ bool CServer::DeleteGuildMember(int guildindex, const char* guildname, int chari
 	return true;
 }
 
-void CServer::SendToAllSubServer(CNetMsg& msg, int nSubNo)
+void CServer::SendToAllSubServer(CNetMsg::SP msg, int nSubNo)
 {
 	CDescriptor* d = m_desclist;
 	while (d)
@@ -1038,69 +735,70 @@ void CServer::SendToAllSubServer(CNetMsg& msg, int nSubNo)
 
 CParty* CServer::FindPartyByBossIndex(int nSubNo, int nBossIndex)
 {
-	CParty partyFind(nSubNo, 0, nBossIndex, "", 0, "");
-	return m_listParty.GetData(m_listParty.FindData(&partyFind));
+	LONGLONG key = MAKE_LONGLONG_KEY(nSubNo, nBossIndex);
+	map_party_t::iterator it = m_listParty.find(key);
+	return (it != m_listParty.end()) ? it->second : NULL;
 }
 
 CParty* CServer::FindPartyByMemberIndex(int nSubNo, int nMemberIndex, bool bIncludeRequest)
 {
-	void* pos = m_listParty.GetHead();
-	while (pos)
+	map_party_t::iterator it = m_listParty.begin();
+	map_party_t::iterator endit = m_listParty.end();
+	for( ; it != endit; ++it)
 	{
-		CParty* pParty = m_listParty.GetData(pos);
-		if (pParty->GetSubNo() == nSubNo)
-		{
-			if (pParty->FindMember(nMemberIndex) != -1)
-				return pParty;
-			if (bIncludeRequest && pParty->GetRequestIndex() == nMemberIndex)
-				return pParty;
-		}
-		pos = m_listParty.GetNext(pos);
+		CParty* pParty = it->second;
+
+		if (pParty->GetSubNo() != nSubNo)
+			continue;
+
+		if (pParty->FindMember(nMemberIndex) != -1)
+			return pParty;
+		if (bIncludeRequest && pParty->GetRequestIndex() == nMemberIndex)
+			return pParty;
 	}
+
 	return NULL;
 }
 
-#ifdef EXPEDITION_RAID
 CExpedition* CServer::FindExpedByBossIndex(int nSubNo, int nBossIndex)
 {
-	CExpedition ExpedFind(nSubNo, 0, nBossIndex, "", 0, 0);
-	return m_listExped.GetData(m_listExped.FindData(&ExpedFind));
+	LONGLONG key = MAKE_LONGLONG_KEY(nSubNo, nBossIndex);
+	map_expedition_t::iterator it = m_listExped.find(key);
+	return (it != m_listExped.end()) ? it->second : NULL;
 }
 
 CExpedition* CServer::FindExpedByMemberIndex(int nSubNo, int nMemberIndex, bool bIncludeRequest)
 {
-	void* pos = m_listExped.GetHead();
-	while (pos)
+	map_expedition_t::iterator it = m_listExped.begin();
+	map_expedition_t::iterator endit = m_listExped.end();
+	for (; it != endit; ++it)
 	{
-		CExpedition* pExped = m_listExped.GetData(pos);
-		if (pExped->GetSubNo() == nSubNo)
-		{
-			if (pExped->FindMemberListIndex(nMemberIndex) != -1)
-				return pExped;
-			if (bIncludeRequest && pExped->GetRequestIndex() == nMemberIndex)
-				return pExped;
-		}
-		pos = m_listExped.GetNext(pos);
+		CExpedition* pExped = it->second;
+		if (pExped->GetSubNo() != nSubNo)
+			continue;
+
+		if (pExped->FindMemberListIndex(nMemberIndex) != -1)
+			return pExped;
+		if (bIncludeRequest && pExped->GetRequestIndex() == nMemberIndex)
+			return pExped;
 	}
+
 	return NULL;
 }
-#endif
 
-
-#ifdef PARTY_MATCHING
 CPartyMatchMember* CServer::FindPartyMatchMemberByCharIndex(int nSubNo, int nCharIndex)
 {
-	CPartyMatchMember matchFind(nSubNo, nCharIndex, "", 0, 0, 0, 0);
-	return m_listPartyMatchMember.GetData(m_listPartyMatchMember.FindData(&matchFind));
+	LONGLONG key = MAKE_LONGLONG_KEY(nSubNo, nCharIndex);
+	map_partymatchmember_t::iterator it = m_listPartyMatchMember.find(key);
+	return (it != m_listPartyMatchMember.end()) ? it->second : NULL;
 }
 
 CPartyMatchParty* CServer::FindPartyMatchPartyByBossIndex(int nSubNo, int nBossIndex)
 {
-	CPartyMatchParty matchFind(nSubNo, nBossIndex, "", 0, 0, 0, 0, false, "");
-	return m_listPartyMatchParty.GetData(m_listPartyMatchParty.FindData(&matchFind));
+	LONGLONG key = MAKE_LONGLONG_KEY(nSubNo, nBossIndex);
+	map_partymatchparty_t::iterator it = m_listPartyMatchParty.find(key);
+	return (it != m_listPartyMatchParty.end()) ? it->second : NULL;
 }
-#endif // PARTY_MATCHING
-
 
 void CServer::SendGuildMemberList(CGuild* guild, CDescriptor* desc)
 {
@@ -1108,7 +806,6 @@ void CServer::SendGuildMemberList(CGuild* guild, CDescriptor* desc)
 
 	CGuildMember* guildmember[maxmember];
 	CGuildMember* member;
-	CNetMsg rmsg;
 
 	int startidx = 0;			// 원본 데이터 index
 	int count;					// 1회 전송시 데이터 count
@@ -1128,39 +825,47 @@ void CServer::SendGuildMemberList(CGuild* guild, CDescriptor* desc)
 				count++;
 			}
 		}
-		
+
 		if(count > 0)
 		{
-			rmsg.Init(MSG_HELPER_COMMAND);
-			rmsg << MSG_HELPER_GUILD_MEMBER_LIST
-				<< guild->index()
-				<< count;
-			
+			CNetMsg::SP rmsg(new CNetMsg);
+
+			rmsg->Init(MSG_HELPER_COMMAND);
+			RefMsg(rmsg) << MSG_HELPER_GUILD_MEMBER_LIST
+						 << guild->index()
+						 << count;
+
 			int i;
 			for(i = 0; i < count; ++i)
 			{
 				if(guildmember[i])
 				{
-					rmsg << guildmember[i]->charindex()
-						 << guildmember[i]->GetName()
-						 << guildmember[i]->pos()
-						 << guildmember[i]->online();
+					RefMsg(rmsg) << guildmember[i]->charindex()
+								 << guildmember[i]->GetName()
+								 << guildmember[i]->pos()
+								 << guildmember[i]->online();
 				}
 				else
 				{
 					// 로그찍기 : error
-
+					GAMELOG << init("GUILD MEMBER SEND ERROR")
+							<< guild->index() << delim
+							<< sendmaxmember << delim
+							<< sendcount << delim
+							<< count << delim
+							<< i << delim
+							<< startidx << delim
+							<< end;
 				}
 			}
-			
+
 			SEND_Q(rmsg, desc);
 
 			sendcount += count;
 		}
-
-	}while( (startidx < GUILD_MAX_MEMBER) && sendcount < sendmaxmember);
+	}
+	while( (startidx < GUILD_MAX_MEMBER) && sendcount < sendmaxmember);
 }
-
 
 void CServer::SendExtendGuildMemberList(CGuild* guild, CDescriptor* desc)
 {
@@ -1168,7 +873,6 @@ void CServer::SendExtendGuildMemberList(CGuild* guild, CDescriptor* desc)
 
 	CGuildMember* guildmember[maxmember];
 	CGuildMember* member;
-	CNetMsg rmsg;
 
 	int startidx = 0;
 	int count;
@@ -1188,37 +892,515 @@ void CServer::SendExtendGuildMemberList(CGuild* guild, CDescriptor* desc)
 				count++;
 			}
 		}
-		
+
 		if(count > 0)
 		{
-			rmsg.Init(MSG_HELPER_COMMAND);
-			rmsg << MSG_HELPER_NEW_GUILD_MEMBER_LIST
-				<< guild->index()
-				<< count;
-			
+			CNetMsg::SP rmsg(new CNetMsg);
+
+			rmsg->Init(MSG_HELPER_COMMAND);
+			RefMsg(rmsg) << MSG_HELPER_NEW_GUILD_MEMBER_LIST
+						 << guild->index()
+						 << count;
+
 			int i;
 			for(i = 0; i < count; ++i)
 			{
 				if(guildmember[i])
 				{
-					rmsg << guildmember[i]->charindex()
-						 << guildmember[i]->GetcontributeExp()
-						 << guildmember[i]->GetcontributeFame()
-						 << guildmember[i]->GetcumulatePoint()
-						 << guildmember[i]->GetPositionName()
-						 << guildmember[i]->GetChannel()
-						 << guildmember[i]->GetZoneNum();
+					RefMsg(rmsg) << guildmember[i]->charindex();
+					RefMsg(rmsg) << guildmember[i]->GetcontributeExp()
+								 << guildmember[i]->GetcontributeFame()
+								 << guildmember[i]->GetcumulatePoint()
+								 << guildmember[i]->GetPositionName()
+								 << guildmember[i]->GetChannel()
+								 << guildmember[i]->GetZoneNum();
 				}
 				else
 				{
 					// 로그찍기 error
+					GAMELOG << init("EXTEND GUILD MEMBER SEND ERROR")
+							<< guild->index() << delim
+							<< sendmaxmember << delim
+							<< sendcount << delim
+							<< count << delim
+							<< i << delim
+							<< startidx << delim
+							<< end;
 				}
 			}
-			
+
 			SEND_Q(rmsg, desc);
 
 			sendcount += count;
 		}
+	}
+	while( (startidx < GUILD_MAX_MEMBER) && sendcount < sendmaxmember);
+}
 
-	}while( (startidx < GUILD_MAX_MEMBER) && sendcount < sendmaxmember);
+#ifdef PARTY_BUG_GER
+void CServer::PrintPartyMemberList(int nSubNo, int nFindCharIdx)
+{
+	CParty* party = gserver.FindPartyByMemberIndex(nSubNo, nFindCharIdx, true);
+	CPartyMember* member;
+	if(party)
+	{
+		GAMELOG << init("PARTY_BUG_GER PRINT PARTY LIST");
+
+		int i;
+		for (i = 0; i < MAX_PARTY_MEMBER; ++i)
+		{
+			member = party->GetMemberByListIndex(i);
+			if(member)
+			{
+				GAMELOG << member->GetCharIndex() << " ";
+			}
+		}
+
+		GAMELOG << end;
+	}
+	else
+	{
+		GAMELOG << init("PARTY_BUG_GER NOT FOUND PARTY")
+				<< "CHAR INDEX" << delim << nFindCharIdx
+				<< end;
+	}
+}
+#endif // PARTY_BUG_GER
+
+#ifdef EXTREME_CUBE_VER2
+void CServer::CubePointRanking(int CubePointUpdateTime)
+{
+	int guildidx, cubepoint, charidx;
+	char rank;
+	CLCString sql(1024), sql2(1024);
+	int CubePointRankingTime = CubePointUpdateTime+604800;
+
+	CDBCmd cmd;
+	cmd.Init(&gserver.m_dbchar);
+
+	sql.Format("DELETE FROM t_cuberank WHERE a_insert_week=%d", CubePointRankingTime);
+	cmd.SetQuery(sql);
+	cmd.Update();
+
+	// 1. 길드큐브포인트 순위
+	sql.Format("SELECT c.* FROM t_cubepoint c, t_guild g "
+			   "WHERE g.a_enable=1 AND g.a_index=c.a_guild_index AND c.a_week_date=%d"
+			   " ORDER BY c.a_cubepoint desc, c.a_update_date asc LIMIT 5", CubePointUpdateTime);
+
+	cmd.SetQuery(sql);
+	cmd.Open();
+
+	CDBCmd cmd2;
+	cmd2.Init(&gserver.m_dbchar);
+
+	rank = 1;
+	int guildpoint;
+	CGuild* guild;
+	while(cmd.MoveNext())
+	{
+		guildpoint = 0;
+
+		cmd.GetRec("a_guild_index", guildidx);
+		cmd.GetRec("a_cubepoint", cubepoint);
+
+		sql2.Format("INSERT INTO t_cuberank (a_insert_week, a_type, a_rank, a_typeidx, a_cubepoint)"
+					"VALUES(%d, %d, %d, %d, %d)", CubePointRankingTime, 0, rank, guildidx, cubepoint);
+		cmd2.SetQuery(sql2);
+		if(cmd2.Update())
+		{
+			GAMELOG << init("EXTREME_CUBE_GUILDCUBE_RANKING")
+					<< "RANK" << delim << rank << delim
+					<< "GUILD" << delim << guildidx << delim
+					<< "GUILDPOINT" << delim << guildpoint
+					<< end;
+		}
+		else
+		{
+			GAMELOG << init("EXTREME_CUBE_GUILDCUBE_RANKING_FAIL")
+					<< "RANK" << delim << rank << delim
+					<< "GUILD" << delim << guildidx << delim
+					<< "GUILDPOINT" << delim << guildpoint
+					<< end;
+		}
+
+		// 길드포인트를 증가시켜준다.
+		switch(rank)
+		{
+		case 1:
+			guildpoint = 1000;
+			break;
+		case 2:
+			guildpoint = 700;
+			break;
+		case 3:
+			guildpoint = 500;
+			break;
+		case 4:
+			guildpoint = 300;
+			break;
+		case 5:
+			guildpoint = 100;
+			break;
+		default:
+			break;
+		}
+
+		guild = gserver.m_guildlist.findguild(guildidx);
+		if(guildpoint > 0 && guild)
+		{
+			// 길드포인트 넣어줌(보상)
+			sql2.Format("UPDATE t_extend_guild eg, t_guild g SET eg.a_guild_point=eg.a_guild_point+%d"
+						" WHERE g.a_index=eg.a_guild_index AND g.a_index=1 AND eg.a_guild_index=%d",
+						guildpoint,
+						guildidx);
+			cmd2.SetQuery(sql2);
+			if(cmd2.Update())
+			{
+				GAMELOG << init("EXTREME_CUBE_GUILDCUBE_REWARD")
+						<< "RANK" << delim << rank << delim
+						<< "GUILD" << delim << guildidx << delim
+						<< "GUILDPOINT" << delim << guildpoint
+						<< end;
+			}
+			else
+			{
+				GAMELOG << init("EXTREME_CUBE_GUILDCUBE_REWARD_FAIL")
+						<< "RANK" << delim << rank << delim
+						<< "GUILD" << delim << guildidx << delim
+						<< "GUILDPOINT" << delim << guildpoint
+						<< end;
+			}
+			guild->AddGuildPoint(guildpoint);
+
+			CNetMsg::SP rmsg(new CNetMsg);
+			HelperCubeRewardGuildPointRepMsg(rmsg, guildidx, rank, guildpoint);
+			SendToAllGameServer(rmsg);
+		}
+
+		rank++;
+	}
+
+	// 2. 개인큐브포인트 순위
+	rank = 1;
+	sql.Format("SELECT cp.* FROM t_cubepoint_personal cp, t_characters c "
+			   "WHERE c.a_enable=1 AND c.a_index=cp.a_char_idx AND cp.a_week_date=%d"
+			   " ORDER BY cp.a_cubepoint desc, cp.a_update_date asc LIMIT 5", CubePointUpdateTime);
+
+	cmd.SetQuery(sql);
+	cmd.Open();
+	while(cmd.MoveNext())
+	{
+		cmd.GetRec("a_char_idx", charidx);
+		cmd.GetRec("a_cubepoint", cubepoint);
+
+		sql2.Format("INSERT INTO t_cuberank (a_insert_week, a_type, a_rank, a_typeidx, a_cubepoint)"
+					"VALUES(%d, %d, %d, %d, %d)", CubePointRankingTime, 1, rank, charidx, cubepoint);
+		cmd2.SetQuery(sql2);
+		if(cmd2.Update())
+		{
+			GAMELOG << init("EXTREME_CUBE_PERSONAL_RANKING")
+					<< "RANK" << delim << rank << delim
+					<< "CHARINDEX" << delim << charidx << delim
+					<< "CUBEPOINT" << delim << cubepoint
+					<< end;
+		}
+		else
+		{
+			GAMELOG << init("EXTREME_CUBE_PERSONAL_RANKING_FAIL")
+					<< "RANK" << delim << rank << delim
+					<< "CHARINDEX" << delim << charidx << delim
+					<< "CUBEPOINT" << delim << cubepoint
+					<< end;
+		}
+		rank++;
+	}
+}
+
+void CServer::CheckCubeReward()
+{
+	CDBCmd cmd;
+	cmd.Init(&gserver.m_dbchar);
+
+	CLCString sql(1024);
+	sql.Format("SELECT * FROM t_cuberank WHERE a_insert_week=%d", m_CubePointUpdateTime);
+	cmd.SetQuery(sql);
+	cmd.Open();
+	if(cmd.m_nrecords == 0)
+	{
+		CubePointRanking(m_CubePointUpdateTime-604800);
+	}
+}
+
+int CServer::SetCurCubePointUpdateTime()
+{
+	time_t nowtime;
+	time(&nowtime);
+	if(m_CubePointUpdateTime > nowtime || nowtime >= m_CubePointUpdateTime + 60 * 60 * 24 * 7)
+	{
+		tm now = NOW();
+		int subdate;
+		subdate = now.tm_wday - 1;
+		if(subdate < 0)
+			subdate += 7;
+		now.tm_mday -= subdate;
+		now.tm_hour = 0;
+		now.tm_min = 0;
+		now.tm_sec = 0;
+		now.tm_isdst = -1;
+		m_CubePointUpdateTime = mktime(&now);
+	}
+	return m_CubePointUpdateTime;
+}
+
+#endif // EXTREME_CUBE_VER2
+
+void CServer::operate( rnSocketIOService* service )
+{
+	CDescriptor* newd = new CDescriptor(service);
+	service->SetUserData((void *)newd);
+
+	STATE(newd) = CON_GET_LOGIN;
+
+	/* prepend to list */
+	ADD_TO_BILIST(newd, m_desclist, m_pPrev, m_pNext);
+
+	LOG_INFO("CLIENT CONNECTED... IP[%s]", service->ip().c_str());
+}
+
+void CServer::saveCastleDungeonInfo()
+{
+	CDBCmd cmd;
+	std::string query = boost::str(boost::format("select a_zone_index from t_castle_dungeon where a_zone_index = %d") % ZONE_DRATAN_CASTLE_DUNGEON);
+	cmd.Init(&gserver.m_dbchar);
+	cmd.SetQuery(query);
+
+	if(cmd.m_nrecords == 0)
+	{
+		query = boost::str(boost::format("update t_castle_dungeon set a_env_rate = %d, a_mop_rate = %d, a_tax_rate = %d, a_hunt_rate = %d")
+			% m_castle_env_rate % m_castle_mob_rate % m_castle_tax_rate % m_castle_hunt_rate);
+		cmd.SetQuery(query);
+		cmd.Update();
+	}
+	else
+	{
+		query = boost::str(boost::format("INSERT INTO t_castle_dungeon (a_zone_index, a_tax_rate, a_env_rate, a_mop_rate, a_hunt_rate) VALUES (%d, %d, %d, %d, %d)")
+			% ZONE_DRATAN_CASTLE_DUNGEON % m_castle_env_rate % m_castle_mob_rate % m_castle_tax_rate % m_castle_hunt_rate);
+		cmd.SetQuery(query);
+		cmd.Update();
+	}
+}
+
+
+//////////////////////////////////////////////////////////////////////////
+
+void timerPerSecond::operate( rnSocketIOService* service )
+{
+	gserver.m_pulse += 20;
+	gserver.HeartBeat();
+}
+
+timerPerSecond* timerPerSecond::instance()
+{
+	static timerPerSecond __instance;
+	return &__instance;
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+void timerPerMinute::operate( rnSocketIOService* service )
+{
+	mysql_ping(&gserver.m_dbchar);
+
+	// 자동 저장 rvr - 정보
+	gserver.m_syndicate.save();
+}
+
+void timerPerMinute::Init()
+{
+	time_t nowtime = time(0);
+	int remain_sec = 60 - ((int)nowtime % 60);
+
+	bnf::instance()->CreateSecTimerPeriod(remain_sec, 60, this);
+}
+
+timerPerMinute* timerPerMinute::instance()
+{
+	static timerPerMinute __instance;
+	return &__instance;
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////
+
+void timerPerHour::operate( rnSocketIOService* service )
+{
+	int jewelPoint_k = gserver.m_syndicate.getJewelPoint(SYNDICATE::eSYNDICATE_KAILUX);
+	int jewelPoint_d = gserver.m_syndicate.getJewelPoint(SYNDICATE::eSYNDICATE_DEALERMOON);
+
+	if( jewelPoint_k > 100 )
+	{
+		gserver.m_syndicate.setJewelPoint(SYNDICATE::eSYNDICATE_KAILUX, jewelPoint_k - 100);
+	}
+	if( jewelPoint_d > 100 )
+	{
+		gserver.m_syndicate.setJewelPoint(SYNDICATE::eSYNDICATE_DEALERMOON, jewelPoint_d - 100);
+	}
+
+	gserver.m_syndicate.sendInfo();
+}
+
+void timerPerHour::Init()
+{
+	time_t nowtime = time(0);
+	int remain_sec = 3600 - ((int)nowtime % 3600);
+
+	bnf::instance()->CreateSecTimerPeriod(remain_sec, 3600, this);
+}
+
+timerPerHour* timerPerHour::instance()
+{
+	static timerPerHour __instance;
+	return &__instance;
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+// 이 함수는 매 1초마다 호출됨
+void ClearMessageListTimer::operate( rnSocketIOService* service )
+{
+	CMsgListNode* nowNode = NULL;
+	CMsgListNode* nextNode = gserver.m_msgList.m_head;
+	while (nowNode = nextNode)
+	{
+		nextNode = nowNode->m_pNext;
+
+		++nowNode->m_sendTime;
+		if (nowNode->m_sendTime > 5)
+		{
+			int seq, server, subno, zone;
+			unsigned char subtype;
+
+			CNetMsg::SP& msg = nowNode->m_msg;
+
+			if (msg->m_mtype != MSG_HELPER_REQ)
+				continue;
+
+			msg->MoveFirst();
+			RefMsg(msg) >> seq
+						>> server >> subno >> zone
+						>> subtype;
+
+			GAMELOG << init("TIMEOUT")
+					<< "server" << delim << server << delim << "sub" << delim << subno << delim
+					<< "messege" << delim << msg->m_mtype << delim << subtype << end;
+
+			// 노드 지우기
+			REMOVE_FROM_BILIST(nowNode, gserver.m_msgList.m_head, m_pPrev, m_pNext);
+			delete nowNode;
+		}
+	}
+}
+
+ClearMessageListTimer* ClearMessageListTimer::instance()
+{
+	static ClearMessageListTimer __instance;
+	return &__instance;
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+void timerPerMidnight::Init()
+{
+	time_t nowtime = time(0);
+	struct tm nowtm;
+	memcpy(&nowtm, localtime(&nowtime), sizeof(nowtm));
+	nowtm.tm_isdst = -1;
+	nowtm.tm_hour = 0;
+	nowtm.tm_min = 0;
+	nowtm.tm_sec = 0;
+
+	time_t newtime = mktime(&nowtm);	// 오늘 0시 0분 0초
+	newtime += 86400;					// 내일 0시 0분 0초
+
+	int remain_sec = (int)(newtime - nowtime);
+
+	bnf::instance()->CreateSecTimerPeriod(remain_sec, 86400, this);
+
+#ifdef PREMIUM_CHAR
+	//////////////////////////////////////////////////////////////////////////
+	// DB에서 이전에 초기화 한 시간을 얻음
+	CDBCmd dbChar;
+	dbChar.Init(&gserver.m_dbchar);
+	dbChar.SetQuery("SELECT UNIX_TIMESTAMP(reset_time) as reset_time FROM t_premiumchar_reset_jumpcount ORDER BY reset_time DESC LIMIT 1");
+	if (dbChar.Open() == false)
+	{
+		return;
+	}
+
+	int resetTime = 0;
+
+	// 최초 즉, 데이터가 없는 경우
+	if (dbChar.m_nrecords == 0)
+	{
+		resetTime = (int)mktime(&nowtm);
+		
+		std::string query = boost::str(boost::format(
+			"INSERT INTO t_premiumchar_reset_jumpcount VALUES(FROM_UNIXTIME(%1%))") % resetTime);
+		dbChar.SetQuery(query);
+		dbChar.Update();
+	}
+	else
+	{
+		dbChar.MoveNext();
+		dbChar.GetRec("reset_time", resetTime);
+
+		time_t t = resetTime;
+
+		struct tm oldresettm;
+		memcpy(&oldresettm, localtime(&t), sizeof(oldresettm));
+
+		if (nowtm.tm_mday != oldresettm.tm_mday)
+		{
+			resetTime = (int)mktime(&nowtm);			
+
+			std::string query = boost::str(boost::format(
+				"INSERT INTO t_premiumchar_reset_jumpcount VALUES(FROM_UNIXTIME(%1%))") % resetTime);
+			dbChar.SetQuery(query);
+			dbChar.Update();
+		}
+	}
+
+	gserver.m_premiumchar_reset_jump_count_time = resetTime;
+#endif
+}
+
+void timerPerMidnight::operate( rnSocketIOService* service )
+{
+#ifdef PREMIUM_CHAR
+	gserver.m_premiumchar_reset_jump_count_time = (int)time(0);
+
+	CDBCmd dbChar;
+	dbChar.Init(&gserver.m_dbchar);
+	std::string query = boost::str(boost::format(
+		"INSERT INTO t_premiumchar_reset_jumpcount VALUES(FROM_UNIXTIME(%1%))") % gserver.m_premiumchar_reset_jump_count_time);
+	dbChar.SetQuery(query);
+	dbChar.Update();
+
+	{
+		// 모든 게임서버에게 reset 패킷 전송
+		CNetMsg::SP rmsg(new CNetMsg);
+		ServerToServerPacket::premiumCharResetJumpCount* packet = reinterpret_cast<ServerToServerPacket::premiumCharResetJumpCount*>(rmsg->m_buf);
+		packet->type = MSG_PREMIUM_CHAR;
+		packet->subType = MSG_SUB_PREMIUM_CHAR_RESET_JUMP_COUNT;
+		rmsg->setSize(sizeof(ServerToServerPacket::premiumCharResetJumpCount));
+		gserver.SendToAllGameServer(rmsg);
+	}
+#endif
+}
+
+timerPerMidnight* timerPerMidnight::instance()
+{
+	static timerPerMidnight __instance;
+	return &__instance;
 }

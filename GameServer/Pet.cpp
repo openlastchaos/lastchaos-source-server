@@ -1,11 +1,11 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "Character.h"
 #include "CmdMsg.h"
 #include "Log.h"
 #include "doFunc.h"
-
-#ifdef ENABLE_PET
+#include "../ShareLib/packetType/ptype_old_do_item.h"
 
 CPet::CPet(CPC* owner, int index, char petTypeGrade, int level) : CCharacter()
 {
@@ -20,20 +20,14 @@ CPet::CPet(CPC* owner, int index, char petTypeGrade, int level) : CCharacter()
 	m_hungry = PET_DEFAULT_HUNGRY;
 	m_pulseHungry = 0;
 	m_sympathy = PET_DEFAULT_SYMPATHY;
-	m_pulseSympathy = 0;
+	m_pulseSympathy = gserver->m_pulse;
+	m_petStashSeconds = gserver->m_nowseconds;
+	m_petStashHungrySeconds = gserver->m_nowseconds;
 	m_abilityPoint = 0;
-#ifdef NEW_PET_EXP_SYSTEM
-#else // NEW_PET_EXP_SYSTEM
 	m_pulseExpUp = 0;
-#endif // NEW_PET_EXP_SYSTEM
-#ifdef  PET_DIFFERENTIATION_ITEM
 	m_petColorType = 0;
-#endif // PET_DIFFERENTIATION_ITEM
-#ifdef PET_TURNTO_NPC
 	m_nTurnToNpcIndex = 0;
 	m_nTurnToNpcSize = 10;
-#endif //PET_TURNTO_NPC
-	
 
 	m_bSummon = false;
 	m_bMount = false;
@@ -55,26 +49,30 @@ CPet::~CPet()
 
 bool CPet::UpdateSympathyPoint(bool bnear)
 {
-	// 처음은 그냥 펄스만 설정하고 종료
-	if (m_pulseSympathy == 0)
-	{
-		m_pulseSympathy = gserver.m_pulse;
-		return false;
-	}
-
 	int oldval = GetSympathyPoint();
-	if (IsWearing())
+	//펫이 펫창고에 맡겨져 있는 상태라면
+	if(this->GetOwner()->m_petStashManager.GetPetItemByPlus(this->m_index))
+	{
+		if(m_petStashSeconds + (60 * 60 /*sec*/) < gserver->m_nowseconds)
+		{
+			m_petStashSeconds = gserver->m_nowseconds;
+			++m_sympathy;
+			this->GetOwner()->m_petStashManager.UpdatePetData(this->m_index);
+			//창고 펄스는 배고픔상태를 증가하고 저장한다.
+		}
+	}
+	else if (IsWearing())
 	{
 		// 5분 + 패널티
 		int needTime = PULSE_PET_SYMPATHY_INCREASE;
 		if (m_owner->m_level < m_level)
 			needTime += (m_level - m_owner->m_level) / 2;
-		if (m_pulseSympathy + needTime > gserver.m_pulse)
+		if (m_pulseSympathy + needTime > gserver->m_pulse)
 			return false;
 
-		m_pulseSympathy = gserver.m_pulse;
+		m_pulseSympathy = gserver->m_pulse;
 
-		// 배고픔 : 5분마다 교감도 1포인트 하락 050309: bw 
+		// 배고픔 : 5분마다 교감도 1포인트 하락 050309: bw
 		if (!IsActive())
 		{
 			m_sympathy--;
@@ -87,7 +85,7 @@ bool CPet::UpdateSympathyPoint(bool bnear)
 				return true;
 		}
 
-		// 050309: bw 
+		// 050309: bw
 		// 펫과 주인이 근처에 있지 않을때 심포니 상승 없음
 		if( !bnear )
 			return false;
@@ -100,10 +98,10 @@ bool CPet::UpdateSympathyPoint(bool bnear)
 	else
 	{
 		// 1시간
-		if (m_pulseSympathy + PULSE_PET_SYMPATHY_DECREASE > gserver.m_pulse)
+		if (m_pulseSympathy + PULSE_PET_SYMPATHY_DECREASE > gserver->m_pulse)
 			return false;
 
-		m_pulseSympathy = gserver.m_pulse;
+		m_pulseSympathy = gserver->m_pulse;
 
 		m_sympathy--;
 
@@ -134,10 +132,10 @@ bool CPet::IncreaseHungryPoint(int val)
 
 bool CPet::DecreaseHungryPoint()
 {
-	// 처음은 그냥 펄스만 설정하고 종료
-	if (m_pulseHungry == 0)
+	// 처음은 그냥 펄스만 설정하고 종료 || 펫이 펫창고에 있는 경우에도 종료
+	if (m_pulseHungry == 0 || this->GetOwner()->m_petStashManager.GetPetItemByPlus(this->m_index))
 	{
-		m_pulseHungry = gserver.m_pulse;
+		m_pulseHungry = gserver->m_pulse;
 		return false;
 	}
 
@@ -145,10 +143,10 @@ bool CPet::DecreaseHungryPoint()
 	if (IsWearing())
 	{
 		// 5분 + 패널티
-		if (m_pulseHungry + PULSE_PET_HUNGRY_DECREASE > gserver.m_pulse)
+		if (m_pulseHungry + PULSE_PET_HUNGRY_DECREASE > gserver->m_pulse)
 			return false;
 
-		m_pulseHungry = gserver.m_pulse;
+		m_pulseHungry = gserver->m_pulse;
 
 		m_hungry -= GetUnitForHungry();
 
@@ -170,7 +168,8 @@ void CPet::InitStat()
 	m_str = m_dex = m_int = m_con = 1;
 
 	m_walkSpeed = PET_DEFAULT_RUNSPEED;
-	m_runSpeed = PET_DEFAULT_RUNSPEED;
+	//m_runSpeed = PET_DEFAULT_RUNSPEED;
+	SetRunSpeed(PET_DEFAULT_RUNSPEED);
 
 	if (m_level < PET_ADULT_LEVEL)
 		m_petTypeGrade = (m_petTypeGrade & ~PET_GRADE_MASK) | PET_GRADE_CHILD;
@@ -179,94 +178,12 @@ void CPet::InitStat()
 
 	if (GetPetGrade() == PET_GRADE_MOUNT)
 	{
-		m_runSpeed = 15.0f;
+		//m_runSpeed = 15.0f;
+		SetRunSpeed(15.0f);
 		m_walkSpeed = 10.0f;
 	}
 }
 
-#ifdef NEW_PET_EXP_SYSTEM
-bool CPet::AddExp(int nOwnerLevel, int nNPCLevel, int nNPCFlag)
-{
-	if (m_owner == NULL)
-		return false;
-
-	if (m_level >= PET_MAX_LEVEL)
-		return false;
-
-	if (IsMountType())
-		return false;
-
-	if (!IsWearing())
-		return false;
-
-	LONGLONG llExp = nNPCLevel;
-	if ( (nNPCFlag & (NPC_MBOSS | NPC_BOSS | NPC_PARTY | NPC_RAID)) != 0 )
-		llExp *= 4;
-
-#ifdef DOUBLE_PET_EXP
-	if( gserver.m_bDoublePetExpEvent == true )
-		llExp = llExp * gserver.m_PetExpPercent / 100;
-#endif // DOUBLE_PET_EXP
-
-#ifdef PET_EXP_UP
-	if( m_owner->m_assist.m_avAddition.hcCashPetExpUp_2358 == true )
-		llExp *= 2;
-	else if( m_owner->m_assist.m_avAddition.hcCashPetExpUp_2359 == true )
-		llExp *= 3;
-#endif // PET_EXP_UP
-
-	int nLevelDiff = nOwnerLevel - nNPCLevel;
-	if (nLevelDiff >= 6)
-		llExp = llExp * 10 / 100;
-	else if (nLevelDiff == 5)
-		llExp = llExp * 45 / 100;
-	else if (nLevelDiff == 4)
-		llExp = llExp * 60 / 100;
-	else if (nLevelDiff == 3)
-		llExp = llExp * 75 / 100;
-	else if (nLevelDiff == 2)
-		llExp = llExp * 90 / 100;
-	else if (nLevelDiff == 1)
-		llExp = llExp * 95 / 100;
-
-	llExp /= 5;
-
-	if (llExp > 0)
-	{
-		m_exp += llExp;
-
-		if (m_exp >= GetNeedExp())
-		{
-			m_exp -= GetNeedExp();
-			m_level++;
-			m_abilityPoint++;
-
-			// TODO : petlog
-			GAMELOG << init("PET LEVEL UP", m_owner)
-					<< "OWNER" << delim
-					<< m_owner->m_index << delim
-					<< m_owner->GetName() << delim
-					<< "PET" << delim
-					<< m_index << delim
-					<< GetPetType() << delim
-					<< GetPetGrade() << delim
-					<< "LEVEL" << delim
-					<< m_level << delim
-					<< "AP" << delim
-					<< m_abilityPoint
-					<< end;
-
-			LevelUp();
-		}
-
-		CNetMsg rmsg;
-		ExPetStatusMsg(rmsg, this );
-		SEND_Q(rmsg, GetOwner()->m_desc);
-	}
-
-	return true;
-}
-#else // NEW_PET_EXP_SYSTEM
 bool CPet::AddExp()
 {
 	int addexp;
@@ -279,38 +196,37 @@ bool CPet::AddExp()
 	if (IsMountType())
 		return false;
 
+	if (!IsWearing())
+		return false;
+
+	if(this->GetHungryPoint() <= 0)
+		return false;
+
 	// 접속 이후 처음이거나 매 3초마다
-	if (m_pulseExpUp == 0 || m_pulseExpUp + PULSE_REAL_SEC * 3 < gserver.m_pulse)
+	if (m_pulseExpUp == 0 || m_pulseExpUp + PULSE_REAL_SEC * 3 < gserver->m_pulse)
 	{
-		m_pulseExpUp = gserver.m_pulse;
+		m_pulseExpUp = gserver->m_pulse;
 
 		// 소유자가 착용 중이고
 		if (IsWearing())
 		{
 			// 소유자가 공격 중
-			if (m_owner->IsCombatMode() 
-				&& (gserver.m_pulse - m_owner->m_pulseLastAttackSkill) < PULSE_ATTACKMODE_DELAY 
-				&& m_owner->m_bNotMiss)
+			if (m_owner->IsCombatMode()
+					&& (gserver->m_pulse - m_owner->m_pulseLastAttackSkill) < PULSE_ATTACKMODE_DELAY
+					&& m_owner->m_bNotMiss)
 			{
 				addexp = 1;
 #ifdef DOUBLE_PET_EXP
-				if( gserver.m_bDoublePetExpEvent == true )
-					addexp = addexp * gserver.m_PetExpPercent / 100;
+				if( gserver->m_bDoublePetExpEvent == true )
+					addexp = addexp * gserver->m_PetExpPercent / 100;
 #endif // DOUBLE_PET_EXP
 
-
-#ifdef PET_EXP_UP
 				if( m_owner->m_assist.m_avAddition.hcCashPetExpUp_2358 == true )
 					m_exp += 2 * addexp;
 				else if( m_owner->m_assist.m_avAddition.hcCashPetExpUp_2359 == true )
 					m_exp += 3 * addexp;
 				else
 					m_exp += addexp;
-#else
-				m_exp += addexp;
-#endif // PET_EXP_UP
-
-
 
 				m_owner->m_bNotMiss = false;
 
@@ -344,12 +260,9 @@ bool CPet::AddExp()
 	}
 	return false;
 }
-#endif // NEW_PET_EXP_SYSTEM
 
 void CPet::Appear(bool bIncludeOwner)
 {
-	CNetMsg rmsg;
-
 	if (m_owner == NULL)
 		return ;
 
@@ -366,6 +279,7 @@ void CPet::Appear(bool bIncludeOwner)
 	// 소환할 수 있는 존일때
 	if (!area->m_zone->m_bCanSummonPet)
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
 		SysMsg(rmsg, MSG_SYS_PET_CANT_SUMMON);
 		SEND_Q(rmsg, GetOwner()->m_desc);
 		return ;
@@ -379,16 +293,18 @@ void CPet::Appear(bool bIncludeOwner)
 	area->PointToCellNum(GET_X(this), GET_Z(this), &cx, &cz);
 	area->CharToCell(this, GET_YLAYER(this), cx, cz);
 
-	// 나타남을 알림
-	AppearMsg(rmsg, this, true);
-	area->SendToCell(rmsg, this, bIncludeOwner);
+	{
+		// 나타남을 알림
+		CNetMsg::SP rmsg(new CNetMsg);
+		AppearMsg(rmsg, this, true);
+		area->SendToCell(rmsg, this, bIncludeOwner);
+	}
 
 	m_bSummon = true;
 }
 
 void CPet::Disappear()
 {
-	CNetMsg rmsg;
 	CArea* area = m_pArea;
 	if (area == NULL)
 		return ;
@@ -401,9 +317,13 @@ void CPet::Disappear()
 
 	// 어택 리스트 지우고
 	DelAttackList(this);
-	// 사라짐을 알리고
-	DisappearMsg(rmsg, this);
-	area->SendToCell(rmsg, this, true);
+
+	{
+		// 사라짐을 알리고
+		CNetMsg::SP rmsg(new CNetMsg);
+		DisappearMsg(rmsg, this);
+		area->SendToCell(rmsg, this, true);
+	}
 
 	// 셀에서 제거
 	area->CharFromCell(this, true);
@@ -466,40 +386,38 @@ void CPet::Mount(bool bMount)
 	if (!GetOwner() || GetOwner()->m_pZone == NULL)
 		return ;
 
-	CNetMsg rmsg;
-
-	if (bMount)
 	{
-		// 탈 수 있는 존일때
-		if (!GetOwner()->m_pZone->m_bCanMountPet)
+		CNetMsg::SP rmsg(new CNetMsg);
+
+		if (bMount)
 		{
-			SysMsg(rmsg, MSG_SYS_PET_CANT_MOUNT);
-			SEND_Q(rmsg, GetOwner()->m_desc);
-			return ;
+			// 탈 수 있는 존일때
+			if (!GetOwner()->m_pZone->m_bCanMountPet)
+			{
+				CNetMsg::SP tmsg(new CNetMsg);
+				SysMsg(tmsg, MSG_SYS_PET_CANT_MOUNT);
+				SEND_Q(tmsg, GetOwner()->m_desc);
+				return ;
+			}
+
+			// 타기
+			m_bMount = true;
+			ExPetMountMsg(rmsg, GetOwner()->m_index, GetPetTypeGrade());
+
+			while (GetOwner()->m_elementalList)
+				GetOwner()->UnsummonElemental(GetOwner()->m_elementalList);
 		}
+		else
+		{
+			// 내리기
+			m_bMount = false;
+			ExPetMountMsg(rmsg, GetOwner()->m_index, 0);
+		}
+		RefMsg(rmsg) << m_petColorType;
 
-		// 타기
-		m_bMount = true;
-		ExPetMountMsg(rmsg, GetOwner()->m_index, GetPetTypeGrade());
-
-		while (GetOwner()->m_elementalList)
-			GetOwner()->UnsummonElemental(GetOwner()->m_elementalList);
+		GetOwner()->m_pArea->SendToCell(rmsg, GetOwner(), false);
 	}
-	else
-	{
-		// 내리기
-		m_bMount = false;
-		ExPetMountMsg(rmsg, GetOwner()->m_index, 0);
-	}
-#ifdef PET_DIFFERENTIATION_ITEM
-	rmsg << m_petColorType;
-#endif // PET_DIFFERENTIATION_ITEM
 
-//#ifdef PET_TURNTO_NPC
-//	rmsg << m_nTurnToNpcIndex;
-//#endif //PET_TURNTO_NPC
-
-	GetOwner()->m_pArea->SendToCell(rmsg, GetOwner(), false);
 	GetOwner()->m_bChangeStatus = true;
 }
 
@@ -521,14 +439,16 @@ void CPet::LevelUp()
 
 	InitStat();
 
-	CNetMsg rmsg;
-	ExPetLevelupMsg(rmsg, this);
 	if (IsMount())
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetLevelupMsg(rmsg, this);
 		m_owner->m_pArea->SendToCell(rmsg, m_owner, true);
 	}
 	else if (IsSummon())
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ExPetLevelupMsg(rmsg, this);
 		m_pArea->SendToCell(rmsg, this, true);
 	}
 
@@ -537,7 +457,8 @@ void CPet::LevelUp()
 	const int nDragonStartIndex = 3;	// 테이블에서 드래곤 스킬 시작 인덱스
 	const int nDragonCount = 5;			// 테이블에서 말 스킬 개수
 	const int nAutoLearn = nDragonStartIndex + nDragonCount;
-	const int autoTable[nAutoLearn][2] = {
+	const int autoTable[nAutoLearn][2] =
+	{
 		// 말
 		{271, 4},		// 고개 흔들기 : 레벨4
 		{272, 8},		// 뒷발질 : 레벨8
@@ -557,20 +478,19 @@ void CPet::LevelUp()
 		int nStartIndex = nAutoLearn + 1;
 		int nCount = 0;
 		if (GetPetType() == PET_TYPE_HORSE
-			|| GetPetType() == PET_TYPE_BLUE_HORSE
-			|| GetPetType() == PET_TYPE_UNKOWN_HORSE)
+				|| GetPetType() == PET_TYPE_BLUE_HORSE
+				|| GetPetType() == PET_TYPE_UNKOWN_HORSE)
 		{
 			nStartIndex = nHorseStartIndex;
 			nCount = nHorseCount;
 		}
 		else if (GetPetType() == PET_TYPE_DRAGON
-			|| GetPetType() == PET_TYPE_PINK_DRAGON
-			|| GetPetType() == PET_TYPE_UNKOWN_DRAGON )
+				 || GetPetType() == PET_TYPE_PINK_DRAGON
+				 || GetPetType() == PET_TYPE_UNKOWN_DRAGON )
 		{
 			nStartIndex = nDragonStartIndex;
 			nCount = nDragonCount;
 		}
-
 
 		CSkill* skill = NULL;
 
@@ -582,7 +502,7 @@ void CPet::LevelUp()
 				skill = FindSkill(autoTable[i][0]);
 				if (skill == NULL)
 				{
-					skill = gserver.m_skillProtoList.Create(autoTable[i][0]);
+					skill = gserver->m_skillProtoList.Create(autoTable[i][0]);
 					if (skill)
 					{
 						// 게임 로그
@@ -597,6 +517,8 @@ void CPet::LevelUp()
 								<< end;
 
 						AddSkill(skill);
+
+						CNetMsg::SP rmsg(new CNetMsg);
 						ExPetLearnMsg(rmsg, skill->m_proto->m_index, skill->m_level, MSG_EX_PET_LEARN_ERROR_AUTO);
 						SEND_Q(rmsg, m_owner->m_desc);
 					}
@@ -606,8 +528,8 @@ void CPet::LevelUp()
 	}
 
 	if( (this->GetPetType() == PET_TYPE_UNKOWN_HORSE
-		|| this->GetPetType() == PET_TYPE_UNKOWN_DRAGON )
-		&& (m_level == 5 || m_level == 10) )
+			|| this->GetPetType() == PET_TYPE_UNKOWN_DRAGON )
+			&& (m_level == 5 || m_level == 10) )
 	{
 		// 25프로의 확률로 변경되는디
 		int ran = GetRandom(0, 1000);
@@ -691,56 +613,36 @@ void CPet::ChangePetType()
 		this->Mount(false);
 	}
 
-
-	int r, c;
-	owner->m_invenNormal.FindItem(&r, &c, deleteItemdbIndex, this->m_index, 0);
-
 	// Item 수량 변경
-	CItem* item = owner->m_invenNormal.GetItem(r, c);
+	CItem* item = owner->m_inventory.FindByDBIndex(deleteItemdbIndex, this->m_index, 0);
+	if (item == NULL)
+		return;
 
 	GAMELOG << itemlog(item) << delim
 			<< "NEXT" << GetPetType() << delim;
 
-	if( !item )
-		return;
 
-	CNetMsg rmsg;
-	DecreaseFromInventory(owner, item, 1);
-	if (item->Count() > 0)
-	{
-		ItemUpdateMsg(rmsg, item, -1);
-		SEND_Q(rmsg, owner->m_desc);
-	}
-	else
-	{
-		ItemDeleteMsg(rmsg, item);
-		SEND_Q(rmsg, owner->m_desc);
-		RemoveFromInventory(owner, item, true, true);
-	}
+	owner->m_inventory.decreaseItemCount(item, 1);
 
 	owner->GiveItem(giveItemdbIndex, this->m_index, 0, 1 );
 
-	owner->m_invenNormal.FindItem(&r, &c, giveItemdbIndex, this->m_index, 0);
-	item = owner->m_invenNormal.GetItem(r, c);
-	if( item )
-		GAMELOG << itemlog(item) << end;
+	item = owner->m_inventory.FindByDBIndex(giveItemdbIndex, this->m_index, 0);
+	if( item == NULL)
+		return;
 
-	owner->SendInventory(0);
+	GAMELOG << itemlog(item) << end;
 
-	CNetMsg wearMsg;
-	wearMsg.Init(MSG_ITEM);
-	wearMsg << (unsigned char) MSG_ITEM_WEAR
-			<< (unsigned char) WEARING_PET
-			<< (char) 0
-			<< (char) r
-			<< (char) c
-			<< item->m_index;
+	{
+		unsigned short tab = 0;
+		unsigned short invenIndex = 0;
 
-	do_Item(owner, wearMsg);
+		CNetMsg::SP rmsg(new CNetMsg);
+		insideServer_do_Item_Wear(rmsg, WEARING_PET, tab, invenIndex, item->getVIndex());
+		do_Item(owner, rmsg);
+	}
 }
-#endif
+//#endif
 
-#ifdef ADULT_SERVER_NEW_BALANCE
 float CPet::GetHitrate(CCharacter* df, MSG_DAMAGE_TYPE type)
 {
 	return 0.0f;
@@ -750,4 +652,3 @@ float CPet::GetAvoid(CCharacter* of, MSG_DAMAGE_TYPE type)
 {
 	return 0.0f;
 }
-#endif // ADULT_SERVER_NEW_BALANCE

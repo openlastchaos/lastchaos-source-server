@@ -10,6 +10,7 @@ public:
 	int			m_regCount;						// 등록 아이템 수
 	int			m_itemindex[MAX_EXCHANGE_ITEMS];// 아이템 포인터 (인벤토리의 일반 아이템)
 	LONGLONG	m_count[MAX_EXCHANGE_ITEMS];	// 아이템 교환 개수
+	GoldType_t  m_nasCount;						// 교환할 나스 값
 
 	CExchangeItemsData();
 
@@ -37,7 +38,7 @@ public:
 	/////////////////////
 	// Function name	: CanExchange
 	// Description	    : 교환 가능 여부 판단
-	// Return type		: int 
+	// Return type		: int
 	//            		: 0 - 가능
 	//            		: 1 - src 불가능
 	//            		: 2 - dest 불가능
@@ -47,3 +48,4 @@ public:
 };
 
 #endif
+//

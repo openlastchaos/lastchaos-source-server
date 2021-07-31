@@ -1,17 +1,20 @@
+#include <boost/format.hpp>
 #include "stdhdrs.h"
+
 #include "Log.h"
 #include "NPCProto.h"
 #include "Server.h"
-#include "DBCmd.h"
+#include "../ShareLib/DBCmd.h"
+
+#ifdef PREMIUM_CHAR
+#include "../ShareLib/packetType/ptype_premium_char.h"
+#endif
 
 ///////////////////
 // ANPCPtoro member
 
 CNPCProto::CNPCProto()
-: m_name(MAX_CHAR_NAME_LENGTH + 1)
-#ifdef MONSTER_RAID_SYSTEM
-, m_listRaidDrop(Comp_RAIDDROPDATA)
-#endif // MONSTER_RAID_SYSTEM
+	: m_name(MAX_CHAR_NAME_LENGTH + 1)
 {
 	m_index = -1;
 	m_level = 0;
@@ -35,7 +38,6 @@ CNPCProto::CNPCProto()
 	memset(m_itemPercent, 0, sizeof(int) * MAX_NPC_DROPITEM);
 	memset(m_product, -1, sizeof(int) * MAX_NPC_PRODUCT);
 
-
 // 050303 : bs : 몬스터에게서 plus 붙은 아이템 만들기
 	m_minplus = 0;			// 최소 플러스 수치
 	m_maxplus = 0;			// 최대 플러스 수치
@@ -53,25 +55,77 @@ CNPCProto::CNPCProto()
 	memset(m_skillProb, 0, sizeof(int) * MAX_NPC_SKILL);
 
 	m_moveArea = 0;
-	
+
 	m_aitype = NPC_AI_NORMAL;
 	m_aiflag = 0;
 	m_aileader_flag = 0;
+	m_ai_summonHp = 0;
 	m_aileader_idx = 0;
 	m_aileader_count = 0;
-	
-#ifdef ADULT_SERVER_NEW_BALANCE
+
 	m_nHit = 0;
 	m_nDodge = 0;
 	m_nMagicAvoid = 0;
-#endif // ADULT_SERVER_NEW_BALANCE
+
+	memset(m_jewel, -1, sizeof(int) * MAX_NPC_DROPJEWEL);
+	memset(m_jewelPercent, 0, sizeof(int) * MAX_NPC_DROPJEWEL);
+	m_jewelCount = 0;
+	memset(m_jobdropitem, -1, sizeof(int) * JOBCOUNT);
+	memset(m_jobdropitemprob, -1, sizeof(int) * JOBCOUNT);
+
+	memset(m_dropallitem, -1, sizeof(int) * MAX_NPC_DROPITEM);
+	memset(m_dropallitemprob, -1, sizeof(int) * MAX_NPC_DROPITEM);
+	m_lifetime = 0;
 }
 
 CNPCProto::~CNPCProto()
 {
 }
 
+#ifdef PREMIUM_CHAR
+//XX - 프리미엄캐릭터 : 몬스터를 죽였을때 획득하는 EXP/SP 10% 증가
+int CNPCProto::getExpForPremiumChar( int premium_type )
+{
+	int ori_exp = m_exp;
+	int exp = 0;
 
+	switch (premium_type)
+	{
+	case PREMIUM_CHAR_TYPE_FIRST:
+		exp = (int)(ori_exp * 1.1f);
+		break;
+
+	default:
+		exp = ori_exp;
+		break;
+	}
+
+//	LOG_DEBUG("TEST (exp) : %d - %d", ori_exp, exp);
+
+	return exp;
+}
+
+int CNPCProto::getSkillPointForPremiumChar( int premium_type )
+{
+	int ori_skillpoint = m_skillPoint;
+	int skillpoint = 0;
+
+	switch (premium_type)
+	{
+	case PREMIUM_CHAR_TYPE_FIRST:
+		skillpoint = (int)(ori_skillpoint * 1.1f);
+		break;
+
+	default:
+		skillpoint = ori_skillpoint;
+		break;
+	}
+
+//	LOG_DEBUG("TEST (sp) : %d - %d", ori_skillpoint, skillpoint);
+
+	return skillpoint;
+}
+#endif
 
 ///////////////////////
 // CNPCProtoList member
@@ -81,6 +135,33 @@ CNPCProtoList::CNPCProtoList()
 	m_npcProtoList = NULL;
 	m_nCount = 0;
 	m_virtualIndex = 1;
+
+	for (int i = 0; i < MAX_NPC_DROPITEM; ++i)
+	{
+		std::string tstr = boost::str(boost::format("a_item_%d") % i);
+		a_item_str.push_back(tstr);
+
+		tstr = boost::str(boost::format("a_item_percent_%d") % i);
+		a_item_percent_str.push_back(tstr);
+
+		tstr = boost::str(boost::format("a_jewel_%d") % i);
+		a_jewel_str.push_back(tstr);
+
+		tstr = boost::str(boost::format("a_jewel_percent_%d") % i);
+		a_jewel_percent_str.push_back(tstr);
+	}
+
+	for (int i = 0; i < MAX_NPC_PRODUCT; ++i)
+	{
+		std::string tstr = boost::str(boost::format("a_product%d") % i);
+		a_product_str.push_back(tstr);
+	}
+
+	for (int i = 0; i < MAX_NPC_SKILL; ++i)
+	{
+		std::string tstr = boost::str(boost::format("a_skill%d") % i);
+		a_skill_str.push_back(tstr);
+	}
 }
 
 CNPCProtoList::~CNPCProtoList()
@@ -101,9 +182,9 @@ bool CNPCProtoList::Load()
 	m_virtualIndex = 1;
 
 	CDBCmd dbNpc;
-	dbNpc.Init(&gserver.m_dbdata);
-	strcpy(g_buf, "SELECT * FROM t_npc WHERE a_enable=1 ORDER BY a_index");
-	dbNpc.SetQuery(g_buf);
+	dbNpc.Init(&gserver->m_dbdata);
+	std::string sql = "SELECT * FROM t_npc WHERE a_enable=1 ORDER BY a_index";
+	dbNpc.SetQuery(sql);
 	dbNpc.Open();
 	m_nCount = dbNpc.m_nrecords;
 	m_npcProtoList = new CNPCProto[m_nCount];
@@ -111,40 +192,32 @@ bool CNPCProtoList::Load()
 	int i = 0;
 	int j;
 	float scale = 1;
-	*g_buf2 = '\0';		// for field
-	*g_buf3 = '\0';		// for convert
 
 	while (dbNpc.MoveNext())
 	{
 		int npcIndex = 0;
 		int npcflag  = 0;
 		int npcflag1 = 0;		//확장 플래그(추가)
-
+		int npcStateFlag = 0;
+		unsigned int npcattr;
 		dbNpc.GetRec("a_index",			npcIndex);
 		dbNpc.GetRec("a_flag",			npcflag);
 		dbNpc.GetRec("a_flag1",			npcflag1);		//확장 플래그(추가)
-#ifdef LC_TWN2
-		// 대만은 수집가 릴 (178) 안나옴
-		if (npcIndex == 178)
-			continue ;
-#endif // LC_TWN2
+		dbNpc.GetRec("a_state_flag",	npcStateFlag);
 
-#ifdef MONSTER_RAID_SYSTEM
-#else // MONSTER_RAID_SYSTEM
-		// MONSTER_RAID_SYSTEM가 아니면 raid 몹 무시
-		if ((npcflag & NPC_RAID) != 0)
-			continue ;
-#endif // MONSTER_RAID_SYSTEM
-
-#ifdef EVENT_XMAS_2006
-#else
 		if (npcIndex == 334 || npcIndex == 335 || npcIndex == 336)
 			continue ;
-#endif // EVENT_XMAS_2006
+
+		m_npcProtoList[i].m_bSydicateJoinGiveQuestNPC = false;
+		if (npcIndex == 1540)
+		{
+			m_npcProtoList[i].m_bSydicateJoinGiveQuestNPC = true;
+		}
 
 		m_npcProtoList[i].m_index = npcIndex;
 		m_npcProtoList[i].m_flag  = npcflag;
 		m_npcProtoList[i].m_flag1 = npcflag1;		//확장 플래그(추가)
+		m_npcProtoList[i].m_stateFlag = npcStateFlag;
 		dbNpc.GetRec(NPC_NAME_FIELD,	m_npcProtoList[i].m_name, true);
 		dbNpc.GetRec("a_level",			m_npcProtoList[i].m_level);
 		dbNpc.GetRec("a_exp",			m_npcProtoList[i].m_exp);
@@ -157,28 +230,44 @@ bool CNPCProtoList::Load()
 		dbNpc.GetRec("a_recover_hp",	m_npcProtoList[i].m_recoverHP);
 		dbNpc.GetRec("a_recover_mp",	m_npcProtoList[i].m_recoverMP);
 		dbNpc.GetRec("a_family",		m_npcProtoList[i].m_family);
-#ifdef ADULT_SERVER_NEW_BALANCE
 		dbNpc.GetRec("a_hit",			m_npcProtoList[i].m_nHit);
 		dbNpc.GetRec("a_dodge",			m_npcProtoList[i].m_nDodge);
 		dbNpc.GetRec("a_magicavoid",	m_npcProtoList[i].m_nMagicAvoid);
-#endif // ADULT_SERVER_NEW_BALANCE
+
+		dbNpc.GetRec("a_attribute",		npcattr);
+		m_npcProtoList[i].m_attratt = GET_AT_ATT(npcattr);
+		m_npcProtoList[i].m_attrdef = GET_AT_DEF(npcattr);
 
 #ifdef EXTREME_CUBE
 		dbNpc.GetRec("a_job_attribute",	m_npcProtoList[i].m_jobAttr);
 #endif // EXTREME_CUBE
 
-		// 공성 체널이 아니고  index == 468  이면 &= ~NPC_WARCASTLE
-		if( gserver.m_subno != WAR_CASTLE_SUBNUMBER_MERAC && npcIndex==468 )
-		{
-			m_npcProtoList[i].m_flag = m_npcProtoList[i].m_flag & (~NPC_WARCASTLE);			
-		}
-		
-#ifdef HANARO_EVENT
-		if( gserver.m_subno != 3 && npcIndex == 893 )		// 초보지원 NPC 3체널만 
+		//rvr
+		dbNpc.GetRec("a_rvr_value", m_npcProtoList[i].m_rvr_value);
+		dbNpc.GetRec("a_rvr_grade", m_npcProtoList[i].m_rvr_grade);
+		//rvr
+
+#if defined(LC_KOR)
+		if( gserver->m_subno != 1 && npcIndex == 893 )		// 초보지원 NPC 1채널만
 		{
 			continue;
 		}
-#endif //HANARO_EVENT
+#elif defined (LC_USA) || defined (LC_BILA) || defined (LC_GAMIGO) || defined (LC_RUS)
+		if( gserver->m_subno != 2 && npcIndex == 893 )		// 초보지원 NPC 2채널만
+		{
+			continue;
+		}
+#else
+		if( gserver->m_subno != 3 && npcIndex == 893 )		// 초보지원 NPC 3채널만
+		{
+			continue;
+		}
+#endif // defined (LC_KOR)
+
+		if(gserver->m_subno != WAR_GROUND_CHANNEL && npcIndex == 1254)
+		{
+			continue;
+		}
 
 		// 공성 관련 NPC는 경험치, 나스, 스킬포인트 없음
 		if (m_npcProtoList[i].m_flag & (NPC_CASTLE_GUARD | NPC_CASTLE_TOWER))
@@ -194,34 +283,19 @@ bool CNPCProtoList::Load()
 		int k = 0;
 		for(j = 0; j < MAX_NPC_DROPITEM && !(m_npcProtoList[i].m_flag & (NPC_CASTLE_GUARD | NPC_CASTLE_TOWER)); j++)
 		{
-			strcpy(g_buf, "a_item_");			IntCat(g_buf, j, false);
-			dbNpc.GetRec(g_buf,		m_npcProtoList[i].m_item[j-k]);
+			dbNpc.GetRec(a_item_str[j].c_str(),	m_npcProtoList[i].m_item[j-k]);
 
 			if (m_npcProtoList[i].m_item[j-k] == -1 )
 				break;
 
-			itemproto = gserver.m_itemProtoList.FindIndex(m_npcProtoList[i].m_item[j-k]);
-#ifdef CREATE_SORCERER
-#else
-			if( itemproto )
-			{
-				if( (itemproto->m_jobFlag & ( 1 << 5 ) ) && (itemproto->m_typeIdx == 0|| itemproto->m_typeIdx == 1) )
-				{
-					m_npcProtoList[i].m_item[j-k] = -1;
-					m_npcProtoList[i].m_itemPercent[j-k] = 0;
-					k++;
-					continue;
-				}
-			}
-#endif
-			strcpy(g_buf, "a_item_percent_");	IntCat(g_buf, j, false);
-			dbNpc.GetRec(g_buf,		m_npcProtoList[i].m_itemPercent[j-k]);
+			itemproto = gserver->m_itemProtoList.FindIndex(m_npcProtoList[i].m_item[j-k]);
+			dbNpc.GetRec(a_item_percent_str[j].c_str(), 	m_npcProtoList[i].m_itemPercent[j-k]);
 
-			// 일본 50레벨 이상 무기, 방어구는 드롭확률 1/2로 
-#if defined (LC_JPN) || defined (LC_TLD)
+			// 일본 50레벨 이상 무기, 방어구는 드롭확률 1/2로
+#if defined (LC_TLD)
 			if( itemproto )
 			{
-				if( itemproto->GetItemProtoLevel() >= 50 && (itemproto->m_typeIdx == 0|| itemproto->m_typeIdx == 1) )
+				if( itemproto->GetItemProtoLevel() >= 50 && (itemproto->getItemTypeIdx() == 0|| itemproto->getItemTypeIdx() == 1) )
 				{
 					m_npcProtoList[i].m_itemPercent[j-k] /= 2;
 				}
@@ -247,7 +321,6 @@ bool CNPCProtoList::Load()
 		dbNpc.GetRec("a_attacklevel",	m_npcProtoList[i].m_attacklevel);
 		dbNpc.GetRec("a_defenselevel",	m_npcProtoList[i].m_defenselevel);
 
-
 // 050303 : bs : 몬스터에게서 plus 붙은 아이템 만들기
 		dbNpc.GetRec("a_minplus",		m_npcProtoList[i].m_minplus);
 		dbNpc.GetRec("a_maxplus",		m_npcProtoList[i].m_maxplus);
@@ -258,63 +331,58 @@ bool CNPCProtoList::Load()
 		dbNpc.GetRec("a_aitype",		m_npcProtoList[i].m_aitype);
 		dbNpc.GetRec("a_aiflag",		m_npcProtoList[i].m_aiflag);
 		dbNpc.GetRec("a_aileader_flag",	m_npcProtoList[i].m_aileader_flag);
+		dbNpc.GetRec("a_ai_summonHp",	m_npcProtoList[i].m_ai_summonHp);
 		dbNpc.GetRec("a_aileader_idx",	m_npcProtoList[i].m_aileader_idx);
 		dbNpc.GetRec("a_aileader_count",m_npcProtoList[i].m_aileader_count);
 
 		// 크기조정 : 스케일에 맞춰서
 		dbNpc.GetRec("a_scale",			scale);
+		dbNpc.GetRec("a_zone_flag",		m_npcProtoList[i].m_zone_flag);
+		dbNpc.GetRec("a_extra_flag",	m_npcProtoList[i].m_extra_flag);
+
+		dbNpc.GetRec("a_bound",			m_npcProtoList[i].m_bound);
+		dbNpc.GetRec("a_lifetime",		m_npcProtoList[i].m_lifetime);
+
+		// 보석 드롭 확률
+		for( j = 0; j < MAX_NPC_DROPITEM; j++ )
+		{
+			dbNpc.GetRec(a_jewel_str[j].c_str(),	m_npcProtoList[i].m_jewel[j]);
+
+			if (m_npcProtoList[i].m_item[j] == -1 )
+				break;
+
+			dbNpc.GetRec(a_jewel_percent_str[j].c_str(), m_npcProtoList[i].m_jewelPercent[j]);
+
+			m_npcProtoList[i].m_jewelCount++;
+		}
+
 		m_npcProtoList[i].m_size *= scale;
 		m_npcProtoList[i].m_attackArea *= scale;
+		m_npcProtoList[i].m_bound *= scale;
 		// ---
 
-		// 테스트 서버용 경험치, Nas 조정
-
-#ifdef MAL_TEST_SERVER
-		m_npcProtoList[i].m_exp *= 3;
-#endif
-#ifdef TEST_SERVER
-//		m_npcProtoList[i].m_price *= 3;
-//		m_npcProtoList[i].m_exp *= 3;
-//		m_npcProtoList[i].m_skillPoint *= 3;
-#endif
-
-#ifdef EVENT_FLOWERTREE_2007
-		if ( m_npcProtoList[i].m_index == 342 ) // 꽃나무
-			m_npcProtoList[i].m_hp = 0 ;
-#endif // EVENT_FLOWERTREE_2007
-
-
-// 050311 : bs : 대만/중국에서 바알은 체력 회복이 3배
-#if defined(LC_TWN) || defined(LC_CHN)
-		if (m_npcProtoList[i].m_index == 152)
-		{
-			m_npcProtoList[i].m_recoverHP *= 3;
-		}
-#endif
 // --- 050311 : bs : 대만/중국에서 바알은 체력 회복이 3배
-
 		for (j=0; j < MAX_NPC_PRODUCT; j++)
 		{
-			strcpy(g_buf, "a_product");			IntCat(g_buf, j, false);
-			dbNpc.GetRec(g_buf,			m_npcProtoList[i].m_product[j]);
+			dbNpc.GetRec(a_product_str[j].c_str(), m_npcProtoList[i].m_product[j]);
 		}
 
 		// 스킬 입력
 		CLCString npcskill(256);
 		for (j = 0; j < MAX_NPC_SKILL; j++)
 		{
-			sprintf(g_buf, "a_skill%d", j);
-			if (dbNpc.GetRec(g_buf, npcskill))
+			char tmpBuf[MAX_STRING_LENGTH] = {0,};
+			if (dbNpc.GetRec(a_skill_str[j].c_str(), npcskill))
 			{
 				const char* p = npcskill;
-				p = AnyOneArg(p, g_buf);
-				if (strlen(g_buf) && atoi(g_buf) > 0)
+				p = AnyOneArg(p, tmpBuf);
+				if (strlen(tmpBuf) && atoi(tmpBuf) > 0)
 				{
-					m_npcProtoList[i].m_skillIndex[j] = atoi(g_buf);
-					p = AnyOneArg(p, g_buf);
-					m_npcProtoList[i].m_skillLevel[j] = atoi(g_buf);
-					p = AnyOneArg(p, g_buf);
-					m_npcProtoList[i].m_skillProb[j] = atoi(g_buf);
+					m_npcProtoList[i].m_skillIndex[j] = atoi(tmpBuf);
+					p = AnyOneArg(p, tmpBuf);
+					m_npcProtoList[i].m_skillLevel[j] = atoi(tmpBuf);
+					p = AnyOneArg(p, tmpBuf);
+					m_npcProtoList[i].m_skillProb[j] = atoi(tmpBuf);
 				}
 				else
 				{
@@ -324,28 +392,106 @@ bool CNPCProtoList::Load()
 				}
 			}
 		}
+		CDBCmd jobitem;
+		jobitem.Init(&gserver->m_dbdata);
+		std::string select_npc_dorpjob_query = boost::str(boost::format("SELECT * FROM t_npc_dropjob WHERE a_npc_idx=%d limit 1") % npcIndex);
+		jobitem.SetQuery(select_npc_dorpjob_query);
+		if(jobitem.Open() && jobitem.MoveFirst())
+		{
+			if(jobitem.m_nrecords > 0)
+			{
+				int item[JOBCOUNT];
+				int prob[JOBCOUNT];
+				int jloop;
+				jobitem.GetRec("a_titan_item", item[0]);
+				jobitem.GetRec("a_titan_item_prob", prob[0]);
+				jobitem.GetRec("a_knight_item", item[1]);
+				jobitem.GetRec("a_knight_item_prob", prob[1]);
+				jobitem.GetRec("a_healer_item",item[2]);
+				jobitem.GetRec("a_healer_item_prob",prob[2]);
+				jobitem.GetRec("a_mage_item",item[3]);
+				jobitem.GetRec("a_mage_item_prob",prob[3]);
+				jobitem.GetRec("a_rogue_item",item[4]);
+				jobitem.GetRec("a_rogue_item_prob",prob[4]);
+				jobitem.GetRec("a_sorcerer_item",item[5]);
+				jobitem.GetRec("a_sorcerer_item_prob",prob[5]);
+				jobitem.GetRec("a_nightshadow_item",item[6]);
+				jobitem.GetRec("a_nightshadow_item_prob",prob[6]);
+#ifdef EX_ROGUE
+				jobitem.GetRec("a_exrogue_item",item[7]);
+				jobitem.GetRec("a_exrogue_item_prob",prob[7]);
+#endif // EX_ROGUE
+#ifdef EX_MAGE
+				jobitem.GetRec("a_exmage_item", item[8]);
+				jobitem.GetRec("a_exmage_item_prob", prob[8]);
+#endif // EX_MAGE
+				for(jloop = 0; jloop < JOBCOUNT; jloop++)
+				{
+					m_npcProtoList[i].m_jobdropitem[jloop] = item[jloop];
+					m_npcProtoList[i].m_jobdropitemprob[jloop] = prob[jloop];
+				}
+			}
+		}
 
+		CDBCmd allitem;
+		allitem.Init(&gserver->m_dbdata);
+
+		std::string select_npc_dorp_all_query = boost::str(boost::format("SELECT * FROM t_npc_drop_all WHERE a_npc_idx=%d") % npcIndex);
+		allitem.SetQuery(select_npc_dorp_all_query);
+		if(allitem.Open() && allitem.MoveFirst())
+		{
+			if(allitem.m_nrecords > 0)
+			{
+				int loopi = 0;
+				do
+				{
+					allitem.GetRec("a_item_idx", m_npcProtoList[i].m_dropallitem[loopi]);
+					allitem.GetRec("a_prob", m_npcProtoList[i].m_dropallitemprob[loopi]);
+					loopi++;
+					if(loopi == 20)
+						break;
+				}
+				while(allitem.MoveNext());
+			}
+		}
+
+		map_.insert(map_t::value_type(m_npcProtoList[i].m_index, &m_npcProtoList[i]));
 		i++;
 	}
 
 	m_nCount = i;
 
-#ifdef MONSTER_RAID_SYSTEM
+	std::string select_npc_dorpaid_query = "";
 	for (i = 0; i < m_nCount; i++)
 	{
-		sprintf(g_buf, "SELECT * FROM t_npc_dropraid WHERE a_npc_index=%d ORDER BY a_item_index", m_npcProtoList[i].m_index);
-		dbNpc.SetQuery(g_buf);
+		select_npc_dorpaid_query = boost::str(boost::format("SELECT * FROM t_npc_dropraid WHERE a_npc_index=%d ORDER BY a_item_index") % m_npcProtoList[i].m_index);
+		dbNpc.SetQuery(select_npc_dorpaid_query);
 		if (!dbNpc.Open())
 			return false;
+
 		RAIDDROPDATA rdd;
 		while (dbNpc.MoveNext())
 		{
 			dbNpc.GetRec("a_item_index", rdd.itemindex);
 			dbNpc.GetRec("a_flag", rdd.flag);
 			dbNpc.GetRec("a_count", rdd.count);
-			dbNpc.GetRec("a_prob", rdd.prob);		
-			
-#ifdef EXPEDITION_RAID
+			dbNpc.GetRec("a_prob", rdd.prob);
+#ifdef BUGFIX_SPECIALBOX_DROPRATE
+			dbNpc.GetRec("a_spec_item_index1"	, rdd.spec_itemindex[0]);
+			dbNpc.GetRec("a_spec_item_index2"	, rdd.spec_itemindex[1]);
+			dbNpc.GetRec("a_spec_item_index3"	, rdd.spec_itemindex[2]);
+			dbNpc.GetRec("a_spec_item_index4"	, rdd.spec_itemindex[3]);
+			dbNpc.GetRec("a_spec_item_index5"	, rdd.spec_itemindex[4]);
+			dbNpc.GetRec("a_spec_item_index6"	, rdd.spec_itemindex[5]);
+			dbNpc.GetRec("a_spec_item_index7"	, rdd.spec_itemindex[6]);
+			dbNpc.GetRec("a_spec_item_index8"	, rdd.spec_itemindex[7]);
+			dbNpc.GetRec("a_spec_item_index9"	, rdd.spec_itemindex[8]);
+			dbNpc.GetRec("a_spec_item_index10"	, rdd.spec_itemindex[9]);
+			dbNpc.GetRec("a_spec_item_index11"	, rdd.spec_itemindex[10]);
+			dbNpc.GetRec("a_spec_item_index12"	, rdd.spec_itemindex[11]);
+			dbNpc.GetRec("a_spec_item_index13"	, rdd.spec_itemindex[12]);
+			dbNpc.GetRec("a_spec_item_index14"	, rdd.spec_itemindex[13]);
+#else //BUGFIX_SPECIALBOX_DROPRATE
 			dbNpc.GetRec("a_spec_item_index1"	, rdd.spec_itemindex1);
 			dbNpc.GetRec("a_spec_item_index2"	, rdd.spec_itemindex2);
 			dbNpc.GetRec("a_spec_item_index3"	, rdd.spec_itemindex3);
@@ -360,17 +506,16 @@ bool CNPCProtoList::Load()
 			dbNpc.GetRec("a_spec_item_index12"	, rdd.spec_itemindex12);
 			dbNpc.GetRec("a_spec_item_index13"	, rdd.spec_itemindex13);
 			dbNpc.GetRec("a_spec_item_index14"	, rdd.spec_itemindex14);
+#endif //BUGFIX_SPECIALBOX_DROPRATE
 			dbNpc.GetRec("a_spec_min"			, rdd.spec_Min);
 			dbNpc.GetRec("a_spec_max"			, rdd.spec_Max);
-			dbNpc.GetRec("a_spec_count"			, rdd.spec_count);			
+			dbNpc.GetRec("a_spec_count"			, rdd.spec_count);
 			dbNpc.GetRec("a_spec_prob"			, rdd.spec_prob);
 			dbNpc.GetRec("a_spec_flag"			, rdd.spec_flag);
-#endif //EXPEDITION_RAID
 
-			m_npcProtoList[i].m_listRaidDrop.AddToTail(rdd);
+			m_npcProtoList[i].m_listRaidDrop.push_back(rdd);
 		}
 	}
-#endif // MONSTER_RAID_SYSTEM
 
 	return true;
 }
@@ -379,7 +524,7 @@ CNPC* CNPCProtoList::Create(int npcindex, CNPCRegenInfo* regenInfo)
 {
 	CNPCProto* proto = FindProto(npcindex);
 	if (!proto)
-			{
+	{
 		GAMELOG << init("SYS_ERR")
 				<< "Can't Create NPC Num" << delim
 				<< npcindex
@@ -388,7 +533,7 @@ CNPC* CNPCProtoList::Create(int npcindex, CNPCRegenInfo* regenInfo)
 	}
 
 	CNPC* npc = new CNPC;
-			
+
 	npc->m_regenInfo = regenInfo;
 
 	// CNPC 속성
@@ -413,9 +558,9 @@ CNPC* CNPCProtoList::Create(int npcindex, CNPCRegenInfo* regenInfo)
 	if (npc->m_proto->m_flag & NPC_QUEST)
 	{
 		int i;
-		for (i=0; i < gserver.m_questProtoList.m_nCount; i++)
+		for (i=0; i < gserver->m_questProtoList.m_nCount; i++)
 		{
-			CQuestProto* questProto = gserver.m_questProtoList.m_proto + i;
+			CQuestProto* questProto = gserver->m_questProtoList.m_proto + i;
 
 			if (!questProto)
 				continue;
@@ -434,20 +579,27 @@ CNPC* CNPCProtoList::Create(int npcindex, CNPCRegenInfo* regenInfo)
 	{
 		if (proto->m_skillIndex[i] > 0)
 		{
-			npc->m_skills[i] = gserver.m_skillProtoList.Create(proto->m_skillIndex[i], proto->m_skillLevel[i]);
+			npc->m_skills[i] = gserver->m_skillProtoList.Create(proto->m_skillIndex[i], proto->m_skillLevel[i]);
 		}
 	}
 	// --- 050221 : bs : NPC 스킬 생성
 
-	return npc;
+#ifdef SYSTEM_TREASURE_MAP
+	npc->m_regenTime = gserver->getNowSecond(); // 생성 시간을 저장 한다.
+#endif
 
+	if (npc->m_proto->m_lifetime > 0)
+	{
+		npc->m_lifetime = npc->m_proto->m_lifetime + gserver->getNowSecond();
+	}
+
+	return npc;
 }
 
 // 리스트에서 찾기
 CNPCProto* CNPCProtoList::FindProto(int npc_idx)
 {
-	CNPCProto proto;
-	proto.m_index = npc_idx;
-
-	return (CNPCProto*)bsearch(&proto, m_npcProtoList, m_nCount, sizeof(CNPCProto), CompIndex);
+	map_t::iterator it = map_.find(npc_idx);
+	return (it != map_.end()) ? it->second : NULL;
 }
+//

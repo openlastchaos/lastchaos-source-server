@@ -1,6 +1,8 @@
 #ifndef __MSG_LIST_H__
 #define __MSG_LIST_H__
 
+#include "Utils.h"
+
 class CMsgListNodeServerNode
 {
 public:
@@ -23,7 +25,7 @@ class CMsgListNode
 public:
 	int							m_seq;
 	bool						m_bReq;
-	CNetMsg						m_msg;
+	CNetMsg::SP					m_msg;
 	bool						m_bSent;
 	int							m_sendTime;
 	CDescriptor*				m_reqServer;
@@ -31,7 +33,7 @@ public:
 	CMsgListNode*				m_pPrev;
 	CMsgListNode*				m_pNext;
 
-	CMsgListNode(int seq, bool bReq, CDescriptor* reqServer, CNetMsg& msg)
+	CMsgListNode(int seq, bool bReq, CDescriptor* reqServer, CNetMsg::SP& msg)
 	{
 		m_seq = seq;
 		m_bReq = bReq;
@@ -103,14 +105,16 @@ public:
 		}
 	}
 
-	CMsgListNode* Add(int seq, bool bReq, CDescriptor* reqServer, CNetMsg& msg)
+	CMsgListNode* Add(int seq, bool bReq, CDescriptor* reqServer, CNetMsg::SP& msg)
 	{
-		msg.MoveFirst();
+		CNetMsg::SP tmsg(new CNetMsg(msg));
+
+		tmsg->MoveFirst();
 		if (bReq)
-			msg << seq;
+			RefMsg(tmsg) << seq;
 		else
-			msg << (int)-1;
-		CMsgListNode* node = new CMsgListNode(seq, bReq, reqServer, msg);
+			RefMsg(tmsg) << (int)-1;
+		CMsgListNode* node = new CMsgListNode(seq, bReq, reqServer, tmsg);
 		ADD_TO_BILIST(node, m_head, m_pPrev, m_pNext);
 		return node;
 	}
@@ -139,3 +143,4 @@ public:
 };
 
 #endif
+//

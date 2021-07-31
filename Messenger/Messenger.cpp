@@ -1,46 +1,75 @@
 // NewEarthServer.cpp : Defines the entry point for the console application.
 //
-
 #include "stdhdrs.h"
-#include "Log.h"
-#include "Server.h"
 
-void at_exit_exec (void)
-{
-}
+#include "../ShareLib/bnf.h"
+#include "../ShareLib/SignalProcess.h"
+#include "Server.h"
+#include "GMToolInMessenger.h"
+#include "SubHelperInMessenger.h"
+
+#include "../ShareLib/PrintExcuteInfo.h"
+
+#ifdef SERVER_AUTHENTICATION
+#include "../ShareLib/ServerAuthentication.h"
+#endif
+
+void process_after_signal(int signo);
 
 int main(int argc, char* argv[], char* envp[])
 {
-	int nRetCode = 1004;
+	// 로그 초기화
+	LogSystem::setSubstitutedValue("logfile", "Messenger");
+	LogSystem::configureXml("../log.xml");
 
-#ifdef SIGPIPE
-	signal (SIGPIPE, SIG_IGN);
-#endif
+	PrintExcuteInfo::Instance()->PrintStart("Messenger", LC_LOCAL_STRING);
+
+	if (InitSignal(process_after_signal) == false)
+		return 1;
 
 	if (!gserver.LoadSettingFile())
 	{
-		puts("Setting Error!!");
+		LOG_INFO("Setting Error!!");
 		exit(0);
 	}
 
-	g_log.InitLogFile(false, &g_gamelogbuffer, "MS");
-
 	if (!gserver.InitGame())		return 1;
 
-	puts("Messenger Server Running...");
-
-	atexit (at_exit_exec);
-
-	gserver.Run();
-	gserver.Close();
-
-	if (gserver.m_breboot)
+	//////////////////////////////////////////////////////////////////////////
+	std::string bind_host = gserver.m_config.Find("Server", "IP");
+	int bind_port = atoi(gserver.m_config.Find("Server", "Port"));
+	if (bnf::instance()->CreateListen(bind_host, bind_port, 0, &gserver) == SessionBase::INVALID_SESSION_HANDLE)
 	{
-		FILE *fp = fopen (".shutdown", "w");
-		fclose (fp);
+		puts("Messenger : can't bind listen session");
+		return 1;
 	}
 
-	GAMELOG << init("SYSTEM") << "End!" << end;
+	if (GMToolInMessenger::instance()->Init() == false)
+		return 1;
 
-	return nRetCode;
+	if (SubHelperInMessenger::instance()->Init() == false)
+		return 1;
+
+	// 메시지를 지우기 위한 타이머 생성
+	bnf::instance()->CreateMSecTimer(1 * 1000, ClearMessageListTimer::instance());
+
+#ifdef SERVER_AUTHENTICATION
+	if (ServerAuthentication::instance()->isValidCompileTime() == false)
+		return 1;
+#endif
+
+	puts("Messenger server started...");
+	bnf::instance()->Run();
+	//////////////////////////////////////////////////////////////////////////
+
+	PrintExcuteInfo::Instance()->PrintEnd();
+
+	return 0;
+}
+
+void process_after_signal(int signo)
+{
+	bnf::instance()->Stop();
+
+	PrintExcuteInfo::Instance()->SetSignalNo(signo);
 }

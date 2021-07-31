@@ -23,23 +23,7 @@ public:
 	~CMemPos();
 
 	bool Write(int slot, int zone, float x, float z, char ylayer, const char* comment);
-	bool Delete(int slot);
 };
-
-#ifdef PRIMIUM_MEMORYBOOK
-class CMemPosPuls
-{
-public:
-	int				m_count;
-	CMemPosData*	m_data[MAX_MEMPOS_PRIMIUM];
-
-	CMemPosPuls();
-	~CMemPosPuls();
-
-	bool Write(int slot, int zone, float x, float z, char ylayer, const char* comment);
-	bool Delete(int slot);
-};
-#endif	// PRIMIUM_MEMORYBOOK
 
 #endif
 

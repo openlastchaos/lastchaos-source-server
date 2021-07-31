@@ -1,9 +1,9 @@
 #include "stdhdrs.h"
+
 #include "Character.h"
 #include "Server.h"
 #include "CmdMsg.h"
 #include "Exp.h"
-#include "NetMsg.h"
 #include "doFunc.h"
 
 extern void DelAttackList(CCharacter* ch);
@@ -11,9 +11,6 @@ extern void DelAttackList(CCharacter* ch);
 //////////////
 // CNPC member
 CNPC::CNPC()
-#ifdef ALTERNATE_MERCHANT
-:m_pstrOwnerName(MAX_CHAR_NAME_LENGTH + 1), m_pstrShopName(PS_MAX_SHOPNAME + 1)
-#endif // ALTERNATE_MERCHANT
 {
 	m_type = MSG_CHAR_NPC;
 
@@ -30,9 +27,9 @@ CNPC::CNPC()
 	m_bStop = true;
 	m_pNPCPrev = NULL;
 	m_pNPCNext = NULL;
-	m_aipulse = gserver.m_pulse;
+	m_aipulse = gserver->m_pulse;
 	m_attackType = MSG_DAMAGE_MELEE;
-	m_postregendelay = gserver.m_pulse;
+	m_postregendelay = gserver->m_pulse;
 
 	m_moveDir = 0;
 	m_nBlockAI = 0;
@@ -51,33 +48,19 @@ CNPC::CNPC()
 	m_nQuestCount = 0;
 
 	m_regenInfo = NULL;
-#ifndef NEW_DIVISION_EXPSP
-	m_totalDamage = 0;
-#endif // #ifndef NEW_DIVISION_EXPSP
 
-#ifdef MONSTER_RAID_SYSTEM
-#ifdef LC_JPN	// 일본은 3~4시간 마다 텔레포트
-	m_nRaidMoveTime = gserver.m_pulse + GetRandom(PULSE_REAL_HOUR * 3, PULSE_REAL_HOUR * 4);
-#else		
-	m_nRaidMoveTime = gserver.m_pulse + GetRandom(PULSE_MONSTER_RAID_MOVE * 9 / 10, PULSE_MONSTER_RAID_MOVE * 11 / 10);
-#endif
+	m_nRaidMoveTime = gserver->m_pulse + GetRandom(PULSE_MONSTER_RAID_MOVE * 9 / 10, PULSE_MONSTER_RAID_MOVE * 11 / 10);
 	m_bRaidNPCSummon = false;
-#endif // MONSTER_RAID_SYSTEM
 
-#ifdef EVENT_XMAS_2006
-	m_nEventXMasMoveTime = gserver.m_pulse + PULSE_XMAS_2006_MOVE;
-#endif // EVENT_XMAS_2006
-	
-#ifdef MOB_SCROLL
+	m_ctCount = 0;
+	m_ctTime = -1;
+
 	m_MobScrollType = -1;
 	m_NextMobIndex = -1;
 	m_UseCharIndex = -1;
-#endif // MOB_SCROLL
 
-#ifdef MONSTER_COMBO
 	m_coinidx = 0;
 	m_coincount = 0;
-#endif // MONSTER_COMBO
 
 #ifdef MONSTER_AI
 	m_nOldDist = 0;
@@ -89,19 +72,18 @@ CNPC::CNPC()
 #ifdef EXTREME_CUBE
 	m_bCubeRegen = false;
 #endif
-	
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
-	m_Mob_State = 0;						
-	m_owner	= NULL;						
-#endif  // NIGHTSHADOW_SKILL	
-	
-#ifdef RAID_MONSTER_SKILL  // 레이드 몬스터 스킬
-	m_calling_npc = NULL;
-#endif //RAID_MONSTER_SKILL
+
+	m_Mob_State = 0;
+	m_owner	= NULL;
+	m_pulseSoulRecover = 0;
+
+	m_pMercenaryClassData = NULL;
+
+	m_lifetime = 0;
 }
 
 CNPC::~CNPC()
-{	
+{
 	m_assist.ClearAssist(false, false, true, true, true);
 
 	m_proto = NULL;
@@ -121,15 +103,15 @@ CNPC::~CNPC()
 	if (m_currentSkill)
 		delete m_currentSkill;
 	m_currentSkill = NULL;
-	
-#ifdef NIGHTSHADOW_SKILL	// 나이트 쉐도우의 몬스터 시스템
-	m_Mob_State = 0;						
-	m_owner	= NULL;						
-#endif  // NIGHTSHADOW_SKILL
 
-#ifdef RAID_MONSTER_SKILL  // 레이드 몬스터 스킬
-	m_calling_npc = NULL;
-#endif //RAID_MONSTER_SKILL
+	m_Mob_State = 0;
+	m_owner	= NULL;
+	m_pulseSoulRecover = 0;
+	if( m_pMercenaryClassData )
+	{
+		delete [] m_pMercenaryClassData;
+		m_pMercenaryClassData = NULL;
+	}
 }
 
 void CNPC::DeleteNPC()
@@ -150,7 +132,8 @@ void CNPC::ResetStat()
 	m_maxHP			= m_proto->m_hp;
 	m_maxMP			= m_proto->m_mp;
 	m_walkSpeed		= m_proto->m_walkSpeed;
-	m_runSpeed		= m_proto->m_runSpeed;
+	//m_runSpeed		= m_proto->m_runSpeed;
+	SetRunSpeed(m_proto->m_runSpeed);
 	m_recoverHP		= m_proto->m_recoverHP;
 	m_recoverMP		= m_proto->m_recoverMP;
 	m_str			= m_proto->m_str;
@@ -167,21 +150,108 @@ void CNPC::ResetStat()
 	m_eqDefense		= m_proto->m_defense;
 	m_eqResist		= m_proto->m_resist;
 	m_attackRange	= m_proto->m_attackArea;
-	m_attribute.Reset();
+	m_statPall		= 0;
+	m_statPall_per	= 0;
+	m_attrdef = m_proto->m_attrdef;
+	m_attratt = m_proto->m_attratt;
 
 	// 리젠되는 NPC의 파라미터를 리젠 정보에서 가져와 조정
 	if (m_regenInfo)
 	{
 		m_maxHP += m_regenInfo->m_paramHP;
 	}
+
+	if( GetOwner() && this == GetOwner()->GetSummonNpc(SUMMON_NPC_TYPE_MERCENARY) && GetMercenaryClassData() )
+	{
+		m_str = GetOwner()->m_str;
+		m_dex = GetOwner()->m_dex;
+		m_int = GetOwner()->m_int;
+		m_con = GetOwner()->m_con;
+
+		m_maxMP = m_maxHP = GetOwner()->m_level * GetMercenaryClassData()->nHpMp;
+		m_recoverMP = m_recoverHP = GetOwner()->m_level;
+
+		m_eqMelee	= GetOwner()->m_level * GetMercenaryClassData()->nAttDef + GetMercenaryClassData()->nBonusAtt;
+		m_eqMagic	= GetOwner()->m_level * GetMercenaryClassData()->nAttDef + GetMercenaryClassData()->nBonusAtt;
+		m_eqDefense	= GetOwner()->m_level * GetMercenaryClassData()->nAttDef * 2 + GetMercenaryClassData()->nBonusDef;
+		m_eqResist	= GetOwner()->m_level + GetMercenaryClassData()->nBonusDef;
+
+#ifdef SYSTEM_MONSTER_MERCENARY_CARD_EX
+		m_walkSpeed	= GetMercenaryClassData()->nWalkSpeed;
+		//m_runSpeed	= GetMercenaryClassData()->nRunSpeed;
+		SetRunSpeed(GetMercenaryClassData()->nRunSpeed);
+#endif
+	}
+
+#ifdef DYNAMIC_DUNGEON_BUG_FIX
+	if( (this->m_regenInfo != NULL) && (this->m_regenInfo->m_zoneNo == ZONE_DRATAN_CASTLE_DUNGEON) )
+	{
+		CDratanCastle* pCastle = CDratanCastle::CreateInstance();
+		int nMobRate[10][4] =  	// 공격력, 방어력, 최대체력, 시야범위
+		{
+			{20, 20, 30, 0},
+			{10, 10, 15, 0},
+			{5, 5, 10, 0},
+			{0, 0, 0, 0},
+			{-5, -5, -5, 0},
+			{-7, -7, -7, 0},
+			{-10, -10, -10, 0},
+			{-15, -15, -15, 0},
+			{-20, -20, -20, 0},
+			{-25, -25, -25, -80},
+		};
+		int midx = pCastle->m_dvd.GetMobRate()/10;
+		if(midx > 9)
+			midx = 9;
+		if(m_attackType == MSG_DAMAGE_MELEE)
+		{
+			m_eqMelee = m_proto->m_attack + m_proto->m_attack * nMobRate[midx][0] / 100;
+			if(m_eqMelee < 0)
+				m_eqMelee = 1;
+		}
+		else if(m_attackType == MSG_DAMAGE_RANGE)
+		{
+			m_eqRange = m_proto->m_attack + m_proto->m_attack * nMobRate[midx][0] / 100;
+			if(m_eqRange < 0)
+			{
+				m_eqRange = 1;
+			}
+		}
+		else if(m_attackType == MSG_DAMAGE_MAGIC)
+		{
+			m_eqMagic = m_proto->m_magic + m_proto->m_magic * nMobRate[midx][0] / 100;
+			if(m_eqMagic < 0)
+			{
+				m_eqMagic = 1;
+			}
+		}
+
+		// 방어력 적용
+		m_eqDefense = m_proto->m_defense + m_proto->m_defense * nMobRate[midx][1] / 100;
+		// 최대 체력 적용
+		m_maxHP = m_proto->m_hp + m_proto->m_hp * nMobRate[midx][2] / 100;
+		if(m_maxHP < 0)
+		{
+			m_maxHP = 1;
+		}
+
+		// 시야 거리 적용
+		if(nMobRate[midx][3] != 0 && m_attackRange != 0)
+		{
+			m_attackRange = m_proto->m_attackArea + m_proto->m_attackArea * nMobRate[midx][3] / 100;
+		}
+	}
+#endif // DYNAMIC_DUNGEON_BUG_FIX
+
+	setSyndicateType(m_proto->m_rvr_value);
 }
 
-int CNPC::GetAttackLevel() const
+int CNPC::GetAttackLevel()
 {
 	return m_proto->m_attacklevel;
 }
 
-int CNPC::GetDefenseLevel() const
+int CNPC::GetDefenseLevel()
 {
 	return m_proto->m_defenselevel;
 }
@@ -230,7 +300,6 @@ void CNPC::CalcStatus(bool bSend)
 	ResetStat();
 	m_assist.Apply();
 }
-#ifdef NEW_DIVISION_EXPSP
 LONGLONG CNPC::GetTotalDamage()
 {
 	LONGLONG ret = 0;
@@ -245,21 +314,23 @@ LONGLONG CNPC::GetTotalDamage()
 
 	return ret;
 }
-#endif // #ifdef NEW_DIVISION_EXPSP
 
 bool CNPC::CanAttack()
 {
-#ifndef LC_BRZ
+#if defined(LC_BILA)
+#else
 	if (m_assist.m_state & AST_HOLD)
 		return false;
-#endif // LC_BRZ
+#endif // LC_BILA
 	return CCharacter::CanAttack();
 }
 
-
-#ifdef ADULT_SERVER_NEW_BALANCE
 float CNPC::GetHitrate(CCharacter* df, MSG_DAMAGE_TYPE type)
 {
+#ifdef DEV_SYSTEM_MONSTER_MERCENARY
+	if( GetOwner() && GetOwner()->GetSummonNpc(SUMMON_NPC_TYPE_MERCENARY) == this && GetMercenaryClassData() )
+		return 1.0f * GetOwner()->m_level * GetMercenaryClassData()->nHit + (GetOwner()->m_level - df->m_level);
+#endif
 	return 1.0f * m_proto->m_nHit + (m_level - df->m_level);
 }
 
@@ -269,14 +340,22 @@ float CNPC::GetAvoid(CCharacter* of, MSG_DAMAGE_TYPE type)
 	{
 	case MSG_DAMAGE_MELEE:
 	case MSG_DAMAGE_RANGE:
+#ifdef DEV_SYSTEM_MONSTER_MERCENARY
+		if( GetOwner() && GetOwner()->GetSummonNpc(SUMMON_NPC_TYPE_MERCENARY) == this && GetMercenaryClassData() )
+			return 1.0f * GetOwner()->m_level * GetMercenaryClassData()->nDodge + (GetOwner()->m_level - of->m_level);
+#endif
 		return 1.0f * m_proto->m_nDodge + (m_level - of->m_level);
+
 	case MSG_DAMAGE_MAGIC:
+#ifdef DEV_SYSTEM_MONSTER_MERCENARY
+		if( GetOwner() && GetOwner()->GetSummonNpc(SUMMON_NPC_TYPE_MERCENARY) == this && GetMercenaryClassData() )
+			return GetOwner()->GetAvoid(of, type);
+#endif
 		return 1.0f * m_proto->m_nMagicAvoid + (m_level - of->m_level);
 	default:
 		return 0.0f;
 	}
 }
-#endif // ADULT_SERVER_NEW_BALANCE
 
 #ifdef MONSTER_AI
 float CNPC::GetDistToRegen()
@@ -285,9 +364,8 @@ float CNPC::GetDistToRegen()
 	xx = m_regenX;
 	zz = m_regenZ;
 	hh = m_pArea->GetHeight(GET_YLAYER(this), m_regenX, m_regenZ);
-	
+
 	return GetDistance(xx, zz, hh, this);
 }
 #endif
-
 

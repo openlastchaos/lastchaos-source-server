@@ -1,14 +1,17 @@
 #include "stdhdrs.h"
+
 #include "Server.h"
 #include "Log.h"
 #include "CmdMsg.h"
 #include "WarCastle.h"
-
-#ifdef ENABLE_WAR_CASTLE
+#include "../ShareLib/packetType/ptype_old_do_item.h"
 
 CMeracCastle::CMeracCastle() : CWarCastle()
 {
 	memset(m_gateNPC, 0, sizeof(CNPC*) * COUNT_MERAC_GATE_NPC);
+#ifdef WARCASTLE_SUBNUMBER_MEMBER_VALUE
+	m_subNumber = 0;
+#endif // WARCASTLE_SUBNUMBER_MEMBER_VALUE
 }
 
 void CMeracCastle::SetNextWarTime(int nextWarTime)
@@ -52,6 +55,7 @@ void CMeracCastle::SetNextWarTime(int nextWarTime)
 	nexttm.tm_min = 0;
 	nexttm.tm_sec = 0;
 	nexttm.tm_mday += next;
+	nexttm.tm_isdst = -1;
 	time_t nexttime = mktime(&nexttm);
 
 	// 현재 시간보다 작으면 다음주로
@@ -60,23 +64,6 @@ void CMeracCastle::SetNextWarTime(int nextWarTime)
 		nexttm.tm_mday += 7;
 		nexttime = mktime(&nexttm);
 	}
-
-#ifdef TLD_WAR_TEST
-	m_nextWarTime = 1293721200;
-	int timetest;
-	time((time_t*)&timetest);
-	if (timetest >= m_nextWarTime)
-	{
-		GAMELOG << init("WARCASTLE TLD WAR TEST ERROR")
-				<< end;
-		gserver.m_bShutdown = true;
-		gserver.m_bReboot = true;
-		
-		GAMELOG << init("shutdown by CMeracCastle::SetNextWarTime") << delim << "timetest >= m_nextWarTime" << end;
-	}
-	return;
-#endif
-
 
 	m_nextWarTime = nexttime;
 
@@ -96,6 +83,7 @@ bool CMeracCastle::IsJoinTime()
 
 	struct tm tmJoinTime;
 	GetJoinTime(&tmJoinTime, false);
+	tmJoinTime.tm_isdst = -1;
 	time_t jointime = mktime(&tmJoinTime);
 
 	// 마지막 공성시간과 비교
@@ -120,7 +108,7 @@ void CMeracCastle::GetJoinTime(struct tm* joinTime, bool bHumanable)
 	nDay -= 1;
 
 	// 다음 공성에서 nDay일을 빼고
-	// 그 날 20시로 설정 : 7시 
+	// 그 날 20시로 설정 : 7시
 #ifdef LC_TLD
 	tmNext.tm_hour = 19;
 #else
@@ -129,11 +117,9 @@ void CMeracCastle::GetJoinTime(struct tm* joinTime, bool bHumanable)
 	tmNext.tm_min = 0;
 	tmNext.tm_sec = 0;
 	tmNext.tm_mday -= nDay;
+	tmNext.tm_isdst = -1;
 	time_t tJoin = mktime(&tmNext);
 
-#ifdef TLD_WAR_TEST
-	tJoin = 0;
-#endif
 	*joinTime = *localtime(&tJoin);
 
 	if (bHumanable)
@@ -162,14 +148,22 @@ int CMeracCastle::GetRegenPoint(int joinflag, CPC* ch)
 				{
 					switch (i)
 					{
-					case 0:		return 8;
-					case 1:		return 9;
-					case 2:		return 10;
-					case 3:		return 11;
-					case 4:		return 12;
-					case 5:		return 13;
-					case 6:		return 14;
-					case 7:		return 15;
+					case 0:
+						return 8;
+					case 1:
+						return 9;
+					case 2:
+						return 10;
+					case 3:
+						return 11;
+					case 4:
+						return 12;
+					case 5:
+						return 13;
+					case 6:
+						return 14;
+					case 7:
+						return 15;
 					}
 				}
 			}
@@ -191,13 +185,26 @@ void CMeracCastle::SetGateNPC(CNPC* npc)
 		int i = 0;
 		switch (npc->m_proto->m_index)
 		{
-		case 222:	i = 0;	break;		// 좌측성문1
-		case 223:	i = 1;	break;		// 좌측성문2
-		case 227:	i = 2;	break;		// 우측성문1
-		case 228:	i = 3;	break;		// 우측성문2
-		case 229:	i = 4;	break;		// 중앙성문1
-		case 230:	i = 5;	break;		// 중앙성문2
-		default:			return ;
+		case 222:
+			i = 0;
+			break;		// 좌측성문1
+		case 223:
+			i = 1;
+			break;		// 좌측성문2
+		case 227:
+			i = 2;
+			break;		// 우측성문1
+		case 228:
+			i = 3;
+			break;		// 우측성문2
+		case 229:
+			i = 4;
+			break;		// 중앙성문1
+		case 230:
+			i = 5;
+			break;		// 중앙성문2
+		default:
+			return ;
 		}
 
 		m_gateNPC[i] = npc;
@@ -256,7 +263,7 @@ bool CMeracCastle::SetNextWarTime(int wday, int hour)
 		maxHour = 16;
 		break;
 #else
-		minHour = 18;
+		minHour = 17;
 		maxHour = 23;
 		break;
 #endif // LC_USA
@@ -283,9 +290,11 @@ bool CMeracCastle::SetNextWarTime(int wday, int hour)
 	nexttm.tm_min = 0;
 	nexttm.tm_sec = 0;
 	nexttm.tm_mday += next;
+	nexttm.tm_isdst = -1;
 	time_t nexttime = mktime(&nexttm);
 
-	// 현재 시간보다 작으면 ?	if (nexttime < curtime)
+	// 현재 시간보다 작으면
+	if (nexttime < curtime)
 		return false;
 
 	m_nextWarTime = nexttime;
@@ -295,18 +304,17 @@ bool CMeracCastle::SetNextWarTime(int wday, int hour)
 
 bool CMeracCastle::GiveLordItem(CPC* pc)
 {
-	CNetMsg rmsg;
 	CItem* lordItem = NULL;
 
 	int lordItemIndex = GetLordItemIndex(pc->m_job, 1);
 	int r, c;
-	if (pc->m_invenNormal.FindItem(&r, &c, lordItemIndex, 0, 0))
+	if (pc->m_inventory.FindByDBIndex(lordItemIndex, 0, 0))
 	{
 		m_bGiveLordWeapon = true;
 		return true;
 	}
 	lordItemIndex = GetLordItemIndex(pc->m_job, 2);
-	if (pc->m_invenNormal.FindItem(&r, &c, lordItemIndex, 0, 0))
+	if (pc->m_inventory.FindByDBIndex(lordItemIndex, 0, 0))
 	{
 		m_bGiveLordWeapon = true;
 		return true;
@@ -315,15 +323,10 @@ bool CMeracCastle::GiveLordItem(CPC* pc)
 
 	if (lordItemIndex > 0)
 	{
-		lordItem = gserver.m_itemProtoList.CreateItem(lordItemIndex, -1, 0, 0, 1);
+		lordItem = gserver->m_itemProtoList.CreateItem(lordItemIndex, -1, 0, 0, 1);
 		if (lordItem)
 		{
-			if (AddToInventory(pc, lordItem, true, true))
-			{
-				ItemAddMsg(rmsg, lordItem);
-				SEND_Q(rmsg, pc->m_desc);
-			}
-			else
+			if (pc->m_inventory.addItem(lordItem) == false)
 			{
 				delete lordItem;
 				lordItem = NULL;
@@ -363,28 +366,25 @@ bool CMeracCastle::GiveLordItem(CPC* pc)
 
 bool CMeracCastle::TakeLordItem(CPC* pc)
 {
-	CNetMsg rmsg;
-	int r, c;
-	if (pc->m_invenNormal.FindItem(&r, &c, GetLordItemIndex(pc->m_job, 1), 0, 0) ||
-		pc->m_invenNormal.FindItem(&r, &c, GetLordItemIndex(pc->m_job, 2), 0, 0))
+	CItem* item = pc->m_inventory.FindByDBIndex(GetLordItemIndex(pc->m_job, 1), 0, 0);
+	if (item == NULL)
 	{
-		CItem* item = pc->m_invenNormal.GetItem(r, c);
-		if (item->m_wearPos != WEARING_NONE)
+		item = pc->m_inventory.FindByDBIndex(GetLordItemIndex(pc->m_job, 2), 0, 0);
+		if (item == NULL)
 		{
-			ItemWearMsg(rmsg, item->m_wearPos, NULL, item);
-			SEND_Q(rmsg, pc->m_desc);
-			if (item->m_wearPos >= WEARING_SHOW_START && item->m_wearPos <= WEARING_SHOW_END && pc->m_pArea)
-			{
-				WearingMsg(rmsg, pc, item->m_wearPos, -1, 0);
-				pc->m_pArea->SendToCell(rmsg, pc, true);
-			}
-			pc->m_wearing[item->m_wearPos] = NULL;
-			item->m_wearPos = WEARING_NONE;
+			return false;
 		}
+	}
 
-		ItemDeleteMsg(rmsg, item);
-		SEND_Q(rmsg, pc->m_desc);
-		RemoveFromInventory(pc, item, true, true);
+	if (item->getWearPos() != WEARING_NONE)
+	{
+		if (item->getWearPos() >= WEARING_SHOW_START && item->getWearPos() <= WEARING_SHOW_END && pc->m_pArea)
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			WearingMsg(rmsg, pc, item->getWearPos(), -1, 0);
+			pc->m_pArea->SendToCell(rmsg, pc, true);
+		}
+		pc->m_wearInventory.RemoveItem(item->getWearPos());
 	}
 
 	if (GetOwnerCharIndex() == pc->m_index)
@@ -403,16 +403,21 @@ int CMeracCastle::GetLordItemIndex(char job1, char job2)
 	if (job2 < 1 || job2 > 2)
 		return -1;
 
-	const int itemindex[JOBCOUNT][2] = {
+	const int itemindex[JOBCOUNT][2] =
+	{
 		{862, 861},
 		{864, 863},
 		{865, 866},
 		{868, 867},
 		{869, 870},
 		{1071, 1070},
-#ifdef NIGHT_SHADOW
-		{864, 863},
-#endif //NIGHT_SHADOW
+		{7274, 7274},
+#ifdef EX_ROGUE
+		{869, 870},
+#endif // EX_ROGUE
+#ifdef EX_MAGE
+		{868, 867},
+#endif // EX_MAGE
 	};
 
 	switch (job1)
@@ -423,7 +428,14 @@ int CMeracCastle::GetLordItemIndex(char job1, char job2)
 	case JOB_MAGE:
 	case JOB_ROGUE:
 	case JOB_SORCERER:
-		return itemindex[job1][job2 - 1];
+	case JOB_NIGHTSHADOW:
+#ifdef EX_ROGUE
+	case JOB_EX_ROGUE:
+#endif // EX_ROGUE
+#ifdef EX_MAGE
+	case JOB_EX_MAGE:
+#endif // EX_MAGE
+		return itemindex[(int)job1][job2 - 1];
 	default:
 		return -1;
 	}
@@ -490,11 +502,9 @@ void CMeracCastle::InitGateNPC()
 
 void CMeracCastle::GetInnerCastleRect(char* nYlayer, int* nX0x2, int* nZ0x2, int* nX1x2, int* nZ1x2)
 {
-	int i = gserver.FindZone(GetZoneIndex());
-	if (i == -1)
-		return ;
-
-	CZone*	pZone	= gserver.m_zones + i;
+	CZone*	pZone	= gserver->FindZone(GetZoneIndex());
+	if (pZone == NULL)
+		return;
 
 	*nYlayer		= (char)(pZone->m_zonePos[16][0]);
 	*nX0x2			= pZone->m_zonePos[16][1];
@@ -503,4 +513,3 @@ void CMeracCastle::GetInnerCastleRect(char* nYlayer, int* nX0x2, int* nZ0x2, int
 	*nZ1x2			= pZone->m_zonePos[16][4];
 }
 
-#endif // ENABLE_WAR_CASTLE

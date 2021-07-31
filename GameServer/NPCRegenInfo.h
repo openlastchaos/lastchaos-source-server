@@ -1,7 +1,7 @@
 #ifndef __ANPCREGENINFO_H__
 #define __ANPCREGENINFO_H__
 
-class CNPCRegenInfo  
+class CNPCRegenInfo
 {
 public:
 	CNPCRegenInfo();
@@ -11,7 +11,7 @@ public:
 	// NPC_REGEN_INFO 에서 읽기
 
 	// DB 필드
-	int		m_index;			// 디비 레코드 인덱스 
+	int		m_index;			// 디비 레코드 인덱스
 	int		m_npcIdx;			// 몹 인덱스
 	int		m_zoneNo;			// 존번호
 	float	m_regenX;			// 리젠 위치 : x
@@ -29,21 +29,22 @@ public:
 	// 리젠되는 NPC의 파라미터
 	int		m_paramHP;			// HP를 증가
 
-#ifdef MONSTER_RAID_SYSTEM
 	bool	m_bRaidMoveRandom;	// RAID 몹 비전투 이동 여부
-#endif // MONSTER_RAID_SYSTEM
 
-#ifdef EVENT_XMAS_2006
-	bool	m_bEventXMasMoveRandom;
-#endif // EVENT_XMAS_2006
+	bool		m_bRegen;			// npc 리제 여부 결정
 
-	void SetHPParam(int val)	{ m_paramHP = val; }
+	CNPCProto*	m_npcProto;
+
+	void SetHPParam(int val)
+	{
+		m_paramHP = val;
+	}
 	void clean();
 };
 
 class CArea;
 
-class CNPCRegenList  
+class CNPCRegenList
 {
 public:
 	CNPCRegenList();
@@ -56,10 +57,10 @@ public:
 
 	void Init();
 	void SetCount(int n);
-	void AddRegenInfo(int index, int npc_index, int regenSec, float regenX, int yLayer, float regenZ, float regenR, int totalNum, int zonenNo);
-	void AddRegenInfo(CNPCRegenInfo* info);
+	void AddRegenInfo(int index, int npc_index, int regenSec, float regenX, int yLayer, float regenZ, float regenR, int totalNum, int zonenNo, bool bRegen = true, CNPCProto* pNpcProto = NULL);
+//	void AddRegenInfo(CNPCRegenInfo* info);
 
-	bool Find(int idx, int zoneNo, bool pdZone = false, float x = 0, int y = 0, float z = 0); 
+	bool Find(int idx, int zoneNo, bool pdZone = false, float x = 0, int y = 0, float z = 0);
 
 	bool DelRegenInfo(CNPCRegenInfo * p);
 
@@ -83,10 +84,8 @@ public:
 						pArea->m_regenList[j] = -1;
 						return true;
 					}
-						
 				}
 			}
-				
 		}
 
 		return false;
@@ -94,7 +93,7 @@ public:
 	*/
 
 	/*
-	bool Find(int idx, int zoneNo) 
+	bool Find(int idx, int zoneNo)
 	{
 		CNPCRegenInfo s;
 		s.m_npcIdx = idx;
@@ -107,14 +106,13 @@ public:
 			delete result;
 			return false;
 		}
-		
+
 		result = NULL;
 		delete result;
 		return true;
-
 	}
 
-private:
+	private:
 	static int CompIndex(const void* p1, const void* p2)
 	{
 		CNPCRegenInfo * i1 = (CNPCRegenInfo*) p1;
@@ -126,8 +124,9 @@ private:
 		return i1->m_npcIdx - i2->m_npcIdx;
 	}
 	*/
-	
+
 	CNPCRegenInfo * GetNpcRegenInfo(int idx);	// 리스트에 저장된 인덱스로 CNPCRegenInfo 가져오기
 };
 
 #endif
+//

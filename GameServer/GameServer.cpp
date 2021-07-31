@@ -1,114 +1,174 @@
+#include <boost/format.hpp>
 #include "stdhdrs.h"
+
+#include "../ShareLib/bnf.h"
+#include "../ShareLib/SignalProcess.h"
 #include "Log.h"
 #include "Server.h"
+#include "DBManager.h"
+#include "ServerTimer.h"
 
-void at_exit_exec (void)
-{
-#ifdef USING_GMIP_TABLE
-	gserver.DisconnectDB(false);
+#include "../ShareLib/PrintExcuteInfo.h"
+
+#ifdef SERVER_AUTHENTICATION
+#include "../ShareLib/ServerAuthentication.h"
 #endif
-	gserver.DisconnectDB(true);
-	GAMELOG << flush;
 
-#ifdef USING_NPROTECT
-	CleanupGameguardAuth();
-#endif // USING_NPROTECT
-}
+void process_after_signal(int signo);
 
 int main(int argc, char* argv[], char* envp[])
 {
-	gThreadIDGameThread = LC_CURRENT_THREAD_ID;
-	gThreadIDDBThread = (LC_THREAD_T)-1;
+	gserver = new CServer;
 
-	int nRetCode = 1004;
+	//////////////////////////////////////////////////////////////////////////
+	// 사내 서버일 경우를 체크
+	gserver->barunsongames_flag = false;
 
-#ifdef SIGPIPE
-	signal (SIGPIPE, SIG_IGN);
-#endif
+	if (argc == 3)
+	{
+		std::string tstr = "qatest";
+		if (tstr == argv[2])
+		{
+			gserver->barunsongames_flag = true;
+		}
+	}
+	//////////////////////////////////////////////////////////////////////////
 
-	if (!gserver.LoadSettingFile())
+	if (!gserver->LoadSettingFile())
 	{
 		puts("Setting Error!!");
 		exit(0);
 	}
 
+	// 로그 초기화
+	std::string tstr = boost::str(boost::format("Gameserver_%1%_%2%") % gserver->m_serverno % gserver->m_subno);
+	LogSystem::setSubstitutedValue("logfile", tstr.c_str());
+	LogSystem::configureXml("../log.xml");
+
+	PrintExcuteInfo::Instance()->PrintStart("GameServer", LC_LOCAL_STRING);
+
+	if (InitSignal(process_after_signal) == false)
+		return 1;
+
+	gserver->m_serverAddr = gserver->m_config.Find("Server", "IP");
+	gserver->m_serverPort = atoi(gserver->m_config.Find("Server", "Port"));
+
 	int i;
-	for (i = 0; i < atoi(gserver.m_config.Find("Zones", "Count")); i++)
+	int count = atoi(gserver->m_config.Find("Zones", "Count"));
+	for (i = 0; i < count; i++)
 	{
 		CLCString tmp(20);
 		tmp.Format("Zone_%d", i);
-		if (strcmp(gserver.m_config.Find(tmp, "Remote"), "FALSE") == 0)
+		if (strcmp(gserver->m_config.Find(tmp, "Remote"), "FALSE") == 0)
 			break;
 	}
-	if (i == atoi(gserver.m_config.Find("Zones", "Count")))
+	if (i == atoi(gserver->m_config.Find("Zones", "Count")))
 		i = -1;
 	else
 	{
 		CLCString tmp(20);
 		tmp.Format("Zone_%d", i);
-		i = atoi(gserver.m_config.Find(tmp, "No"));
+		i = atoi(gserver->m_config.Find(tmp, "No"));
 	}
-	g_log.InitLogFile(gserver.m_serverno, gserver.m_subno, i, false, &g_gamelogbuffer);
-	g_logDB.InitLogFile(gserver.m_serverno, gserver.m_subno, i, true, &g_dblogbuffer);
 
-	if (!gserver.ConnectDB())
+	if (!gserver->ConnectDB())
 	{
-		GAMELOG << init("Cannot Connect DB!!") << end;
-		puts("Cannot Connect DB!!");
+		LOG_INFO("Cannot Connect DB!!");
 		exit(0);
 	}
 
-	if (!gserver.LoadSettings())
+	if (!gserver->LoadSettings())
 	{
-		GAMELOG << init("Setting Error!!") << end;
-		puts("Setting Error!!");
+		LOG_INFO("Setting Error!!");
 		exit(0);
 	}
 
-	if (!gserver.CreateDBThread())	return 1;
+	gserver->ClearMobAISeq();
 
-	if (!gserver.InitGame())		return 1;
+	if (!gserver->InitGame())		return 1;
 
-#ifndef USING_GMIP_TABLE
-	gserver.DisconnectDB(false);
+	LOG_INFO("SETTINGS");
+
+	if (gserver->m_bOnlyLocal)
+		LOG_INFO(" : Only Local IP");
+
+	LOG_INFO("Force start zone 0");
+
+	char tmpBuf[100] = {0,};
+	strcpy (tmpBuf, "LastChaos Running...");
+
+#ifdef IMP_SPEED_SERVER
+	if( gserver->m_bSpeedServer )
+		strcat( tmpBuf, " --[ SPEED ] " );
+#endif //IMP_SPEED_SERVER
+	LOG_INFO (tmpBuf);
+
+#ifdef TLD_EVENT_SONG
+	gserver->checkTldEvent();
 #endif
 
-	puts("SETTINGS");
+	//////////////////////////////////////////////////////////////////////////
+	if (DBManager::instance()->Init() == false)
+		return 1;
 
-	if (gserver.m_bOnlyLocal)
-		puts(" : Only Local IP");
+	// 각 서버에 접속
+	gserver->m_messenger->connect();
+	gserver->m_connector->connect();
+	gserver->m_helper->connect();
+	gserver->m_subHelper->connect();
 
-#ifdef LC_BIG_ENDIAN
-	puts(" : Big Endian");
-#else
-	puts(" : Little Endian");
+	gserver->m_serverAddr = gserver->m_config.Find("Server", "IP");
+	gserver->m_serverPort = atoi(gserver->m_config.Find("Server", "Port"));
+
+	int wait_time_sec = 70;
+#ifdef LC_KOR
+	wait_time_sec = 5 * 60;
+#endif
+	if (bnf::instance()->CreateListen(gserver->m_serverAddr, gserver->m_serverPort, wait_time_sec, gserver) == SessionBase::INVALID_SESSION_HANDLE)
+	{
+		puts("GameServer : can't bind listen session");
+		return 1;
+	}
+
+	ServerTimerPerSecond::instance()->Init();
+	ServerTimerPerHundredMSecond::instance()->Init();
+	ServerTimerPerMinute::instance()->Init();
+	ServerTimerPerHour::instance()->Init();
+	ServerTimerPerMidnight::instance()->Init();
+
+#ifdef SERVER_AUTHENTICATION
+	if (ServerAuthentication::instance()->isValidCompileTime() == false)
+		return 1;
+
+// 	if (ServerAuthentication::instance()->isValidIp() == false)
+// 		return 1;
+
+	ServerAuthentication::instance()->setServerInfo(LC_LOCAL_CODE, (const char *)gserver->m_serverAddr, gserver->m_serverPort);
 #endif
 
-#ifdef FORCE_START_ZONE
-	puts("Force start zone 0");
-#endif
+	puts("Game server started...");
+	bnf::instance()->Run();
+	//////////////////////////////////////////////////////////////////////////
 
-	strcpy (g_buf, "LastChaos Running...");
-	puts (g_buf);
+	DBManager::instance()->JoinAll();
 
-	atexit (at_exit_exec);
-
-	gserver.Run();
-	gserver.Close();
-
-#ifdef USING_NPROTECT
-	CleanupGameguardAuth();
-#endif // USING_NPROTECT
-
-	if (gserver.m_bShutdown)
+	if (gserver->m_bShutdown)
 	{
 		FILE *fp = fopen (".shutdown", "w");
 		fclose (fp);
 	}
 
-	GAMELOG << init("SYSTEM")
-			<< "End!"
-			<< end;
+	PrintExcuteInfo::Instance()->PrintEnd();
 
-	return nRetCode;
+	delete gserver;
+
+	return 0;
+}
+
+void process_after_signal(int signo)
+{
+	DBManager::instance()->JoinAll();
+	bnf::instance()->Stop();
+
+	PrintExcuteInfo::Instance()->SetSignalNo(signo);
 }

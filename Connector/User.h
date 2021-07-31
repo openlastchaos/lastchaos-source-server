@@ -25,17 +25,11 @@ public:
 	int				m_timeremain;	// 계정 만료 남은 시간
 	int				m_paytype;		// 지불 방법
 	int				m_location;		// 접속 장소(일반/게임방/기타 등등)
-#ifdef EVENT_PCBANG
-	int				m_pcbang_time;	// 등록된 pc방에서 접속한 시간.
-#endif
-#ifdef EVENT_PROMOTION_SITE
 	CLCString			m_proSite;
-#endif
 
 #ifdef CHARDEL_CHECKID
 	CLCString		m_identification;
 #endif
-
 
 	CUser(int index, const char* name, int server, int subnum, const char* ip, const char* ident = NULL);
 };
@@ -47,9 +41,7 @@ public:
 	int				m_count;
 	int				m_last;
 	int				m_playersPerZone[MAX_ZONES];
-#ifdef EXTERNAL_COUNT
-	int*			m_exCount;
-#endif
+
 
 	CUserList();
 	~CUserList();
@@ -57,7 +49,8 @@ public:
 	CUser* Add(CUser* user);
 	bool Remove(CUser* user, bool bFree = true);
 	CUser* Find(const char* name);
-	CUser* Find(int userindex);
+	CUser* FindByUserIndex(int userindex);
 };
 
 #endif
+//

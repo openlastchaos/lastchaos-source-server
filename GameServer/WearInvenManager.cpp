@@ -544,7 +544,14 @@ bool CWearInvenManager::DelCostumItem( int wearPos, short tab /*= -1*/, short in
 		{
 			this->UndressCostum(TakeOffItem, wearPos);
 			AddCostumItem(dressItem, dressItem->m_itemProto->getItemWearing());
-			_owner->m_inventory.addItemToInvenIndex(TakeOffItem, tab, invenIndex);
+			if(_owner->m_inventory.isUsable(tab) == true)
+			{
+				_owner->m_inventory.addItemToInvenIndex(TakeOffItem, tab, invenIndex);
+			}
+			else
+			{
+				_owner->m_inventory.addItem(TakeOffItem);
+			}
 		}
 		else
 		{
@@ -672,6 +679,15 @@ bool CWearInvenManager::CanDressNormal( CItem* item, int wearPos )
 			CNetMsg::SP rmsg(new CNetMsg);
 			SysMsg(rmsg, MSG_SYS_SHORT_FAME);
 			SEND_Q(rmsg, _owner->m_desc);
+			_lastError = ResponseClient::WEAR_ERR_CANNOT_WEAR;
+			return false;
+		}
+	}
+
+	if(item->IsAPet() || item->IsPet())
+	{
+		if( gserver->m_subno == 4 )
+		{
 			_lastError = ResponseClient::WEAR_ERR_CANNOT_WEAR;
 			return false;
 		}
@@ -1027,7 +1043,16 @@ void CWearInvenManager::DressNormal( CItem* item, int wearPos )
 		takeOffItem->unWearPos();
 		_owner->m_wearInventory.UndressNormal(takeOffItem, wearPos);
 		_owner->m_wearInventory.DressNormal(item, wearPos);
-		_owner->m_inventory.addItemToInvenIndex(takeOffItem, tab, invenIndex);
+		
+		if(_owner->m_inventory.isUsable(tab) == true)
+		{
+			_owner->m_inventory.addItemToInvenIndex(takeOffItem, tab, invenIndex);
+		}
+		else
+		{
+			_owner->m_inventory.addItem(takeOffItem);
+		}
+		
 		_owner->ChangeQuickSlot(takeOffItem, QUICKSLOT_TYPE_ITEM);
 
 		return ;
@@ -1740,7 +1765,16 @@ void CWearInvenManager::DressCostum( CItem* item, int wearPos )
 
 		_owner->m_wearInventory.UndressCostum(takeOffItem, wearPos);
 		_owner->m_wearInventory.DressCostum(item, wearPos);
-		_owner->m_inventory.addItemToInvenIndex(takeOffItem, tab, invenIndex);
+		
+		if(_owner->m_inventory.isUsable(tab) == true)
+		{
+			_owner->m_inventory.addItemToInvenIndex(takeOffItem, tab, invenIndex);
+		}
+		else
+		{
+			_owner->m_inventory.addItem(takeOffItem);
+		}
+		
 		_owner->ChangeQuickSlot(takeOffItem, QUICKSLOT_TYPE_ITEM);
 
 		return;
@@ -1874,7 +1908,15 @@ bool CWearInvenManager::DelCostumSuitItem(short tab, short invenIndex)
 			UndressCostumeSuit();
 			DressCostumSuit(dressItem);
 			_owner->m_inventory.eraseNotFree(dressItem);
-			_owner->m_inventory.addItemToInvenIndex(item, tab, invenIndex);
+
+			if(_owner->m_inventory.isUsable(tab) == true)
+			{
+				_owner->m_inventory.addItemToInvenIndex(item, tab, invenIndex);
+			}
+			else
+			{
+				_owner->m_inventory.addItem(item);
+			}
 		}
 		else
 		{

@@ -190,6 +190,7 @@ typedef enum __tagMessageType
 #endif
 	MSG_GPS,					// 위치추적 시스템
 	MSG_ITEM_COLLECTION,		// 아이템 업적 시스템
+	MSG_GUILD_BATTLE,			// 길드배틀 확장
 
 #ifdef PREMIUM_CHAR
 	MSG_PREMIUM_CHAR = 95,
@@ -631,6 +632,7 @@ typedef enum __tagMsgExAttackPetErrorType
 	MSG_SUB_EXPUSE,
 	MSG_SUB_ERROR_NOT_EXIST_NPC,// NPC가 주위에 없음
 	MSG_SUB_INIT_COOLTIME,		// 펫 쿨타임 제거
+	MSG_SUB_DELETE_ITEM,		// 펫 장비 제거
 } MSG_EX_ATTACK_PET_ERRORTYPE;
 
 typedef enum _tagMsgAPetErrorType
@@ -1350,6 +1352,8 @@ typedef enum __tagMsgItemType
 
 	MSG_ITEM_COMPOSE,			// 아이템 합성
 
+	MSG_ITEM_UPGRADE_PET,		// 펫 아이템 강화
+
 	MSG_ITEM_END_MSG,			// MSG_ITEM_TYPE 마지막 메시지
 } MSG_ITEM_TYPE;
 
@@ -1408,6 +1412,7 @@ typedef enum _tagItemUseErrorType
 	MSG_ITEM_USE_ERROR_EXPIRE_CASH_INVEN,	// 캐시 인벤의 시간 만료
 	MSG_ITEM_USE_DO_NOT_MEET_CONDITION,		// 아이템 사용 조건에 만족하지 못하다.
 	MSG_ITEM_USE_PVP_PROTECT_SUCCESS,		// PVP 아이템 사용 성공
+	MSG_ITEM_USE_TOO_FAR_DISTANCE,			// 거리가 멉니다.
 } MSG_ITEM_USE_ERROR_TYPE;
 
 typedef enum _tagItemMixWarItemErrorType
@@ -2407,7 +2412,8 @@ typedef enum _tagMsgQuestErrorType
 	MSG_QUEST_ERR_NOT_EXIST_ABANDON_QUEST,	// 포기 퀘스트 복구 에러 : 포기한 퀘스트가 없다.
 	MSG_QUEST_ERR_DONT_HAVE_NAS,	// 포기 퀘스트 복구 에러 : 나스가 부족하다.
 	MSG_QUEST_ERR_NOT_EXIST_NPC,	// 주위에 수행가능한 NPC가 없음.
-	MSG_QUEST_ERR_CHECK_DONE_ING,	// 진행 중이거나, 완료가 아님
+	MSG_QUEST_ERR_CHECK_DONE_ING,
+	MSG_QUEST_ERR_DONT_HAVE_SPACE,	// 진행 중이거나, 완료가 아님
 } MSG_QUEST_ERROR_TYPE;
 
 typedef enum _tagMsgQuestPD4ErrorType
@@ -3388,6 +3394,7 @@ typedef enum _tagGuildType
 	MSG_GUILD_BATTLE_START,						// 길드전 시작 알림		: guildindex1(n) guildname1(n) guildindex2(n) guildname2(n) prize(n) zone(n) time(n)
 	MSG_GUILD_BATTLE_STATUS,					// 길드전 현황			: guildindex1(n) guildname1(str) killcount1(n)guildindex2(n) guildname2(str) killcount2(n) battletime(n)
 	MSG_GUILD_BATTLE_END,						// 길드전 종료			: winner_guildindex(n) guildindex1(n) guildname1(n) guildindex2(n) guildname2(n) prize(n)
+	MSG_GUILD_BATTLE_SCORE_INIT,				// 길드전 운영자 이벤트 스코어보기 off
 
 	MSG_GUILD_WAR_SET_TIME_REQ,					// 30 공성 시간 설정 요청	: wday(n) hour(n)
 	MSG_GUILD_WAR_GET_TIME,						// 공성 시간 확인		: warerrorcode(n:s) guildindex(n:s) guildname(n:s) month(c:s) day(c:s) hour(c:s) min(c:s)
@@ -3473,6 +3480,9 @@ typedef enum _tagGuildType
 	MSG_GUILD_REMOTE_JOIN_OK,			// 원격 길드 가입 승인 : (str)target name : 상대방 이름, (int)type : 0 - 길마가 신청, 1 - 가입캐릭터가 신청
 	MSG_GUILD_REMOTE_JOIN_NO,			// 원격 길드 가입 거절 : none
 	MSG_GUILD_ROOM_RECALL,				// 길드방 리콜
+	MSG_GUILD_CONTRIBUTE_DATA,
+	MSG_GUILD_CONTRIBUTE_SET,
+	MSG_GUILD_CONTRIBUTE_SETALL,
 // kiny111227 GUILD_REMOTE_INVITE
 } MSG_GUILD_TYPE;
 
@@ -3521,7 +3531,7 @@ typedef enum _tagGuildErrorType
 	MSG_GUILD_ERROR_FULLOFFICER,				// 부관 가득 참
 	MSG_GUILD_ERROR_NOTOFFICER,					// 부관이 아니라서 해임 불가
 	MSG_GUILD_ERROR_FIRE_OFFICER_OK,			// 해임 성공S
-	MSG_GUILD_ERROR_REGDELAY,					// 탈퇴후 7일이 지나지 않아 가입 불능
+	MSG_GUILD_ERROR_REGDELAY,					// 가입 후 10일이 지나지 않아 탈퇴 불가능
 	MSG_GUILD_ERROR_CANTKICK,					// 강퇴 불가능(부단장이 부단장 강퇴시)
 	MSG_GUILD_ERROR_CANNOT_REGIST_REQ_BATTLE,	// 길드전 중에는 가입신청 불가
 	MSG_GUILD_ERROR_CANNOT_BREAK_BATTLE,		// 갈드전 - 길드전 중 길드 해체 불가
@@ -3553,6 +3563,9 @@ typedef enum _tagGuildErrorType
 	MSG_NEW_GUILD_SKILL_LEARN_ERROR_LEVEL,		// 레벨 부족
 	MSG_NEW_GUILD_SKILL_ALEADY_LEARN,			//  이미 배운 스킬
 
+	MSG_NEW_GUILD_STASH_AREADY_USE_NAS,			// 나스를 다른곳에서 이미 사용중입니다.
+	MSG_NEW_GUILD_POINT_AREADY_USE,				// 길드포인트를 다른곳에서 이미 사용중입니다.
+
 	MSG_GUILD_GRADE_EX_ERROR_WARCASTLE,			// 공성 중에는 변경할 수 없습니다.
 	MSG_GUILD_GRADE_EX_ERROR_COUNT_OEVER,		// 지정할 수 있는 인원 수를 초과 하였습니다.
 
@@ -3573,7 +3586,13 @@ typedef enum _tagGuildErrorType
 	MSG_GUILD_ERROR_CANNOT_REGIST_REQ_SERVERTRANS,		// 캐릭터의 서버이전상태가 대기중일때는 가입불가.
 	MSG_GUILD_ERROR_NOT_EXIST_NPC,						// 주위에 NPC가 없음.
 	MSG_GUILD_ERROR_CANNOT_REGISTER_REQ_ZONE,			// 이 지역에서는 길드 가입 불가
-	MSG_GUILD_ERROR_ITEM,						// 아이템 부족
+	MSG_GUILD_ERROR_ITEM,								// 아이템 부족
+	MSG_GUILD_ERROR_CANNOT_BREAK_10DAYS,				// 생성일로부터 10일이 지나지 않아 길드를 해제할 수 없습니다.
+	MSG_GUILD_ERROR_CONTRIBUTE_SET_SUCCESS,				// 자신의 기부정보 변경 성공
+	MSG_GUILD_ERROR_CONTRIBUTE_SET_FAIL,				// 자신의 기부정보 변경 실패
+	MSG_GUILD_ERROR_CONTRIBUTE_SET_ALL_SUCCESS,			// 모든 길드원 기부정보 변경 성공
+	MSG_GUILD_ERROR_CONTRIBUTE_SET_ALL_FAIL,			// 모든 길드원 기부정보 변경 실패
+	MSG_GUILD_ERROR_CONTRIBUTE_INVALID_VALUE,			// 수치를 잘못 입력
 } MSG_GUILD_ERROR_TYPE;
 
 typedef enum _tagGuildErrorBattleType
@@ -3706,6 +3725,10 @@ typedef enum _tagMsgHelperCommandType
 	MSG_HELPER_GUILD_BATTLE_PEACE_REQ,	// 길드전 평화 요청	: guildindex(n)
 	MSG_HELPER_GUILD_BATTLE_PEACE_REP,	// 길드전 평화 응답	: guildindex(n)
 	MSG_HELPER_GUILD_BATTLE_KILL_REQ,	// 길드전 킬 증가	: of_guildindex(n) df_guildindex(n)
+	MSG_HELPER_GUILD_BATTLE_GIVE_UP,	// 길드전 포기
+
+	MSG_HELPER_GUILD_CONTRIBUTE_SET,	
+	MSG_HELPER_GUILD_CONTRIBUTE_SET_ALL,
 
 	MSG_HELPER_EVENT_MOONSTONE_LOAD,
 	MSG_HELPER_EVENT_MOONSTONE_UPDATE_REQ,
@@ -4115,6 +4138,9 @@ typedef enum _tagMsgHelperCommandType
 	MSG_HELPER_EVENT_TABLE_INIT,				// 곰돌이 이벤트, 할로윈 이벤트, 크리스마스 이벤트 등 이벤트 초기화를 위한 메시지
 
 	MSG_HELPER_SELECT_CHARACTER,				// 캐릭터 선택시, 길드 정보를 구하기 위함
+
+	MSG_HELPER_GUILD_CONTRIBUTE_SET_REP,
+	MSG_HELPER_GUILD_CONTRIBUTE_SETALL_REP,
 
 } MSG_HELPER_COMMAND_TYPE;
 

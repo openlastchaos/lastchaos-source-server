@@ -365,6 +365,16 @@ void CArea::MobActivity()
 		}
 #endif
 
+		if(target && IS_PC(target))
+		{
+			CPC* pc = TO_PC(target);
+			if(pc->m_bVisible == false)
+			{
+				DelAttackList(target);
+				target = NULL;
+			}
+		}
+
 		// 타겟이 없으면 랜덤 이동
 		if (!target)
 		{
@@ -448,13 +458,6 @@ void CArea::MobActivity()
 		{
 			DelAttackList(target);
 			continue;
-		}
-
-		if(IS_PC(target))
-		{
-			CPC* pc = TO_PC(target);
-			if(pc->m_bVisible == false)
-				continue;
 		}
 
 		float dist = MobMoveTo(npc, GET_X(target), GET_Z(target), true, true, target);
@@ -978,8 +981,8 @@ bool CArea::RaidMobRegen(float x, float z, float r, char y)
 				continue;
 
 //#ifndef LC_MEX  브라질 설정에 맞춰야하기 때문에 주석
-			int pub = GetRandom(1,100);
-			if (!p->m_bRaidMoveRandom && pub <= 99)
+			int pub = GetRandom(1,10000);
+			if (!p->m_bRaidMoveRandom && pub <= 9900)
 				continue;
 
 //#endif

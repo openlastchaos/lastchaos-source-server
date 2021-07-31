@@ -180,11 +180,7 @@ void ProcDead(CPC* df, CCharacter* of)
 
 	// 공성 도중 사망은 패널티 없음
 	CWarCastle* castle = CWarCastle::GetCastleObject(df->m_pZone->m_index);
-#ifdef CHECK_CASTLE_AREA
 	if (castle && castle->GetState() != WCSF_NORMAL && (df->GetMapAttr() & MATT_WAR || df->m_pZone->IsWarZone((int)df->m_pos.m_x, (int)df->m_pos.m_z)))
-#else
-	if (castle && castle->GetState() != WCSF_NORMAL && df->GetMapAttr() & MATT_WAR)
-#endif // CHECK_CASTLE_AREA
 	{
 		DropWarCastleTokenDeadPC(df);
 		bDeadPenalty = false;

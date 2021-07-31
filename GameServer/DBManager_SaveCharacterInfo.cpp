@@ -55,6 +55,8 @@ void DBManager::_SaveCharaterQuery(std::vector<std::string> & vec, CPC* pChar, i
 
 	updateQuery += boost::str(boost::format(", a_blood_point=%d") % pChar->m_bloodPoint);
 
+	updateQuery += boost::str(boost::format(", a_ep=%d") % pChar->m_ep);
+
 	updateQuery += ", a_datestamp=now()";
 
 	updateQuery += boost::str(boost::format(", a_was_x=%0.4f") % GET_X(pChar));
@@ -70,7 +72,7 @@ void DBManager::_SaveCharaterQuery(std::vector<std::string> & vec, CPC* pChar, i
 	updateQuery += boost::str(boost::format(", a_pkrecover=%d") % pChar->m_pkRecoverPulse);
 	updateQuery += boost::str(boost::format(", a_pkpenaltyhp=%d") % pChar->m_pkPenaltyHP);
 	updateQuery += boost::str(boost::format(", a_pkpenaltymp=%d") % pChar->m_pkPenaltyMP);
-	updateQuery += boost::str(boost::format(", a_guildoutdate=%d") % pChar->m_guildoutdate);
+	updateQuery += boost::str(boost::format(", a_guildindate=%d") % pChar->m_guild_in_date);
 	updateQuery += boost::str(boost::format(", a_pluseffect_option=%d") % (int)pChar->m_plusEffect);
 	updateQuery += boost::str(boost::format(", a_fame=%d") % pChar->m_fame);
 

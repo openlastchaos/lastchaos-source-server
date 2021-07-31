@@ -550,6 +550,12 @@
     <ClCompile Include="doFuncTitle.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="GuildBattleManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="doFuncGuildBattle.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Affinity.h">
@@ -850,6 +856,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Artifact_Manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GuildBattleManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

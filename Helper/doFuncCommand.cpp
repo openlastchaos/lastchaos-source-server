@@ -170,6 +170,10 @@ void do_Command(CNetMsg::SP& msg, CDescriptor* dest)
 		do_CommandGuildBattleStopReq(msg, dest);
 		break;
 
+	case MSG_HELPER_GUILD_BATTLE_GIVE_UP:
+		do_CommandGuildBattleGiveupReq(msg, dest);
+		break;
+
 	case MSG_HELPER_GUILD_BATTLE_PEACE_REQ:
 		do_CommandGuildBattlePeaceReq(msg, dest);
 		break;
@@ -177,6 +181,15 @@ void do_Command(CNetMsg::SP& msg, CDescriptor* dest)
 	case MSG_HELPER_GUILD_BATTLE_KILL_REQ:
 		do_CommandGuildBattleKillReq(msg, dest);
 		break;
+	
+	case MSG_HELPER_GUILD_CONTRIBUTE_SET:
+		do_CommandGuildContributeSet(msg, dest);
+		break;
+
+	case MSG_HELPER_GUILD_CONTRIBUTE_SET_ALL:
+		do_CommandGuildContributeSetAll(msg, dest);
+		break;
+
 //0503 kwon
 	case MSG_HELPER_EVENT_MOONSTONE_UPDATE_REQ:
 		do_CommandEventMoonStoneUpdateReq(msg, dest);
@@ -1894,6 +1907,17 @@ void do_CommandGuildCreateReq(CNetMsg::SP& msg, CDescriptor* dest)
 			return ;
 		}
 		int guildindex = cmd.insertid();
+
+		std::string select = boost::str(boost::format(
+			"SELECT UNIX_TIMESTAMP(a_createdate) as a_createdate from t_guild where a_name = '%s'") % (const char*) name);
+		int create_date;
+
+		cmd.Init(&gserver.m_dbchar);
+		cmd.SetQuery(select);
+		cmd.Open();
+		cmd.MoveFirst();
+		cmd.GetRec("a_createdate", create_date);
+
 #ifdef LC_GAMIGO
 		std::string select_guild_member_query = boost::str(boost::format(
 			"SELECT a_guild_index, a_char_index FROM t_guildmember WHERE a_guild_index = %d AND a_char_index = %d") % guildindex % charindex);
@@ -1984,7 +2008,7 @@ void do_CommandGuildCreateReq(CNetMsg::SP& msg, CDescriptor* dest)
 		}
 
 		// 메모리에 만들기
-		CGuild* nguild = gserver.m_guildlist.create(guildindex, name, charindex, charname);
+		CGuild* nguild = gserver.m_guildlist.create(guildindex, name, charindex, charname, create_date);
 
 		if (!nguild)
 		{
@@ -2492,6 +2516,12 @@ void do_CommandGuildMemberAddReq(CNetMsg::SP& msg, CDescriptor* dest)
 		HelperGuildMemberAddNotifyMsg(rmsg, guildindex, charindex, name, member->pos());
 		member->zoneindex( zoneindex );
 
+		member->SetContributeExp_min(guild->m_guild_contribute_all_exp_min);
+		member->SetContributeExp_max(guild->m_guild_contribute_all_exp_max);
+		member->SetContributeFame_min(guild->m_guild_contribute_all_fame_min);
+		member->SetContributeFame_max(guild->m_guild_contribute_all_fame_max);
+
+
 	GAMELOG << init("do_CommandGuildMemberAddReq") << delim
 			<< guild->index() << delim
 			<< zoneindex 	<< end;
@@ -2522,10 +2552,12 @@ void do_CommandGuildMemberKickReq(CNetMsg::SP& msg, CDescriptor* dest)
 	int guildindex;
 	int bossindex;
 	int charindex;
+	int guild_out_date;
 
 	RefMsg(msg) >> guildindex
 		>> bossindex
-		>> charindex;
+		>> charindex
+		>> guild_out_date;
 
 	CGuild* guild = gserver.m_guildlist.findguild(guildindex);
 	if (!guild)
@@ -2574,6 +2606,35 @@ void do_CommandGuildMemberKickReq(CNetMsg::SP& msg, CDescriptor* dest)
 		SEND_Q(rmsg, dest);
 		return ;
 	}
+
+	{
+		int out_date = 0;
+		if(guild_out_date != 0)
+		{
+			out_date = guild_out_date;
+		}
+		else
+		{
+			std::string query = boost::str(boost::format("select a_guildindate from t_characters where a_index = %d") % charindex);
+			CDBCmd cmd;
+			cmd.Init(&gserver.m_dbchar);
+			cmd.SetQuery(query);
+			cmd.Open();
+			cmd.MoveFirst();
+			cmd.GetRec("a_guildindate", out_date);
+		}
+		
+		time_t t;
+		if(time(&t) / 60 / 60 / 24 < out_date + GUILD_REG_DELAY)
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			HelperGuildMemberKickRepMsg(rmsg, guildindex, bossindex, charindex, MSG_GUILD_ERROR_REGDELAY);
+			SEND_Q(rmsg, dest);
+			return ;
+		}
+	}
+	
+
 
 	if (!gserver.DeleteGuildMember(guildindex, guild->name(), charindex, kick->GetName(), true))
 	{
@@ -3196,13 +3257,15 @@ void do_CommandGuildBattleReq(CNetMsg::SP& msg, CDescriptor* dest)
 {
 	int guildindex1;
 	int guildindex2;
-	int prize;
+	int prize_nas;
+	int prize_gp;
 	int zone;
 	int time;
 
 	RefMsg(msg) >> guildindex1
 		>> guildindex2
-		>> prize
+		>> prize_nas
+		>> prize_gp
 		>> zone
 		>> time;
 
@@ -3218,7 +3281,7 @@ void do_CommandGuildBattleReq(CNetMsg::SP& msg, CDescriptor* dest)
 	// DB UPDATE
 	std::string update_guild_query = boost::str(boost::format(
 		"UPDATE t_guild SET a_battle_index=%d, a_battle_prize=%d, a_battle_zone=%d, a_battle_time=%d, a_battle_state=%d WHERE a_index=%d")
-		% guildindex2 %( prize * 2 * 95 / 100) % zone % time % GUILD_BATTLE_STATE_WAIT % guildindex1);
+		% guildindex2 %( prize_nas * 95 / 100) % zone % time % GUILD_BATTLE_STATE_WAIT % guildindex1);
 	CDBCmd cmd;
 	cmd.Init(&gserver.m_dbchar);
 	cmd.SetQuery(update_guild_query);
@@ -3229,7 +3292,7 @@ void do_CommandGuildBattleReq(CNetMsg::SP& msg, CDescriptor* dest)
 
 	std::string update_guild_query_1 = boost::str(boost::format(
 		"UPDATE t_guild SET a_battle_index=%d, a_battle_prize=%d, a_battle_zone=%d, a_battle_time=%d, a_battle_state=%d WHERE a_index=%d")
-		% guildindex1 % (prize * 2 * 95 / 100) % zone % time % GUILD_BATTLE_STATE_WAIT % guildindex2);
+		% guildindex1 % (prize_nas * 95 / 100) % zone % time % GUILD_BATTLE_STATE_WAIT % guildindex2);
 	cmd.Init(&gserver.m_dbchar);
 	cmd.SetQuery(update_guild_query_1);
 	if (!cmd.Update())
@@ -3238,11 +3301,11 @@ void do_CommandGuildBattleReq(CNetMsg::SP& msg, CDescriptor* dest)
 	}
 
 	// 세부 셋팅
-	g1->BattleSet(guildindex2, prize * 2 * 95 / 100, zone);
+	g1->BattleSet(guildindex2, prize_nas * 95 / 100, zone, prize_gp * 90 / 100);
 	g1->BattleTime(time);
 	g1->BattleState(GUILD_BATTLE_STATE_WAIT);
 
-	g2->BattleSet(guildindex1, prize * 2 * 95 / 100, zone);
+	g2->BattleSet(guildindex1, prize_nas * 95 / 100, zone, prize_gp * 90 / 100);
 	g2->BattleTime(time);
 	g2->BattleState(GUILD_BATTLE_STATE_WAIT);
 
@@ -3256,13 +3319,13 @@ void do_CommandGuildBattleReq(CNetMsg::SP& msg, CDescriptor* dest)
 			<< "<==>" << delim
 			<< g2->index() << delim
 			<< g2->name() << delim
-			<< g1->battlePrize() << delim
+			<< g1->battlePrizeNas() << delim
 			<< g1->battleZone() << delim
 			<< g1->battleTime()
 			<< end;
 
 	CNetMsg::SP rmsg(new CNetMsg);
-	HelperGuildBattleRepMsg(rmsg, g1, g2, prize);
+	HelperGuildBattleRepMsg(rmsg, g1, g2, prize_nas);
 	gserver.SendToAllGameServer(rmsg);
 }
 
@@ -3270,9 +3333,11 @@ void do_CommandGuildBattleStopReq(CNetMsg::SP& msg, CDescriptor* dest)
 {
 	int guildindex1;
 	int guildindex2;
+	int isAccept;
 
 	RefMsg(msg) >> guildindex1
-		>> guildindex2;
+		>> guildindex2
+		>> isAccept;
 
 	CGuild* g1 = gserver.m_guildlist.findguild(guildindex1);
 	CGuild* g2 = gserver.m_guildlist.findguild(guildindex2);
@@ -3297,7 +3362,8 @@ void do_CommandGuildBattleStopReq(CNetMsg::SP& msg, CDescriptor* dest)
 	// 승리길드
 	CGuild* winner;
 
-	int prize = g1->battlePrize();
+	int prize_nas = g1->battlePrizeNas();
+	int prize_gp = g1->battlePrizeGp();
 	int zone = g1->battleZone();
 
 	// killcount 비교
@@ -3316,41 +3382,155 @@ void do_CommandGuildBattleStopReq(CNetMsg::SP& msg, CDescriptor* dest)
 	// msg 부터 만든다
 	CNetMsg::SP rmsg(new CNetMsg);
 	if (winner)
-		HelperGuildBattleStopRepMsg(rmsg, winner->index(), g1, g2);
+		HelperGuildBattleStopRepMsg(rmsg, winner->index(), g1, g2, isAccept);
 	else
-		HelperGuildBattleStopRepMsg(rmsg, -1, g1, g2);
+		HelperGuildBattleStopRepMsg(rmsg, -1, g1, g2, isAccept);
+
+	if(isAccept == true)
+	{
+		int origin_nas = prize_nas * 100 / 95;
+		int fee = origin_nas - prize_nas;
+
+		{
+			std::map<int,CGuildStash*>::iterator itr = gserver.m_guildstash.find( g1->index() );
+			if( itr != gserver.m_guildstash.end() )		// 찾았다
+			{
+				CGuildStash *ptmpGuildStash = itr->second ;
+				ptmpGuildStash->GetLock(g1->index());
+			}
+			else		// 처음 로딩
+			{
+				CGuildStash* pGuildStash = new CGuildStash(g1->index());
+				gserver.m_guildstash.insert( std::make_pair( g1->index(), pGuildStash ) );
+				pGuildStash->GetLock(g1->index());
+				itr = gserver.m_guildstash.find( g1->index() );
+			}
+
+			itr->second->setMoney(fee);
+			itr->second->TakeFromDB(&gserver.m_dbchar);
+			itr->second->UnLock(g1->index());
+		}
+		{
+			std::map<int,CGuildStash*>::iterator itr = gserver.m_guildstash.find( g2->index() );
+			if( itr != gserver.m_guildstash.end() )		// 찾았다
+			{
+				CGuildStash *ptmpGuildStash = itr->second ;
+				ptmpGuildStash->GetLock(g2->index());
+			}
+			else		// 처음 로딩
+			{
+				CGuildStash* pGuildStash = new CGuildStash(g2->index());
+				gserver.m_guildstash.insert( std::make_pair( g2->index(), pGuildStash ) );
+				pGuildStash->GetLock(g2->index());
+				itr = gserver.m_guildstash.find( g2->index() );
+			}
+
+			itr->second->setMoney(fee);
+			itr->second->TakeFromDB(&gserver.m_dbchar);
+			itr->second->UnLock(g2->index());
+		}
+	}
+	else
+	{
+		if(winner)
+		{
+			CGuild* win_guild;
+			CGuild* lose_guild;
+
+			if(winner == g1)
+			{
+				win_guild = g1;
+				lose_guild = g2;
+			}
+			else
+			{
+				win_guild = g2;
+				lose_guild = g1;
+			}
+
+			//길드전투 보상처리
+			{
+				{
+					std::map<int,CGuildStash*>::iterator itr = gserver.m_guildstash.find( win_guild->index() );
+					if( itr != gserver.m_guildstash.end() )		// 찾았다
+					{
+						CGuildStash *ptmpGuildStash = itr->second ;
+						ptmpGuildStash->GetLock(win_guild->index());
+					}
+					else		// 처음 로딩
+					{
+						CGuildStash* pGuildStash = new CGuildStash(win_guild->index());
+						gserver.m_guildstash.insert( std::make_pair( win_guild->index(), pGuildStash ) );
+						pGuildStash->GetLock(win_guild->index());
+						itr = gserver.m_guildstash.find( win_guild->index() );
+					}
+
+					itr->second->setMoney(prize_nas);
+					itr->second->KeepToDB(&gserver.m_dbchar);
+					itr->second->UnLock(win_guild->index());
+				}
+
+				{
+					std::map<int,CGuildStash*>::iterator itr = gserver.m_guildstash.find( lose_guild->index() );
+					if( itr != gserver.m_guildstash.end() )		// 찾았다
+					{
+						CGuildStash *ptmpGuildStash = itr->second ;
+						ptmpGuildStash->GetLock(win_guild->index());
+					}
+					else		// 처음 로딩
+					{
+						CGuildStash* pGuildStash = new CGuildStash(lose_guild->index());
+						gserver.m_guildstash.insert( std::make_pair( lose_guild->index(), pGuildStash ) );
+						pGuildStash->GetLock(win_guild->index());
+						itr = gserver.m_guildstash.find( lose_guild->index() );
+					}
+
+					itr->second->setMoney(prize_nas * 100 / 95);
+					itr->second->TakeFromDB(&gserver.m_dbchar);
+					itr->second->UnLock(win_guild->index());
+				}
+			}
+		}
+	}
 
 	if (winner)
 	{
 		if (winner == g1)
 		{
-			g2->BattleSet(-1, 0, -1);
+			g2->BattleSet(-1, 0, -1, 0);
 			g2->BattleTime(0);
 			g2->KillCount(0);
 			g2->BattleState(GUILD_BATTLE_STATE_PEACE);
+			g1->m_battle_win_count++;
+			g2->m_battle_lose_count++;
 		}
 		else if (winner == g2)
 		{
-			g1->BattleSet(-1, 0, -1);
+			g1->BattleSet(-1, 0, -1, 0);
 			g1->BattleTime(0);
 			g1->KillCount(0);
 			g1->BattleState(GUILD_BATTLE_STATE_PEACE);
+			g2->m_battle_win_count++;
+			g1->m_battle_lose_count++;
 		}
 
 		winner->BattleState(GUILD_BATTLE_STATE_PRIZE);
 	}
 	else
 	{
-		g1->BattleSet(-1, prize / 2, -1);
+		g1->BattleSet(-1, prize_nas / 2, -1, prize_gp / 2);
 		g1->BattleState(GUILD_BATTLE_STATE_PRIZE);
-		g2->BattleSet(-1, prize / 2, -1);
+		g2->BattleSet(-1, prize_nas / 2, -1, prize_gp / 2);
 		g2->BattleState(GUILD_BATTLE_STATE_PRIZE);
 	}
 
+	g1->m_battle_total_count++;
+	g2->m_battle_total_count++;
+
 	// DB UPDATE
 	std::string update_guild_query = boost::str(boost::format(
-		"UPDATE t_guild SET a_battle_index=%d, a_battle_prize=%d, a_battle_zone=%d, a_battle_time=%d, a_battle_killcount=%d, a_battle_state=%d WHERE a_index=%d")
-		% g1->battleIndex() % g1->battlePrize() % g1->battleZone() % g1->battleTime() % g1->killCount() % (int)g1->battleState() % g1->index());
+		"UPDATE t_guild SET a_battle_index=%d, a_battle_prize=%d, a_battle_zone=%d, a_battle_time=%d, a_battle_killcount=%d, a_battle_state=%d, a_battle_fight = %d, a_battle_win = %d, a_battle_lose = %d WHERE a_index=%d")
+		% g1->battleIndex() % g1->battlePrizeNas() % g1->battleZone() % g1->battleTime() % g1->killCount() % (int)g1->battleState() % g1->m_battle_total_count % g1->m_battle_win_count % g1->m_battle_lose_count % g1->index());
 	CDBCmd cmd;
 	cmd.Init(&gserver.m_dbchar);
 	cmd.SetQuery(update_guild_query);
@@ -3360,8 +3540,8 @@ void do_CommandGuildBattleStopReq(CNetMsg::SP& msg, CDescriptor* dest)
 	}
 
 	std::string update_guild_query_1 = boost::str(boost::format(
-		"UPDATE t_guild SET a_battle_index=%d, a_battle_prize=%d, a_battle_zone=%d, a_battle_time=%d, a_battle_killcount=%d, a_battle_state=%d WHERE a_index=%d")
-		% g2->battleIndex() % g2->battlePrize() % g2->battleZone() % g2->battleTime() % g2->killCount() % (int)g2->battleState() % g2->index());
+		"UPDATE t_guild SET a_battle_index=%d, a_battle_prize=%d, a_battle_zone=%d, a_battle_time=%d, a_battle_killcount=%d, a_battle_state=%d, a_battle_fight = %d, a_battle_win = %d, a_battle_lose = %d WHERE a_index=%d")
+		% g2->battleIndex() % g2->battlePrizeNas() % g2->battleZone() % g2->battleTime() % g2->killCount() % (int)g2->battleState() % g2->m_battle_total_count % g2->m_battle_win_count % g2->m_battle_lose_count % g2->index());
 	cmd.Init(&gserver.m_dbchar);
 	cmd.SetQuery(update_guild_query_1);
 	if (!cmd.Update())
@@ -3375,8 +3555,9 @@ void do_CommandGuildBattleStopReq(CNetMsg::SP& msg, CDescriptor* dest)
 			<< "<==>" << delim
 			<< g2->index() << delim
 			<< g2->name() << delim
-			<< prize << delim
+			<< prize_nas << delim
 			<< zone << delim
+			<< prize_gp << delim
 			<< "WINNER" << delim;
 
 	if (winner)
@@ -3386,6 +3567,154 @@ void do_CommandGuildBattleStopReq(CNetMsg::SP& msg, CDescriptor* dest)
 
 	GAMELOG	<< end;
 	gserver.SendToAllGameServer(rmsg);
+
+	g1->m_isUseTheStashAndSkill = true;
+	g2->m_isUseTheStashAndSkill = true;
+
+
+	//DB LOG 저장
+	{
+		std::string query = boost::str(boost::format("INSERT INTO t_guildbattle_log values(0, %d, %d, %d, now() - INTERVAL %d MINUTE, now(), %d, %d, %d, %d )")
+			% g1->index() % g2->index() %zone % ((g1->battleTime() - 600 * 5) / 1000)  % prize_nas % prize_gp % g1->killCount() %g2->killCount());
+
+		CDBCmd cmd;
+		cmd.Init(&gserver.m_dbchar);
+		cmd.SetQuery(query);
+		if (!cmd.Update())
+		{
+			LOG_ERROR("query error. query[%s]", query.c_str());
+			return ;
+		}
+	}
+}
+
+void do_CommandGuildBattleGiveupReq(CNetMsg::SP& msg, CDescriptor* dest)
+{
+	int giveup_guild_index;
+	int win_guild_index;
+
+	RefMsg(msg) >> giveup_guild_index
+		>> win_guild_index;
+
+	CGuild* giveup_guild = gserver.m_guildlist.findguild(giveup_guild_index);
+	CGuild* win_guild = gserver.m_guildlist.findguild(win_guild_index);
+
+	if (!giveup_guild || !win_guild)
+		return;
+
+	if (giveup_guild->battleState() != GUILD_BATTLE_STATE_WAIT &&
+		giveup_guild->battleState() != GUILD_BATTLE_STATE_ING &&
+		giveup_guild->battleState() != GUILD_BATTLE_STATE_STOP_WAIT)
+	{
+		return ;
+	}
+
+	if (win_guild->battleState() != GUILD_BATTLE_STATE_WAIT &&
+		win_guild->battleState() != GUILD_BATTLE_STATE_ING &&
+		win_guild->battleState() != GUILD_BATTLE_STATE_STOP_WAIT)
+	{
+		return ;
+	}
+
+	int prize_nas = giveup_guild->battlePrizeNas();
+	int prize_gp = giveup_guild->battlePrizeGp();
+	int zone = giveup_guild->battleZone();
+
+	// msg 부터 만든다
+	CNetMsg::SP rmsg(new CNetMsg);
+	HelperGuildBattleStopRepMsg(rmsg, win_guild->index(), giveup_guild, win_guild);
+	
+	//길드전투 보상처리
+	{
+		std::map<int,CGuildStash*>::iterator itr = gserver.m_guildstash.find( win_guild->index() );
+		if( itr != gserver.m_guildstash.end() )		// 찾았다
+		{
+			CGuildStash *ptmpGuildStash = itr->second ;
+			ptmpGuildStash->GetLock(win_guild->index());
+		}
+		else		// 처음 로딩
+		{
+			CGuildStash* pGuildStash = new CGuildStash(win_guild->index());
+			gserver.m_guildstash.insert( std::make_pair( win_guild->index(), pGuildStash ) );
+			pGuildStash->GetLock(win_guild->index());
+			itr = gserver.m_guildstash.find( win_guild->index() );
+		}
+
+		itr->second->setMoney(prize_nas);
+		itr->second->KeepToDB(&gserver.m_dbchar);
+		itr->second->UnLock(win_guild->index());
+	}
+
+	{
+		std::map<int,CGuildStash*>::iterator itr = gserver.m_guildstash.find( giveup_guild->index() );
+		if( itr != gserver.m_guildstash.end() )		// 찾았다
+		{
+			CGuildStash *ptmpGuildStash = itr->second ;
+			ptmpGuildStash->GetLock(win_guild->index());
+		}
+		else		// 처음 로딩
+		{
+			CGuildStash* pGuildStash = new CGuildStash(giveup_guild->index());
+			gserver.m_guildstash.insert( std::make_pair( giveup_guild->index(), pGuildStash ) );
+			pGuildStash->GetLock(win_guild->index());
+			itr = gserver.m_guildstash.find( giveup_guild->index() );
+		}
+
+		itr->second->setMoney(prize_nas * 100 / 95);
+		itr->second->TakeFromDB(&gserver.m_dbchar);
+		itr->second->UnLock(win_guild->index());
+	}
+	
+	giveup_guild->BattleSet(-1, 0, -1, 0);
+	giveup_guild->BattleTime(0);
+	giveup_guild->KillCount(0);
+	giveup_guild->BattleState(GUILD_BATTLE_STATE_PEACE);
+	giveup_guild->m_battle_lose_count++;
+	win_guild->m_battle_win_count++;
+	win_guild->BattleState(GUILD_BATTLE_STATE_PRIZE);
+	giveup_guild->m_battle_total_count++;
+	win_guild->m_battle_total_count++;
+
+	// DB UPDATE
+	std::string update_guild_query = boost::str(boost::format(
+		"UPDATE t_guild SET a_battle_index=%d, a_battle_prize=%d, a_battle_zone=%d, a_battle_time=%d, a_battle_killcount=%d, a_battle_state=%d, a_battle_fight = %d, a_battle_win = %d, a_battle_lose = %d WHERE a_index=%d")
+		% giveup_guild->battleIndex() % giveup_guild->battlePrizeNas() % giveup_guild->battleZone() % giveup_guild->battleTime() % giveup_guild->killCount() % (int)giveup_guild->battleState() % giveup_guild->m_battle_total_count % giveup_guild->m_battle_win_count % giveup_guild->m_battle_lose_count % giveup_guild->index());
+	CDBCmd cmd;
+	cmd.Init(&gserver.m_dbchar);
+	cmd.SetQuery(update_guild_query);
+	if (!cmd.Update())
+	{
+		return ;
+	}
+
+	std::string update_guild_query_1 = boost::str(boost::format(
+		"UPDATE t_guild SET a_battle_index=%d, a_battle_prize=%d, a_battle_zone=%d, a_battle_time=%d, a_battle_killcount=%d, a_battle_state=%d, a_battle_fight = %d, a_battle_win = %d, a_battle_lose = %d WHERE a_index=%d")
+		% win_guild->battleIndex() % win_guild->battlePrizeNas() % win_guild->battleZone() % win_guild->battleTime() % win_guild->killCount() % (int)win_guild->battleState() % win_guild->m_battle_total_count % win_guild->m_battle_win_count % win_guild->m_battle_lose_count % win_guild->index());
+	cmd.Init(&gserver.m_dbchar);
+	cmd.SetQuery(update_guild_query_1);
+	if (!cmd.Update())
+	{
+		return ;
+	}
+
+	GAMELOG << init("GUILD BATTLE END")
+		<< win_guild->index() << delim
+		<< win_guild->name() << delim
+		<< "<==>" << delim
+		<< giveup_guild->index() << delim
+		<< giveup_guild->name() << delim
+		<< prize_nas << delim
+		<< zone << delim
+		<< prize_gp << delim
+		<< "WINNER" << delim;
+
+	GAMELOG << win_guild->index();
+
+	GAMELOG	<< end;
+	gserver.SendToAllGameServer(rmsg);
+
+	win_guild->m_isUseTheStashAndSkill = true;
+	giveup_guild->m_isUseTheStashAndSkill = true;
 }
 
 void do_CommandGuildBattlePeaceReq(CNetMsg::SP& msg, CDescriptor* dest)
@@ -3402,7 +3731,7 @@ void do_CommandGuildBattlePeaceReq(CNetMsg::SP& msg, CDescriptor* dest)
 	if (g->battleState() != GUILD_BATTLE_STATE_PRIZE)
 		return;
 
-	g->BattleSet(-1, 0, -1);
+	g->BattleSet(-1, 0, -1, 0);
 	g->BattleTime(0);
 	g->KillCount(0);
 	g->BattleState(GUILD_BATTLE_STATE_PEACE);
@@ -3549,6 +3878,147 @@ void do_CommandEventMoonStoneJackPotReq(CNetMsg::SP& msg, CDescriptor* dest)
 	HelperEventMoonStoneUpdateRepMsg(hmsg, gserver.m_nMoonStoneNas);
 	gserver.SendToAllGameServer(hmsg);
 }
+
+void do_CommandGuildContributeSet(CNetMsg::SP& msg, CDescriptor* dest)
+{
+	int char_index;
+	int guild_index;
+	int exp, fame;
+	RefMsg(msg) >> char_index
+		>> guild_index
+		>> exp
+		>> fame;
+
+	CGuildMember* gMember = gserver.m_guildlist.findmember( char_index );
+	if(gMember == NULL)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		HelperGuildContributeSetRep(rmsg, char_index, exp, fame, MSG_GUILD_ERROR_CONTRIBUTE_SET_FAIL);
+		SEND_Q(rmsg, dest);
+		return ;
+	}
+	
+	std::string query = boost::str(boost::format(
+		"UPDATE t_extend_guildmember SET a_contribute_exp = %d, a_contribute_fame = %d"
+		" WHERE a_guild_index = %d AND a_char_index = %d")
+		% exp % fame % guild_index % char_index );
+
+	CDBCmd cmd;
+	cmd.Init(&gserver.m_dbchar);
+	cmd.SetQuery(query);
+	if (!cmd.Update())
+	{
+		LOG_ERROR("Query error. query[%s]", query.c_str());
+
+		CNetMsg::SP rmsg(new CNetMsg);
+		HelperGuildContributeSetRep(rmsg, char_index, exp, fame, MSG_GUILD_ERROR_CONTRIBUTE_SET_FAIL);
+		SEND_Q(rmsg, dest);
+		return ;
+	}
+
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		HelperGuildContributeSetRep(rmsg, char_index, exp, fame, 0);
+		SEND_Q(rmsg, dest);
+	}
+
+	gMember->contributeExp(exp);
+	gMember->contributeFame(fame);
+}
+
+void do_CommandGuildContributeSetAll(CNetMsg::SP& msg, CDescriptor* dest)
+{
+	int char_index;
+	int exp, fame;
+	int exp_min, exp_max;
+	int fame_min, fame_max;
+	int guild_index;
+	RefMsg(msg) >> char_index
+		>> guild_index
+		>> exp
+		>> fame
+		>> exp_min
+		>> exp_max
+		>> fame_min
+		>> fame_max;
+
+	CGuild* guild = gserver.m_guildlist.findguild(guild_index);
+
+	if(guild == NULL)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		HelperGuildContributeSetAllRep(rmsg, char_index, guild_index, exp, fame, exp_min, exp_max, fame_min, fame_max, MSG_GUILD_ERROR_CONTRIBUTE_SET_ALL_FAIL);
+		SEND_Q(rmsg, dest);
+		return ;
+	}
+
+	std::string query = boost::str(boost::format(
+		"UPDATE t_extend_guildmember SET a_contribute_exp = %d, a_contribute_fame = %d"
+		", a_contribute_exp_min = %d, a_contribute_exp_max = %d"
+		", a_contribute_fame_min = %d, a_contribute_fame_max = %d"
+		" WHERE a_guild_index = %d")
+		% exp % fame % exp_min % exp_max % fame_min % fame_max % guild_index);
+
+	CDBCmd cmd;
+	cmd.Init(&gserver.m_dbchar);
+	cmd.BeginTrans();
+
+	cmd.SetQuery(query);
+	if (!cmd.Update())
+	{
+		LOG_ERROR("Query error. query[%s]", query.c_str());
+		CNetMsg::SP rmsg(new CNetMsg);
+		HelperGuildContributeSetAllRep(rmsg, char_index, guild_index, exp, fame, exp_min, exp_max, fame_min, fame_max, MSG_GUILD_ERROR_CONTRIBUTE_SET_ALL_FAIL);
+		SEND_Q(rmsg, dest);
+		return ;
+	}
+
+	std::string query_ = boost::str(boost::format(
+		"UPDATE t_extend_guild set a_contribute_exp_min = %d, a_contribute_exp_max = %d, a_contribute_fame_min = %d, a_contribute_fame_max = %d"
+		" WHERE a_guild_index = %d")
+		% exp_min % exp_max % fame_min % fame_max % guild_index);
+
+	cmd.SetQuery(query_);
+	if(!cmd.Update())
+	{
+		cmd.Rollback();
+
+		LOG_ERROR("Query error. query[%s]", query.c_str());
+		CNetMsg::SP rmsg(new CNetMsg);
+		HelperGuildContributeSetAllRep(rmsg, char_index, guild_index, exp, fame, exp_min, exp_max, fame_min, fame_max, MSG_GUILD_ERROR_CONTRIBUTE_SET_ALL_FAIL);
+		SEND_Q(rmsg, dest);
+		return ;
+	}
+
+	cmd.Commit();
+
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		HelperGuildContributeSetAllRep(rmsg, char_index, guild_index, exp, fame, exp_min, exp_max, fame_min, fame_max, 0);
+		SEND_Q(rmsg, dest);
+	}
+
+	CGuildMember* member;
+	for( int i = 0 ; i < guild->membercount(); i++ )
+	{
+		member = guild->member(i);
+		if(member == NULL)
+			continue;
+
+		member->contributeExp(exp);
+		member->contributeFame(fame);
+		member->SetContributeExp_min(exp_min);
+		member->SetContributeExp_max(exp_max);
+		member->SetContributeFame_min(fame_min);
+		member->SetContributeFame_max(fame_max);
+	}
+
+	guild->m_guild_contribute_all_exp_min = exp_min;
+	guild->m_guild_contribute_all_exp_max = exp_max;
+	guild->m_guild_contribute_all_fame_min = fame_min;
+	guild->m_guild_contribute_all_fame_max = fame_max;
+}
+
 
 void do_CommandFriendMemberAddReq(CNetMsg::SP& msg, CDescriptor* dest)
 {
@@ -4788,14 +5258,12 @@ void do_CommandPartyQuitReq(CNetMsg::SP& msg, CDescriptor* dest)
 	CParty* pParty = gserver.FindPartyByBossIndex(dest->m_subNo, nBossIndex);
 	if (!pParty)
 	{
-#ifdef PARTY_BUG_GER
 		GAMELOG << init("PARTY_BUG_GER QUIT: NOT_PARTY")
 				<< "BOSSINDEX" << delim << nBossIndex << delim
 				<< "TARGETINDEX" << delim << nTargetIndex << end;
 
 		gserver.PrintPartyMemberList(dest->m_subNo, nBossIndex);
 		gserver.PrintPartyMemberList(dest->m_subNo, nTargetIndex);
-#endif // PARTY_BUG_GER
 		return ;
 	}
 	pParty->DeleteMember(nTargetIndex);
@@ -4973,14 +5441,12 @@ void do_CommandPartyKickReq(CNetMsg::SP& msg, CDescriptor* dest)
 	CParty* pParty = gserver.FindPartyByBossIndex(dest->m_subNo, nBossIndex);
 	if (!pParty)
 	{
-#ifdef PARTY_BUG_GER
 		GAMELOG << init("PARTY_BUG_GER KICK: NOT_PARTY")
 				<< "BOSSINDEX" << delim << nBossIndex << delim
 				<< "TARGETINDEX" << delim << nTargetIndex << end;
 
 		gserver.PrintPartyMemberList(dest->m_subNo, nBossIndex);
 		gserver.PrintPartyMemberList(dest->m_subNo, nTargetIndex);
-#endif // PARTY_BUG_GER
 		return ;
 	}
 
@@ -5021,7 +5487,6 @@ void do_CommandPartyChangeBossReq(CNetMsg::SP& msg, CDescriptor* dest)
 	CParty* pParty = gserver.FindPartyByBossIndex(dest->m_subNo, nBossIndex);
 	if (!pParty)
 	{
-#ifdef PARTY_BUG_GER
 		GAMELOG << init("PARTY_BUG_GER CHANGEBOSS: NOT_BOSS")
 				<< "BOSS INDEX" << delim << nBossIndex << delim
 				<< "TARGET NAME" << delim << strTargetName
@@ -5034,7 +5499,6 @@ void do_CommandPartyChangeBossReq(CNetMsg::SP& msg, CDescriptor* dest)
 					<< "REAL BOSS INDEX" << delim << party->GetBossIndex()
 					<< end;
 		}
-#endif // PARTY_BUG_GER
 		return ;
 	}
 
@@ -5058,7 +5522,6 @@ void do_CommandPartyChangeBossReq(CNetMsg::SP& msg, CDescriptor* dest)
 			gserver.m_listPartyMatchParty.insert(map_partymatchparty_t::value_type(key, pMatchParty));
 		}
 	}
-#ifdef PARTY_BUG_GER
 	else
 	{
 		GAMELOG << init("PARTY_BUG_GER CHANGEBOSS: FAILED")
@@ -5066,7 +5529,6 @@ void do_CommandPartyChangeBossReq(CNetMsg::SP& msg, CDescriptor* dest)
 				<< "TARGET NAME" << delim << strTargetName
 				<< end;
 	}
-#endif // PARTY_BUG_GER
 }
 
 void do_CommandPartyInviteCancel(CNetMsg::SP& msg, CDescriptor* dest)
@@ -5108,17 +5570,14 @@ void do_CommandPartyOffline( CNetMsg::SP& msg, CDescriptor* dest)
 	RefMsg(msg) >> nBossIndex
 		>> nTargetIndex;
 
-#ifdef PARTY_BUG_GER
 	GAMELOG << init("PARTY_BUG_GER OFFLINE")
 			<< "BOSS INDEX" << delim << nBossIndex << delim
 			<< "TARGET INDEX" << delim << nTargetIndex
 			<< end;
-#endif // PARTY_BUG_GER
 
 	CParty* pParty = gserver.FindPartyByBossIndex(dest->m_subNo, nBossIndex);
 	if (!pParty)
 	{
-#ifdef PARTY_BUG_GER
 		GAMELOG << init("PARTY_BUG_GER OFFLINE: NOT_PARTY")
 				<< "BOSSINDEX" << delim << nBossIndex << delim
 				<< "TARGETINDEX" << delim << nTargetIndex
@@ -5126,7 +5585,6 @@ void do_CommandPartyOffline( CNetMsg::SP& msg, CDescriptor* dest)
 
 		gserver.PrintPartyMemberList(dest->m_subNo, nBossIndex);
 		gserver.PrintPartyMemberList(dest->m_subNo, nTargetIndex);
-#endif // #ifdef PARTY_BUG_GER
 		return ;
 	}
 
@@ -5138,19 +5596,15 @@ void do_CommandPartyOffline( CNetMsg::SP& msg, CDescriptor* dest)
 	}
 	else
 	{
-#ifdef PARTY_BUG_GER
 		GAMELOG << init("PARTY_BUG_GER OFFLINE: TARGET MEMBER NOT FOUND")
 				<< "TARGET INDEX" << delim << nTargetIndex
 				<< end;
-#endif // PARTY_BUG_GER
 	}
 	if (pParty->GetMemberCountOnline() < 2)
 	{
-#ifdef PARTY_BUG_GER
 		GAMELOG << init("PARTY_BUG_GER OFFLINE: PARTY END")
 				<< "BOSS INDEX" << delim << nBossIndex << end;
 		gserver.PrintPartyMemberList(dest->m_subNo, nBossIndex);
-#endif // PARTY_BUG_GER
 
 		// 파티 해체
 		LONGLONG key = MAKE_LONGLONG_KEY(pParty->GetSubNo(), pParty->GetBossIndex());
@@ -5283,11 +5737,9 @@ void do_CommandPartyOffline( CNetMsg::SP& msg, CDescriptor* dest)
 			CLCString	strTargetName(MAX_CHAR_NAME_LENGTH + 1);
 			CPartyMember *newBoss = NULL;
 
-#ifdef PARTY_BUG_GER
 			GAMELOG << init("PARTY_BUG_GER OFFLINE: CHANGEBOSS")
 					<< "BOSS INDEX" << delim << nBossIndex
 					<< end;
-#endif // PARTY_BUG_GER
 
 			for(int i=0; i<MAX_PARTY_MEMBER ; i++ )
 			{
@@ -5321,12 +5773,10 @@ void do_CommandPartyOffline( CNetMsg::SP& msg, CDescriptor* dest)
 			{
 				if (pParty->ChangeBoss(strTargetName))
 				{
-#ifdef PARTY_BUG_GER
 					GAMELOG << init("PARTY_BUG_GER OFFLINE: CHANGEBOSS")
 							<< "Prev" << delim << nBossIndex << delim
 							<< "After" << delim << pParty->GetBossIndex()
 							<< end;
-#endif // PARTY_BUG_GER
 
 					CNetMsg::SP rmsg(new CNetMsg);
 					HelperPartyChangeBossRepMsg(rmsg, nBossIndex, strBossName, pParty->GetBossIndex(), strTargetName);
@@ -5362,7 +5812,6 @@ void do_CommandPartyOnline( CNetMsg::SP& msg, CDescriptor* dest)
 	CParty* pParty = gserver.FindPartyByBossIndex(dest->m_subNo, nBossIndex);
 	if (!pParty)
 	{
-#ifdef PARTY_BUG_GER
 		GAMELOG << init("PARTY_BUG_GER ONLINE: NOT_PARTY")
 				<< "BOSSINDEX" << delim << nBossIndex << delim
 				<< "TARGETINDEX" << delim << nTargetIndex
@@ -5370,7 +5819,6 @@ void do_CommandPartyOnline( CNetMsg::SP& msg, CDescriptor* dest)
 		gserver.PrintPartyMemberList(dest->m_subNo, nBossIndex);
 		gserver.PrintPartyMemberList(dest->m_subNo, nTargetIndex);
 
-#endif // #ifdef PARTY_BUG_GER
 		return ;
 	}
 
@@ -6052,8 +6500,8 @@ void do_CommandGuildMemberAdjust( CNetMsg::SP& msg, CDescriptor* dest )
 	int ownerindex;
 	int charindex;
 	CLCString strPositionName(GUILD_POSITION_NAME+1);
-	int contributeExp;
-	int contributeFame;
+	int contributeExp_min, contributeExp_max;
+	int contributeFame_min, contributeFame_max;
 	int pos;
 #ifdef DEV_GUILD_STASH
 	char	cStashAuth = 0;
@@ -6063,14 +6511,37 @@ void do_CommandGuildMemberAdjust( CNetMsg::SP& msg, CDescriptor* dest )
 		>> ownerindex
 		>> charindex
 		>> strPositionName
-		>> contributeExp
-		>> contributeFame;
+		>> contributeExp_min
+		>> contributeExp_max
+		>> contributeFame_min
+		>> contributeFame_max;
 	RefMsg(msg) >> pos;
 #ifdef DEV_GUILD_STASH
 	RefMsg(msg) >> cStashAuth;
 #endif //DEV_GUILD_STASH
 
 	CGuildMember* gMember = gserver.m_guildlist.findmember( charindex );
+
+	if(gMember == NULL)
+		return;
+
+	if(gMember->GetcontributeExp() > contributeExp_max)
+	{
+		gMember->contributeExp(contributeExp_max);
+	}
+	else if(gMember->GetcontributeExp() < contributeExp_min)
+	{
+		gMember->contributeExp(contributeExp_min);
+	}
+
+	if(gMember->GetcontributeFame() > contributeFame_max)
+	{
+		gMember->contributeFame(contributeFame_max);
+	}
+	else if(gMember->GetcontributeFame() < contributeFame_min)
+	{
+		gMember->contributeFame(contributeFame_min);
+	}
 
 	CDBCmd cmd;
 	cmd.Init( &gserver.m_dbchar );
@@ -6079,14 +6550,14 @@ void do_CommandGuildMemberAdjust( CNetMsg::SP& msg, CDescriptor* dest )
 	std::string update_extend_guild_member_query = "";
 #ifdef DEV_GUILD_STASH
 	update_extend_guild_member_query = boost::str(boost::format(
-		"UPDATE t_extend_guildmember SET a_position_name = '%s', a_contribute_exp = %d, a_contribute_fame = %d, a_stash_auth = %d"
-		" WHERE a_guild_index = %d AND a_char_index = %d")
-		%(const char*)strPositionName % contributeExp % contributeFame % (int)cStashAuth % guildindex % charindex );
+		"UPDATE t_extend_guildmember SET a_position_name = '%s', a_contribute_exp = %d, a_contribute_fame = %d, a_contribute_exp_min = %d, a_contribute_exp_max = %d, a_contribute_fame_min = %d, a_contribute_fame_max = %d,"
+		"a_stash_auth = %d where a_guild_index = %d AND a_char_index= %d")
+		%(const char*)strPositionName % gMember->GetcontributeExp() % gMember->GetcontributeFame() % contributeExp_min % contributeExp_max % contributeFame_min % contributeFame_max % (int)cStashAuth % guildindex % charindex);
 #else
 	update_extend_guild_member_query = boost::str(boost::format(
-		"UPDATE t_extend_guildmember SET a_position_name = '%s', a_contribute_exp = %d, a_contribute_fame = %d "
+		"UPDATE t_extend_guildmember SET a_position_name = '%s', a_contribute_exp = %d, a_contribute_fame = %d, a_contribute_exp_min = %d, a_contribute_exp_max = %d, a_contribute_fame_min = %d, a_contribute_fame_max = %d"
 		" WHERE a_guild_index = %d AND a_char_index = %d ")
-		%(const char*)strPositionName % contributeExp % contributeFame % guildindex % charindex );
+		%(const char*)strPositionName % gMember->GetcontributeExp() % gMember->GetcontributeFame() % contributeExp_min % contributeExp_max % contributeFame_min % contributeFame_max % guildindex % charindex);
 #endif //DEV_GUILD_STASH
 
 	cmd.SetQuery( update_extend_guild_member_query );
@@ -6098,7 +6569,7 @@ void do_CommandGuildMemberAdjust( CNetMsg::SP& msg, CDescriptor* dest )
 			<< mysql_error( &gserver.m_dbchar ) << end;
 
 		CNetMsg::SP rmsg(new CNetMsg);
-		HelperGuildMemberAdjustRepMsg( rmsg, guildindex, ownerindex, charindex, strPositionName, contributeExp, contributeFame, pos, MSG_NEW_GUILD_ERROR_ADJUST_FAIL );
+		HelperGuildMemberAdjustRepMsg( rmsg, guildindex, ownerindex, charindex, strPositionName, gMember->GetcontributeExp(), gMember->GetcontributeFame(), contributeExp_min, contributeExp_max, contributeFame_min, contributeFame_max, pos, MSG_NEW_GUILD_ERROR_ADJUST_FAIL );
 		SEND_Q( rmsg, dest );
 		return;
 	}
@@ -6114,7 +6585,7 @@ void do_CommandGuildMemberAdjust( CNetMsg::SP& msg, CDescriptor* dest )
 			<< mysql_error( &gserver.m_dbchar ) << end;
 
 		CNetMsg::SP rmsg(new CNetMsg);
-		HelperGuildMemberAdjustRepMsg( rmsg, guildindex, ownerindex, charindex, strPositionName, contributeExp, contributeFame, pos, MSG_NEW_GUILD_ERROR_ADJUST_FAIL );
+		HelperGuildMemberAdjustRepMsg( rmsg, guildindex, ownerindex, charindex, strPositionName, gMember->GetcontributeExp(), gMember->GetcontributeFame(), contributeExp_min, contributeExp_max, contributeFame_min, contributeFame_max, pos, MSG_NEW_GUILD_ERROR_ADJUST_FAIL );
 		SEND_Q( rmsg, dest );
 		return;
 	}
@@ -6122,9 +6593,12 @@ void do_CommandGuildMemberAdjust( CNetMsg::SP& msg, CDescriptor* dest )
 
 	if( gMember )
 	{
+		gMember->SetContributeExp_min(contributeExp_min);
+		gMember->SetContributeExp_max(contributeExp_max);
+		gMember->SetContributeFame_min(contributeFame_min);
+		gMember->SetContributeFame_max(contributeFame_max);
+
 		gMember->positionName( strPositionName );
-		gMember->contributeExp( contributeExp );
-		gMember->contributeFame( contributeFame );
 		gMember->guild()->ChangeGradeExPosCount(gMember->pos(), pos);
 		gMember->pos(pos);
 
@@ -6165,7 +6639,7 @@ void do_CommandGuildMemberAdjust( CNetMsg::SP& msg, CDescriptor* dest )
 	}
 
 	CNetMsg::SP rmsg(new CNetMsg);
-	HelperGuildMemberAdjustRepMsg( rmsg, guildindex, ownerindex, charindex, strPositionName, contributeExp, contributeFame, pos, MSG_NEW_GUILD_ERROR_ADJUST_OK );
+	HelperGuildMemberAdjustRepMsg( rmsg, guildindex, ownerindex, charindex, strPositionName, gMember->GetcontributeExp(), gMember->GetcontributeFame(), contributeExp_min, contributeExp_max, contributeFame_min, contributeFame_max, pos, MSG_NEW_GUILD_ERROR_ADJUST_OK );
 	gserver.SendToAllGameServer(rmsg);
 }
 
@@ -6251,7 +6725,7 @@ void do_CommandNewGuildMemberList( CNetMsg::SP& msg, CDescriptor* dest )
 	cmd.Init( &gserver.m_dbchar );
 
 	char select_guild_member_query[8192] = {0,};
-	sprintf( select_guild_member_query, "SELECT g.a_guild_index as a_guild_index, g.a_char_index as a_char_index, g.a_char_name as a_char_name, g.a_pos as a_pos, eg.a_position_name as a_position_name, eg.a_point as a_point, c.a_job as a_job, c.a_job2 as a_job2, c.a_level as a_level  "
+	sprintf( select_guild_member_query, "SELECT g.a_guild_index as a_guild_index, g.a_char_index as a_char_index, g.a_char_name as a_char_name, g.a_pos as a_pos, eg.a_position_name as a_position_name, eg.a_point as a_point, c.a_job as a_job, c.a_job2 as a_job2, c.a_level as a_level, c.a_lcdatestamp as a_logout_date"
 					" FROM t_guildmember as g LEFT JOIN t_extend_guildmember as eg ON g.a_guild_index = eg.a_guild_index "
 					" LEFT JOIN t_characters as c ON g.a_char_index = c.a_index "
 					" WHERE g.a_char_index = eg.a_char_index AND g.a_guild_index = %d AND c.a_enable = 1", guildindex );
@@ -6264,7 +6738,7 @@ void do_CommandNewGuildMemberList( CNetMsg::SP& msg, CDescriptor* dest )
 	if( !cmd.Open() || !cmd.MoveFirst() )
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
-		HelperNewGuildMemberListRepMsg( rmsg, endcount, guildstart, charindex, guildindex, MSG_GUILD_ERROR_NOTBOSS, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+		HelperNewGuildMemberListRepMsg( rmsg, endcount, guildstart, charindex, guildindex, MSG_GUILD_ERROR_NOTBOSS, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 		SEND_Q( rmsg, dest );
 		return;
 	}
@@ -6277,6 +6751,7 @@ void do_CommandNewGuildMemberList( CNetMsg::SP& msg, CDescriptor* dest )
 	char job2[GUILD_MAX_MEMBER];
 	int level[GUILD_MAX_MEMBER];
 	int position[GUILD_MAX_MEMBER];
+	int logout_date[GUILD_MAX_MEMBER] = {0,};
 	CLCString strCharName( MAX_CHAR_NAME_LENGTH  + 1 );
 	CLCString strPositionName( GUILD_POSITION_NAME+1 );
 
@@ -6300,6 +6775,7 @@ void do_CommandNewGuildMemberList( CNetMsg::SP& msg, CDescriptor* dest )
 		cmd.GetRec( "a_job2", job2[i] );
 		cmd.GetRec( "a_level", level[i] );
 		cmd.GetRec( "a_pos", position[i] );
+		cmd.GetRec( "a_logout_date", logout_date[i] );
 		strcpy( charName[i], strCharName );
 		strcpy( positionName[i], strPositionName );
 		if( guild )
@@ -6315,7 +6791,7 @@ void do_CommandNewGuildMemberList( CNetMsg::SP& msg, CDescriptor* dest )
 		endcount = (i + 1) * 5;
 		CNetMsg::SP rmsg(new CNetMsg);
 		HelperNewGuildMemberListRepMsg( rmsg, endcount, guildstart, charindex, guildindex, MSG_NEW_GUILD_MEMBERLIST_ERROR_OK,
-				 membercharindex, cumulatePoint, charName, positionName, job, job2, level, position );
+				 membercharindex, cumulatePoint, charName, positionName, job, job2, level, position, logout_date );
 		SEND_Q( rmsg, dest );
 	}
 
@@ -6324,7 +6800,7 @@ void do_CommandNewGuildMemberList( CNetMsg::SP& msg, CDescriptor* dest )
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
 		HelperNewGuildMemberListRepMsg( rmsg, membercount, guildstart, charindex, guildindex, MSG_NEW_GUILD_MEMBERLIST_ERROR_OK,
-				 membercharindex, cumulatePoint, charName, positionName, job, job2, level, position );
+			membercharindex, cumulatePoint, charName, positionName, job, job2, level, position, logout_date);
 		SEND_Q( rmsg, dest );
 	}
 
@@ -6343,11 +6819,7 @@ void do_CommandNewGuildManage( CNetMsg::SP& msg, CDescriptor* dest )
 	cmd.Init( &gserver.m_dbchar );
 
 	char select_guild_member_query[8192] = {0,};
-#ifdef DEV_GUILD_STASH
-	sprintf( select_guild_member_query, "SELECT g.a_guild_index as a_guild_index, g.a_char_index as a_char_index, g.a_char_name as a_char_name, g.a_pos as a_pos, eg.a_position_name as a_position_name, eg.a_contribute_exp as a_contribute_exp, eg.a_contribute_fame as a_contribute_fame, c.a_level as a_level, eg.a_stash_auth as a_stash_auth  "
-#else
-	sprintf( select_guild_member_query, "SELECT g.a_guild_index as a_guild_index, g.a_char_index as a_char_index, g.a_char_name as a_char_name, g.a_pos as a_pos, eg.a_position_name as a_position_name, eg.a_contribute_exp as a_contribute_exp, eg.a_contribute_fame as a_contribute_fame, c.a_level as a_level "
-#endif //DEV_GUILD_STASH
+	sprintf( select_guild_member_query, "SELECT g.a_guild_index as a_guild_index, g.a_char_index as a_char_index, g.a_char_name as a_char_name, g.a_pos as a_pos, eg.a_position_name as a_position_name, eg.a_contribute_exp as a_contribute_exp, eg.a_contribute_fame as a_contribute_fame, eg.a_contribute_exp_min as a_contribute_exp_min, eg.a_contribute_exp_max as a_contribute_exp_max, eg.a_contribute_fame_min as a_contribute_fame_min, eg.a_contribute_fame_max as a_contribute_fame_max, c.a_level as a_level, eg.a_stash_auth as a_stash_auth  "
 			" FROM t_guildmember as g LEFT JOIN  t_extend_guildmember as eg ON g.a_guild_index = eg.a_guild_index "
 			" LEFT JOIN t_characters as c ON g.a_char_index = c.a_index "
 			" WHERE g.a_char_index = eg.a_char_index AND g.a_guild_index = %d AND c.a_enable = 1", guildindex );
@@ -6360,16 +6832,18 @@ void do_CommandNewGuildManage( CNetMsg::SP& msg, CDescriptor* dest )
 	if( !cmd.Open() || !cmd.MoveFirst() )
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
-#ifdef DEV_GUILD_STASH
-		HelperNewGuildManageRepMsg( rmsg, endcount, guildstart, charindex, guildindex, MSG_GUILD_ERROR_NOTBOSS, NULL, NULL, NULL, NULL , NULL, NULL, NULL, NULL, 1);
-#else
-		HelperNewGuildManageRepMsg( rmsg, endcount, guildstart, charindex, guildindex, MSG_GUILD_ERROR_NOTBOSS, NULL, NULL, NULL, NULL , NULL, NULL, NULL, 1);
-#endif //DEV_GUILD_STASH
+		HelperNewGuildManageRepMsg( rmsg, endcount, guildstart, charindex, guildindex, MSG_GUILD_ERROR_NOTBOSS, NULL, NULL, NULL, NULL , NULL, NULL, NULL, NULL , NULL, NULL, NULL, NULL, 1);
 		SEND_Q( rmsg, dest );
 		return;
 	}
 	int membercount		= 0;
 	int membercharindex[GUILD_MAX_MEMBER];
+	
+	int contributeExp_min[GUILD_MAX_MEMBER];
+	int contributeExp_max[GUILD_MAX_MEMBER];
+	int contributeFame_min[GUILD_MAX_MEMBER];
+	int contributeFame_max[GUILD_MAX_MEMBER];
+
 	int contributeExp[GUILD_MAX_MEMBER];
 	int contributeFame[GUILD_MAX_MEMBER];
 	int level[GUILD_MAX_MEMBER];
@@ -6378,9 +6852,7 @@ void do_CommandNewGuildManage( CNetMsg::SP& msg, CDescriptor* dest )
 	CLCString strCharName( MAX_CHAR_NAME_LENGTH  + 1 );
 	CLCString strPositionName( GUILD_POSITION_NAME+1 );
 	int position[GUILD_MAX_MEMBER];
-#ifdef DEV_GUILD_STASH
 	char stashAuth[GUILD_MAX_MEMBER];
-#endif //DEV_GUILD_STASH
 
 	membercount = cmd.m_nrecords;
 	int i = 0;
@@ -6394,6 +6866,10 @@ void do_CommandNewGuildManage( CNetMsg::SP& msg, CDescriptor* dest )
 		cmd.GetRec( "a_char_index", membercharindex[i] );
 		cmd.GetRec( "a_contribute_exp", contributeExp[i] );
 		cmd.GetRec( "a_contribute_fame", contributeFame[i] );
+		cmd.GetRec( "a_contribute_exp_min", contributeExp_min[i]);
+		cmd.GetRec( "a_contribute_exp_max", contributeExp_max[i]);
+		cmd.GetRec( "a_contribute_fame_min", contributeFame_min[i] );
+		cmd.GetRec( "a_contribute_fame_max", contributeFame_max[i] );
 		cmd.GetRec( "a_char_name", strCharName );
 		if( !cmd.GetRec( "a_position_name",strPositionName ) )
 		{
@@ -6406,9 +6882,7 @@ void do_CommandNewGuildManage( CNetMsg::SP& msg, CDescriptor* dest )
 		if( guild )
 			guild->AddGradeExPosCount( position[i] );
 
-#ifdef DEV_GUILD_STASH
 		cmd.GetRec( "a_stash_auth", stashAuth[i] );
-#endif //DEV_GUILD_STASH
 	i++;
 	}while( cmd.MoveNext());
 
@@ -6420,11 +6894,7 @@ void do_CommandNewGuildManage( CNetMsg::SP& msg, CDescriptor* dest )
 		endcount = (i + 1) * 5;
 
 		CNetMsg::SP rmsg(new CNetMsg);
-#ifdef DEV_GUILD_STASH
-		HelperNewGuildManageRepMsg( rmsg, endcount, guildstart, charindex, guildindex, MSG_NEW_GUILD_MANAGE_ERROR_OK,  membercharindex, contributeExp, contributeFame, charName, positionName, level, position, stashAuth, first );
-#else
-		HelperNewGuildManageRepMsg( rmsg, endcount, guildstart, charindex, guildindex, MSG_NEW_GUILD_MANAGE_ERROR_OK,  membercharindex, contributeExp, contributeFame, charName, positionName, level, position, first );
-#endif //
+		HelperNewGuildManageRepMsg( rmsg, endcount, guildstart, charindex, guildindex, MSG_NEW_GUILD_MANAGE_ERROR_OK,  membercharindex, contributeExp, contributeFame, contributeExp_min, contributeExp_max, contributeFame_min, contributeFame_max, charName, positionName, level, position, stashAuth, first );
 		SEND_Q( rmsg, dest );
 
 		first = 0;
@@ -6434,11 +6904,7 @@ void do_CommandNewGuildManage( CNetMsg::SP& msg, CDescriptor* dest )
 	if( remaincount > 0 )
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
-#ifdef DEV_GUILD_STASH
-		HelperNewGuildManageRepMsg( rmsg, membercount, guildstart, charindex, guildindex, MSG_NEW_GUILD_MANAGE_ERROR_OK,  membercharindex, contributeExp, contributeFame, charName, positionName, level, position, stashAuth, first );
-#else
-		HelperNewGuildManageRepMsg( rmsg, membercount, guildstart, charindex, guildindex, MSG_NEW_GUILD_MANAGE_ERROR_OK,  membercharindex, contributeExp, contributeFame, charName, positionName, level, position, first );
-#endif //DEV_GUILD_STASH
+		HelperNewGuildManageRepMsg( rmsg, membercount, guildstart, charindex, guildindex, MSG_NEW_GUILD_MANAGE_ERROR_OK,  membercharindex, contributeExp, contributeFame, contributeExp_min, contributeExp_max, contributeFame_min, contributeFame_max, charName, positionName, level, position, stashAuth, first );
 		SEND_Q( rmsg, dest );
 	}
 
@@ -6959,6 +7425,19 @@ void do_CommandGuildSkillLearn( CNetMsg::SP& msg, CDescriptor* dest )
 							<< nGuildIndex << end;
 				}
 			}
+			else if (sindex[roopcount] == 1377)
+			{
+				size_t new_count = CGuildStash::DefaultStashCapacity + ((sLevel[roopcount] - 1) * 5);
+				sql.Format("UPDATE t_guild_stash_info SET a_capacity=%d WHERE a_guild_idx = %d", new_count, nGuildIndex);
+				cmd.SetQuery( sql );
+				if( !cmd.Update() )
+				{
+					GAMELOG << init( "GUILD STASH INC FAIL" )
+						<< "GUILD" << delim
+						<< nGuildIndex << end;
+				}
+			}
+
 			roopcount++;
 		}
 
@@ -11216,6 +11695,24 @@ void do_CommandGuildStashTake(CNetMsg::SP& msg, CDescriptor* dest)
 		>> takeMoney
 		>> itemCount;
 
+	CGuild* guild = gserver.m_guildlist.findguild(guildindex);
+
+	if(guild == NULL)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		HelperGuildStashErrorMsg( rmsg, charindex, 6 );
+		SEND_Q( rmsg, dest );
+		return;
+	}
+
+	if(takeMoney > 0 && guild->m_isUseTheStashAndSkill == false)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		HelperGuildStashErrorMsg( rmsg, charindex, 6 );
+		SEND_Q( rmsg, dest );
+		return;
+	}
+
 	CDBCmd	cmd;
 	cmd.Init( &gserver.m_dbchar );
 	CLCString	sql(1024);
@@ -11592,7 +12089,7 @@ void do_CommandGuildMemberKickOutDateUpdate(CNetMsg::SP& msg, CDescriptor* dest)
 	CDBCmd cmd;
 	cmd.Init(&gserver.m_dbchar);
 
-	sql.Format("update t_characters set a_guildoutdate=%d where a_index=%d", outdate, charindex );
+	sql.Format("update t_characters set a_guildindate=%d where a_index=%d", outdate, charindex );
 	cmd.SetQuery(sql);
 	if( !cmd.Update() )
 	{

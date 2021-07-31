@@ -1,7 +1,9 @@
 #ifndef __USER_H__
 #define __USER_H__
 
-class CUser
+#include "../ShareLib/MemoryPoolBase.h"
+
+class CUser : public MemoryPoolBase<CUser>
 {
 public:
 	int				m_index;		// user 인덱스 : 포털 인덱스
@@ -33,24 +35,5 @@ public:
 
 	CUser(int index, const char* name, int server, int subnum, const char* ip, const char* ident = NULL);
 };
-
-class CUserList
-{
-public:
-	CUser**			m_users;
-	int				m_count;
-	int				m_last;
-	int				m_playersPerZone[MAX_ZONES];
-
-
-	CUserList();
-	~CUserList();
-
-	CUser* Add(CUser* user);
-	bool Remove(CUser* user, bool bFree = true);
-	CUser* Find(const char* name);
-	CUser* FindByUserIndex(int userindex);
-};
-
 #endif
 //

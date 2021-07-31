@@ -42,6 +42,7 @@
 #include "ItemCollection.h"
 #include "Notice.h"
 #include "Artifact_Manager.h"
+#include "GuildBattleManager.h"
 
 // DescManager에서 userIndex를 유니크하게 관리를 해야하는데
 // 최초 접속시에는 userIndex를 모름으로 더미값을 넣어주고
@@ -366,6 +367,11 @@ CServer::CServer()
 #ifdef TLD_EVENT_SONG
 	tld_event = false;
 #endif
+
+	m_battle_guild_index = -1;
+	m_battle_guild_gm = -1;
+
+	gm_list_init();
 }
 
 CServer::~CServer()
@@ -2039,6 +2045,30 @@ void CServer::CloseSocket(CDescriptor* d)
 			{
 				d->m_pChar->Unevocation();
 			}
+
+
+			if(d->m_pChar->m_guildInfo != NULL && d->m_pChar->m_guildInfo->guild() != NULL)
+			{
+				CGuild* guild = d->m_pChar->m_guildInfo->guild();
+				if(guild->boss()->GetPC() == d->m_pChar)
+				{
+					GuildBattleManager::instance()->delete_banish(guild->index());
+					if( GuildBattleManager::instance()->cancel(guild->index()) == true)
+					{
+						guild->m_isUseTheStashAndSkill = true;
+
+						CNetMsg::SP rmsg(new CNetMsg);
+						ServerToServerPacket::makeGuildBattleStashLockOff(rmsg, guild->index());
+						SEND_Q(rmsg, gserver->m_helper);
+					}
+				}
+
+				if (guild->battleState() == GUILD_BATTLE_STATE_ING)
+				{
+					//길드전 종료 처리
+					GuildBattleManager::instance()->giveup(d->m_pChar->m_index);
+				}
+			}
 			LOG_INFO("LOGOUT_INFO > name[%s], exp[%d], sp[%d], fp[%d]", d->m_pChar->GetName(), d->m_pChar->m_exp, d->m_pChar->m_skillPoint, d->m_pChar->m_syndicateManager.getSyndicatePoint(d->m_pChar->getSyndicateType()));
 		}
 		// TODO - 캐릭터의 정보를 DB thread로 보내어 저장하도록 함
@@ -2105,7 +2135,16 @@ void CServer::CommandInterpreter(CDescriptor* d, CNetMsg::SP& msg)
 			// 1초마다 공격 및 명령 카운터를 초기화 한다.
 			// 즉, 1초에 몇개의 명령을 수행할 수 있는지 정하고
 			// 이곳에서 초기화 되기 전에 명령의 개수를 넘기는 경우 핵으로 간주하면 된다
-			if (d->m_commandcount > 20)
+			if(d->m_commandcount > 1000)
+			{
+				GAMELOG << init("HACK COMMAND TOO MANY PACKET", d->m_pChar->m_name, d->m_pChar->m_nick, d->m_idname)
+					<< d->m_commandcount
+					<< end;
+
+				d->Close("HACK COMMAND TOO MANY PACKET");
+				return;
+			}
+			else if (d->m_commandcount > 20)
 			{
 				if (d->m_pChar)
 					GAMELOG << init("HACK COMMAND", d->m_pChar->m_name, d->m_pChar->m_nick, d->m_idname);
@@ -2120,6 +2159,7 @@ void CServer::CommandInterpreter(CDescriptor* d, CNetMsg::SP& msg)
 					return;
 				}
 			}
+			
 			d->m_checktics = m_pulse;
 			d->m_commandcount = 0;
 		}
@@ -2900,7 +2940,7 @@ void CServer::DecreaseTimeForPC(CPC* ch)
 
 				{
 					CNetMsg::SP rmsg(new CNetMsg);
-					SubHelperTitleSystemTitleDelReq(rmsg, ch->m_index, title_index);
+					SubHelperTitleSystemTitleDelReq(rmsg, ch->m_index, title_index, title->m_custom_title_index);
 					SEND_Q(rmsg, gserver->m_subHelper);
 				}
 			}
@@ -4307,7 +4347,7 @@ void CServer::CharPrePlay(CDescriptor* d)
 		}
 
 		// 소환중인 펫이 마운트 타입이 아니면 Appear 시키기
-		if (pet->IsWearing())
+		if (pet->IsWearing() && gserver->m_subno != 4)
 		{
 			if(pet->IsMountType() && d->m_pChar->m_pZone->m_bCanMountPet)
 				pet->Mount(true);
@@ -4323,7 +4363,7 @@ void CServer::CharPrePlay(CDescriptor* d)
 	while ( apet )
 	{
 		// Pet 상태 MSG
-		if( apet->IsWearing() && !DEAD(apet) )
+		if( apet->IsWearing() && !DEAD(apet) && gserver->m_subno != 4)
 		{
 			if ( d->m_pChar->m_pZone->m_bCanSummonPet )
 			{
@@ -4373,6 +4413,10 @@ void CServer::CharPrePlay(CDescriptor* d)
 		apet = apet->m_pNextPet;
 	}
 
+	//펫 버프가 있다면 삭제
+	if(gserver->m_subno == 4)
+		d->m_pChar->m_assist.CureByPetSkill();
+
 	// 골든볼 이벤트 응모 카드 회수 : 이벤트 진행 중이 아니면
 	if (m_clGoldenBall.GetStatus() == GOLDENBALL_STATUS_NOTHING)
 	{
@@ -4400,6 +4444,16 @@ void CServer::CharPrePlay(CDescriptor* d)
 
 	// inven
 	d->m_pChar->m_inventory.sendInfoToClient();
+
+	if(d->m_pChar->m_ep == -1)
+	{
+		//ep 초기화 패킷 전달
+		CNetMsg::SP rmsg(new CNetMsg);
+		UpdateClient::EPInitMsg(rmsg, true);
+		SEND_Q(rmsg, d);
+
+		d->m_pChar->m_ep = 0;
+	}
 
 	// status
 	d->m_pChar->SendStatus();
@@ -4512,7 +4566,7 @@ void CServer::CharPrePlay(CDescriptor* d)
 				{
 					if (g->boss() && g->boss()->charindex() == d->m_pChar->m_index)
 					{
-						d->m_pChar->m_inventory.increaseMoney(g->battlePrize());
+						d->m_pChar->m_inventory.increaseMoney(g->battlePrizeNas());
 
 						{
 							CNetMsg::SP rmsg(new CNetMsg);
@@ -4732,12 +4786,12 @@ void CServer::CharPrePlay(CDescriptor* d)
 	}
 #endif // RANKER_NOTICE
 
-	if( d->m_pChar->m_guildInfo && d->m_pChar->m_guildInfo->guild() )
+	/*if( d->m_pChar->m_guildInfo && d->m_pChar->m_guildInfo->guild() )
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
 		ConnGuildPointRankerReqMsg( rmsg, d->m_pChar->m_guildInfo->guild()->index(), d->m_pChar->m_index );
 		SEND_Q(rmsg, gserver->m_connector );
-	}
+	}*/
 
 	if( d->m_pChar->m_guildInfo && d->m_pChar->m_guildInfo->guild() && d->m_pChar->m_pArea)
 	{
@@ -4757,11 +4811,9 @@ void CServer::CharPrePlay(CDescriptor* d)
 	d->m_pChar->m_party = FindPartyByMemberIndex(d->m_pChar->m_index, false);
 	if (d->m_pChar->IsParty())
 	{
-#ifdef PARTY_BUG_GER
 		GAMELOG << init("SET_PARTY_MEMBER", d->m_pChar)
 				<< "BOSSINDEX" << delim << d->m_pChar->m_party->GetBossIndex()
 				<< end;
-#endif // PARTY_BUG_GER
 
 #ifdef BATTLE_PARTY_BOSS_CHANGE // 전투파티 버그 수정. 자기와 파장의 레벨차이가 10레벨이상 차이 날때 로그오프 했다가 들어오는 사람은 파탈함.
 		if( d->m_pChar->m_party->GetPartyType(0) == MSG_PARTY_TYPE_BATTLE &&
@@ -7293,3 +7345,17 @@ void CServer::checkTldEvent()
 	}
 }
 #endif
+
+
+void CServer::gm_list_init()
+{
+	set_gmlist.insert(std::set<std::string>::value_type("echo"));
+	set_gmlist.insert(std::set<std::string>::value_type("silence"));
+	set_gmlist.insert(std::set<std::string>::value_type("doubleexp_event"));
+	set_gmlist.insert(std::set<std::string>::value_type("upgrade_event"));
+	set_gmlist.insert(std::set<std::string>::value_type("event"));
+	set_gmlist.insert(std::set<std::string>::value_type("automationevent"));
+	set_gmlist.insert(std::set<std::string>::value_type("jewelrye"));
+	set_gmlist.insert(std::set<std::string>::value_type("double_event"));
+	set_gmlist.insert(std::set<std::string>::value_type("godbless"));	
+}

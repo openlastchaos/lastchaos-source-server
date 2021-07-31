@@ -81,6 +81,9 @@ public:
 	{
 		int		m_index;
 		ExpressSystemItemInfo itemInfo;
+		bool	isSend;
+
+		expressTake(){ isSend = false; }
 	};
 
 	struct sendMessageToClient

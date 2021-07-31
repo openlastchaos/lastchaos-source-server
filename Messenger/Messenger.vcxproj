@@ -467,8 +467,8 @@
     <TargetName Condition="'$(Configuration)|$(Platform)'=='BRAZIL|Win32'">$(ProjectName)_brz</TargetName>
     <TargetName Condition="'$(Configuration)|$(Platform)'=='JPNEP|Win32'">$(ProjectName)_jpn</TargetName>
     <TargetName Condition="'$(Configuration)|$(Platform)'=='JAPAN|Win32'">$(ProjectName)_jpn</TargetName>
-    <IncludePath Condition="'$(Configuration)|$(Platform)'=='HOLYLANCE_USA|Win32'">D:\source\mysql\include;D:\source\xxx\LCCrypt_DES;D:\source\Utils\zlib;$(IncludePath)</IncludePath>
-    <LibraryPath Condition="'$(Configuration)|$(Platform)'=='HOLYLANCE_USA|Win32'">D:\source\mysql\lib\opt;D:\source\xxx\LCCrypt_DES\Release;D:\source\Utils\zlib;$(LibraryPath)</LibraryPath>
+    <IncludePath Condition="'$(Configuration)|$(Platform)'=='HOLYLANCE_USA|Win32'">$(IncludePath)</IncludePath>
+    <LibraryPath Condition="'$(Configuration)|$(Platform)'=='HOLYLANCE_USA|Win32'">C:\Source\ServerSrc\Release;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='JPNEP|Win32'">
     <Midl>
@@ -1178,6 +1178,7 @@
       <WarningLevel>Level3</WarningLevel>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
+      <AdditionalOptions>/MP14 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>

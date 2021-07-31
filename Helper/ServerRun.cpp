@@ -277,7 +277,7 @@ void CServer::checkGuildBattle(time_t, CGuild* g)
 					<< "<==>" << delim
 					<< guild->index() << delim
 					<< guild->name() << delim
-					<< g->battlePrize() << delim
+					<< g->battlePrizeNas() << delim
 					<< g->battleZone() << delim
 					<< g->battleTime() << delim
 					<< end;

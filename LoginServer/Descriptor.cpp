@@ -12,7 +12,7 @@
 #include "../ShareLib/packetType/ptype_old_login.h"
 
 #ifdef PASSWORD_ENCRYPT_SHA256
-#include "LCSha256.h"
+#include "../Sharelib/LCSha256.h"
 #endif // PASSWORD_ENCRYPT_SHA256
 #if defined(BCRYPT_USA) && !defined (CIRCLE_WINDOWS)
 #include "../ShareLib/CheckPassword.h"
@@ -392,7 +392,7 @@ bool CDescriptor::GetLogin(CNetMsg::SP& msg)
 		dbAuth.GetRec("user_code", usercode);
 #endif
 
-#if !defined(INTERNATIONAL_LOCAL_ACCESS_RESTRICTIONS) && defined(IP_NATION_CHECK)
+//#if !defined(INTERNATIONAL_LOCAL_ACCESS_RESTRICTIONS) && defined(IP_NATION_CHECK)
 		// ALTER TABLE t_users ADD a_lastip varchar(15) , ADD a_lastnation varchar(3); 필요
 		CDBCmd dbUser_check;
 		dbUser_check.Init(&gserver.m_dbuser);
@@ -419,16 +419,16 @@ bool CDescriptor::GetLogin(CNetMsg::SP& msg)
 		OnLoginLocalLog(usercode, (const char*) m_idname, (const char*) service_->ip().c_str(), (const char*) strNation);
 #endif //LOCAL_LOGIN_LOG
 
-#endif //IP_NATION_CHECK
+//#endif //IP_NATION_CHECK
 #if defined(INTERNATIONAL_LOCAL_ACCESS_RESTRICTIONS)
 		CLCString	nationString;			// DB로부터 받아 올 국가코드
 		bool		bCheckNation = false;
 
 		// 4Dot 주소체계 에서 network byte order 인 long 형태로 바꾼다.
-		unsigned long ipAddr_before = inet_addr((const char*)service_->ip().c_str());
+		ipAddr_before = inet_addr((const char*)service_->ip().c_str());
 
 		// network byte order(10진수) -> host byte order(16진수)
-		unsigned long ipAddr_real	= ntohl(ipAddr_before);
+		ipAddr_real	= ntohl(ipAddr_before);
 
 		// ip 글로벌 테이블을 검색한다.
 		sql.Format("SELECT a_nation_S FROM t_iplist WHERE a_ipstart_N <= %u and a_ipend_N >= %u ", ipAddr_real, ipAddr_real);
@@ -442,8 +442,7 @@ bool CDescriptor::GetLogin(CNetMsg::SP& msg)
 		dbAuth.GetRec("a_nation_S", nationString);
 
 #ifdef IP_NATION_CHECK
-		CDBCmd dbUser_check;
-		dbUser_check.Init(&gserver.m_dbuser);
+		dbUser_check;
 		sql.Format("UPDATE t_users SET a_lastip = '%s' , a_lastnation = '%s' WHERE a_portal_index = %d ",(const char*) service_->ip().c_str(), (const char*)nationString, usercode);
 		dbUser_check.SetQuery(sql);
 		dbUser_check.Update();

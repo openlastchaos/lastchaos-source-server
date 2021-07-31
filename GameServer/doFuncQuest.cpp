@@ -6,6 +6,8 @@
 #include "doFunc.h"
 #include "Battle.h"
 #include "Log.h"
+#include "DBManager.h"
+#include "WearInvenManager.h"
 #include "../ShareLib/packetType/ptype_old_do_sskill.h"
 
 ///////////////////////
@@ -1656,7 +1658,7 @@ void do_QuestPrize(CPC* ch, CNetMsg::SP& msg)
 					// Quest Error Log
 					GAMELOG << init("QUEST ERROR", ch)
 							<< pQuestProto->m_index << delim
-							<< (int)MSG_QUEST_ERR_PRIZE_FULL
+							<< (int)MSG_QUEST_ERR_DONT_HAVE_SPACE
 							<< end;
 
 					// 펫 아이템일 경우 꽉 차면 드롭시키지 않고 피리를 다시 집어 넣고 컨티뉴
@@ -1700,6 +1702,30 @@ void do_QuestPrize(CPC* ch, CNetMsg::SP& msg)
 					}
 
 					// 인벤토리 가득참
+			////////////////////////////////////////////////////////////////////////////////////////
+			if (!item)
+			return;
+
+						GAMELOG << init("INVENFULL_QUESTPRIZE", ch)
+						<< itemlog(item)
+						<< end;
+
+
+		int itemindex = item->getDBIndex();
+		int itemcount = item->getItemCount();
+
+			std::string str = boost::str(boost::format("insert into t_express_system values (NULL, '%s', '%s', '0', '0', '0', 'QUESTSYTEM', '%s', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '-1', '-1', '-1', '-1', '-1', '-1', '-1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '1', 'Quest System', now(), '2018-05-01 00:00:01', '-1', '-1', '-1')") % ch->m_index % itemindex % itemcount);
+			//if (extra_db_.excute(str) == false)
+			//	DBLOG	<< init("DB ERROR : INSERT GMLOG.") << end;
+				
+			CDBCmd dbchar;
+			dbchar.Init(&gserver->m_dbchar);
+			dbchar.SetQuery( str );
+			if (!dbchar.Update())
+				DBLOG << init("DB ERROR : INSERT QUEST ITEM STATUE.") << mysql_error(dbchar.m_dbconn) << end;
+			
+			////////////////////////////////////////////////////////////////////////////////////////
+			/*
 					item = ch->m_pArea->DropItem(item, ch);
 					if (!item)
 						continue;
@@ -1710,10 +1736,10 @@ void do_QuestPrize(CPC* ch, CNetMsg::SP& msg)
 						ItemDropMsg(rmsg, ch, item);
 						ch->m_pArea->SendToCell(rmsg, ch, true);
 					}
-
+					*/
 					{
 						CNetMsg::SP rmsg(new CNetMsg);
-						QuestErrorMsg(rmsg, MSG_QUEST_ERR_PRIZE_FULL);
+						QuestErrorMsg(rmsg, MSG_QUEST_ERR_DONT_HAVE_SPACE);
 						SEND_Q(rmsg, ch->m_desc);
 					}
 				}
@@ -1933,7 +1959,6 @@ void do_QuestPrize(CPC* ch, CNetMsg::SP& msg)
 					<< ch->m_syndicateManager.getSyndicatePoint(ch->getSyndicateType()) << delim
 					<< pQuestProto->m_prizeData[i]
 				<< end;
-
 				ch->m_syndicateManager.increaseSyndicatePoint(pQuestProto->m_prizeData[i]);
 			}
 			break;
@@ -2023,10 +2048,33 @@ void do_QuestPrize(CPC* ch, CNetMsg::SP& msg)
 					// Quest Error Log
 					GAMELOG << init("QUEST ERROR", ch)
 							<< pQuestProto->m_index << delim
-							<< (int)MSG_QUEST_ERR_PRIZE_FULL
+							<< (int)MSG_QUEST_ERR_DONT_HAVE_SPACE
 							<< end;
 
 					// 인벤토리 가득참
+			////////////////////////////////////////////////////////////////////////////////////////
+			if (!item)
+			return;
+
+						GAMELOG << init("INVENFULL_QUESTPRIZE", ch)
+						<< itemlog(item)
+						<< end;
+
+		int itemindex = item->getDBIndex();
+		int itemcount = item->getItemCount();
+
+			std::string str = boost::str(boost::format("insert into t_express_system values (NULL, '%s', '%s', '0', '0', '0', 'QUESTSYTEM', '%s', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '-1', '-1', '-1', '-1', '-1', '-1', '-1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '1', 'Quest System', now(), '2018-05-01 00:00:45', '-1', '-1', '-1')") % ch->m_index % itemindex % itemcount);
+			//if (extra_db_.excute(str) == false)
+			//	DBLOG	<< init("DB ERROR : INSERT GMLOG.") << end;
+				
+			CDBCmd dbchar;
+			dbchar.Init(&gserver->m_dbchar);
+			dbchar.SetQuery( str );
+			if (!dbchar.Update())
+				DBLOG << init("DB ERROR : INSERT QUEST ITEM STATUE.") << mysql_error(dbchar.m_dbconn) << end;
+			
+			////////////////////////////////////////////////////////////////////////////////////////
+						/*
 					item = ch->m_pArea->DropItem(item, ch);
 					if (!item)
 						return;
@@ -2037,12 +2085,13 @@ void do_QuestPrize(CPC* ch, CNetMsg::SP& msg)
 						ItemDropMsg(rmsg, ch, item);
 						ch->m_pArea->SendToCell(rmsg, ch, true);
 					}
-
+										*/
 					{
 						CNetMsg::SP rmsg(new CNetMsg);
-						QuestErrorMsg(rmsg, MSG_QUEST_ERR_PRIZE_FULL);
+						QuestErrorMsg(rmsg, MSG_QUEST_ERR_DONT_HAVE_SPACE);
 						SEND_Q(rmsg, ch->m_desc);
 					}
+
 				}
 			}
 			else
@@ -2101,10 +2150,34 @@ void do_QuestPrize(CPC* ch, CNetMsg::SP& msg)
 						// Quest Error Log
 						GAMELOG << init("QUEST ERROR", ch)
 								<< pQuestProto->m_index << delim
-								<< (int)MSG_QUEST_ERR_PRIZE_FULL
+								<< (int)MSG_QUEST_ERR_DONT_HAVE_SPACE
 								<< end;
 
 						// 인벤토리 가득참
+
+			////////////////////////////////////////////////////////////////////////////////////////
+			if (!item)
+							return;
+
+						GAMELOG << init("INVENFULL_QUESTPRIZE", ch)
+						<< itemlog(item)
+						<< end;
+
+		int itemindex = item->getDBIndex();
+		int itemcount = item->getItemCount();
+
+			std::string str = boost::str(boost::format("insert into t_express_system values (NULL, '%s', '%s', '0', '0', '0', 'QUESTSYTEM', '%s', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '-1', '-1', '-1', '-1', '-1', '-1', '-1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '1', 'Quest System', now(), '2018-05-01 00:00:45', '-1', '-1', '-1')") % ch->m_index % itemindex % itemcount);
+			//if (extra_db_.excute(str) == false)
+			//	DBLOG	<< init("DB ERROR : INSERT GMLOG.") << end;
+				
+			CDBCmd dbchar;
+			dbchar.Init(&gserver->m_dbchar);
+			dbchar.SetQuery( str );
+			if (!dbchar.Update())
+				DBLOG << init("DB ERROR : INSERT QUEST ITEM STATUE.") << mysql_error(dbchar.m_dbconn) << end;
+			
+			////////////////////////////////////////////////////////////////////////////////////////
+			/*
 						item = ch->m_pArea->DropItem(item, ch);
 						if (!item)
 							return;
@@ -2115,10 +2188,10 @@ void do_QuestPrize(CPC* ch, CNetMsg::SP& msg)
 							ItemDropMsg(rmsg, ch, item);
 							ch->m_pArea->SendToCell(rmsg, ch, true);
 						}
-
+						*/
 						{
 							CNetMsg::SP rmsg(new CNetMsg);
-							QuestErrorMsg(rmsg, MSG_QUEST_ERR_PRIZE_FULL);
+							QuestErrorMsg(rmsg, MSG_QUEST_ERR_DONT_HAVE_SPACE);
 							SEND_Q(rmsg, ch->m_desc);
 						}
 					}
@@ -2185,7 +2258,7 @@ void do_QuestPrize(CPC* ch, CNetMsg::SP& msg)
 			default: //추가보상은 아이템만 가능하다.
 				{
 					CNetMsg::SP rmsg(new CNetMsg);
-					QuestErrorMsg(rmsg, MSG_QUEST_ERR_PRIZE_FULL);
+					QuestErrorMsg(rmsg, MSG_QUEST_ERR_DONT_HAVE_SPACE);
 					SEND_Q(rmsg, ch->m_desc);
 				}
 				//return;
@@ -2251,7 +2324,31 @@ void do_QuestPrize(CPC* ch, CNetMsg::SP& msg)
 			}
 			else
 			{
+
+			////////////////////////////////////////////////////////////////////////////////////////
+			if (!item)
+			return;
+
+						GAMELOG << init("INVENFULL_QUESTPRIZE", ch)
+						<< itemlog(item)
+						<< end;
+
+		int itemindex = item->getDBIndex();
+		int itemcount = item->getItemCount();
+
+			std::string str = boost::str(boost::format("insert into t_express_system values (NULL, '%s', '%s', '0', '0', '0', 'QUESTSYTEM', '%s', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '-1', '-1', '-1', '-1', '-1', '-1', '-1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '1', 'Quest System', now(), '2018-05-01 00:00:45', '-1', '-1', '-1')") % ch->m_index % itemindex % itemcount);
+			//if (extra_db_.excute(str) == false)
+			//	DBLOG	<< init("DB ERROR : INSERT GMLOG.") << end;
+				
+			CDBCmd dbchar;
+			dbchar.Init(&gserver->m_dbchar);
+			dbchar.SetQuery( str );
+			if (!dbchar.Update())
+				DBLOG << init("DB ERROR : INSERT QUEST ITEM STATUE.") << mysql_error(dbchar.m_dbconn) << end;
+			
+			////////////////////////////////////////////////////////////////////////////////////////
 				// 인젠토리 꽉차서 못 받을 때 Drop
+			/*
 				item = ch->m_pArea->DropItem(item, ch);
 				if (!item)
 					return;
@@ -2261,6 +2358,7 @@ void do_QuestPrize(CPC* ch, CNetMsg::SP& msg)
 				ItemDropMsg(rmsg, ch, item);
 				ch->m_pArea->SendToCell(rmsg, ch, true);
 				return ;
+				*/
 			}
 		}
 	}
@@ -2385,6 +2483,30 @@ void do_QuestComplete(CPC* ch, CNetMsg::SP& msg)
 
 			if (ch->m_inventory.addItem(item) == false)
 			{
+				
+			////////////////////////////////////////////////////////////////////////////////////////
+			if (!item)
+			return;
+
+						GAMELOG << init("INVENFULL_QUESTPRIZE", ch)
+						<< itemlog(item)
+						<< end;
+
+		int itemindex = item->getDBIndex();
+		int itemcount = item->getItemCount();
+
+			std::string str = boost::str(boost::format("insert into t_express_system values (NULL, '%s', '%s', '0', '0', '0', 'QUESTSYTEM', '%s', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '-1', '-1', '-1', '-1', '-1', '-1', '-1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '1', 'Quest System', now(), '2018-05-01 00:00:45', '-1', '-1', '-1')") % ch->m_index % itemindex % itemcount);
+			//if (extra_db_.excute(str) == false)
+			//	DBLOG	<< init("DB ERROR : INSERT GMLOG.") << end;
+				
+			CDBCmd dbchar;
+			dbchar.Init(&gserver->m_dbchar);
+			dbchar.SetQuery( str );
+			if (!dbchar.Update())
+				DBLOG << init("DB ERROR : INSERT QUEST ITEM STATUE.") << mysql_error(dbchar.m_dbconn) << end;
+			
+			////////////////////////////////////////////////////////////////////////////////////////
+		/*
 				item = ch->m_pArea->DropItem(item, ch);
 				if (!item)
 					return;
@@ -2394,6 +2516,7 @@ void do_QuestComplete(CPC* ch, CNetMsg::SP& msg)
 				item->m_preferenceIndex = ch->m_index;
 				ItemDropMsg(rmsg, ch, item);
 				ch->m_pArea->SendToCell(rmsg, GET_YLAYER(item), item->m_cellX, item->m_cellZ);
+				*/
 			}
 
 			// Item LOG
@@ -2515,7 +2638,15 @@ void do_QuestComplete(CPC* ch, CNetMsg::SP& msg)
 		pQuest->SetComplete1(true);
 	}
 }
+		/*	//ALEX - Here we add to check if inventory is full, it is sent to mysterious statue. Prevents items from being dropped on ground from quests.
+				extern ExpressSystemItemInfo* makeExpressSystemItemInfo(CItem* pItem, int itemCount, int sendType, const char* sendName);
 
+				void sendToLCE_QUEST()
+				{
+					ExpressSystemItemInfo* expressItem = makeExpressSystemItemInfo(pItem, pItem->Count(), EXPRESS_SEND_UNSEARCHABLE_STONESTATUS, "Quest System");
+					DBManager::instance()->PushExpressSendItemToNickName(ch->m_desc, expressItem, (const char *)ch->m_name, EXPRESS_SENDER_TYPE_WEAR_INVENTORY);
+				}
+				*/
 CItem* OptionSettingItem(CPC* ch, CItem* item)
 {
 	if (item->IsRareItem())

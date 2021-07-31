@@ -106,7 +106,6 @@
 #define NPC_PORTAL_SCROLL_DRATAN		// 드라탄 NPC포탈 스크롤
 
 
-#define CHANGE_WARCASTLE_SETTING
 
 #define DEV_EVENT_AUTO					// 국왕탄생일 이벤트
 // PackageII
@@ -116,10 +115,6 @@
 
 
 #define HANARO_EVENT
-
-#define GUILD_CONTRIBUTE_EXP_LIMIT		50				// 길두 기부 경험치를 max 50% 까지만 가능하도록 수정
-
-
 
 
 ///////////////////////// 버그수정 /////////////////////////

@@ -156,7 +156,6 @@
 #define LOW_LEVEL_SUPPORT_QUEST					// 초보지원 퀘스트
 
 // ##### LiveSrv 2010-11-23 ( TestSrv 2010-11-11
-#define CHECK_CASTLE_AREA						// 공성지역 체크 안되는 버그 수정
 
 // ##### LiveSrv 2010-11-10 ( TestSrv 2010-10-29 ) // 브라질
 // ##### LiveSrv 2010-12-24 ( TestSrv 2010-11-22 ) // 멕시코

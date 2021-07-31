@@ -40,6 +40,13 @@ void do_Chat(CPC* ch, CNetMsg::SP& msg)
 	if (chat.Length() < 1)
 		return ;
 
+	if (chat.Length() > CHAT_MESSAGE_MAX)
+	{
+		LOG_ERROR("chat message is too long. max size is %d", CHAT_MESSAGE_MAX);
+		ch->m_desc->Close("chat message is too long.");
+		return;
+	}
+
 	// 채팅 금지 Check
 	if (gserver->m_pulse - ch->m_silencePulse <= 0)
 		return;
@@ -139,6 +146,9 @@ void do_Chat(CPC* ch, CNetMsg::SP& msg)
 			if (gserver->m_chatmonitor[i])
 				SEND_Q(rmsg, gserver->m_chatmonitor[i]);
 		}
+
+		tmp.Replace("%", "%%");
+
 		GAMELOG << init("CHAT MONITOR", ch)
 				<< tmp
 				<< end;
@@ -223,6 +233,8 @@ void do_Chat(CPC* ch, CNetMsg::SP& msg)
 			}
 
 #ifndef LC_GAMIGO
+			tmp.Replace("%", "%%");
+
 			GAMELOG << init("CHAT MONITOR", ch)
 					<< tmp
 					<< end;
@@ -409,6 +421,8 @@ void do_Chat(CPC* ch, CNetMsg::SP& msg)
 							ch->m_index,
 							ch->GetName(),
 							chat);
+
+			chat.Replace("%", "%%");
 
 			GAMELOG << init("CHATLOAD CHATMSG SEND TO MESSENGER:",ch)
 					<< " chat"  << delim <<  chat

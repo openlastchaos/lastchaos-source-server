@@ -14,6 +14,9 @@
 #include "../ShareLib/packetType/ptype_old_do_sskill.h"
 #include "../ShareLib/packetType/ptype_attendance.h"
 #include "../ShareLib/packetType/ptype_notice.h"
+#include "../ShareLib/packetType/ptype_server_to_server.h"
+
+#include "GuildBattleManager.h"
 
 extern CCmdList gexcmdlist;
 
@@ -2373,6 +2376,29 @@ void do_ClientRestart( CPC* ch, CNetMsg::SP& msg )
 	if(ch->m_evocationIndex > EVOCATION_NONE)
 	{
 		ch->Unevocation();
+	}
+
+	if(ch->m_guildInfo != NULL && ch->m_guildInfo->guild())
+	{
+		CGuild* guild = ch->m_guildInfo->guild();
+		if(guild->boss()->GetPC() == ch)
+		{
+			GuildBattleManager::instance()->delete_banish(guild->index());
+			if( GuildBattleManager::instance()->cancel(guild->index()) == true)
+			{
+				guild->m_isUseTheStashAndSkill = true;
+
+				CNetMsg::SP rmsg(new CNetMsg);
+				ServerToServerPacket::makeGuildBattleStashLockOff(rmsg, guild->index());
+				SEND_Q(rmsg, gserver->m_helper);
+			}
+		}
+
+		if (guild->battleState() == GUILD_BATTLE_STATE_ING)
+		{
+			//길드전 종료 처리
+			GuildBattleManager::instance()->giveup(ch->m_index);
+		}
 	}
 
 	ch->m_desc->returnToCharacterSelectMode();

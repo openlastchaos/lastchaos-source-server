@@ -92,7 +92,7 @@ struct TradeAgentSystemListBase : public pTypeBase
 	int charIndex;					//서버에서 찾아서 만들어 사용 client default = 0
 	int pageNo;						// 1~
 	char itemName[20];
-	int itemTypeTab;				// 0~
+	int itemTypeTab;				// 0(무기), 1(방어구), 2(기타) 만 취함
 	GoldType_t minPrice;
 	GoldType_t maxPrice;
 };
@@ -100,7 +100,7 @@ struct TradeAgentSystemList : public TradeAgentSystemListBase
 {
 	int JobClass;
 	int itemSubType;
-	int itemGrade;
+	int itemGrade; // 클라이언트가 보내준 데이터를 서버에서 순서 변경
 	int minItemPlus;
 	int maxItemPlus;
 	int minAttackValue;

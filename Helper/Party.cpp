@@ -177,6 +177,10 @@ void CParty::DeleteMember(int nCharIndex)
 		{
 			m_listMember[i] = m_listMember[i + 1];
 			m_listMember[i + 1] = NULL;
+
+			if(m_listMember[i] == NULL)
+				continue;
+			
 			if (i == 0)
 			{
 				LONGLONG key = MAKE_LONGLONG_KEY(this->GetSubNo(), m_listMember[i]->GetCharIndex());

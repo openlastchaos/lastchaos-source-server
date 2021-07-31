@@ -7,6 +7,7 @@
 #include "../ShareLib/gm_command.h"
 #include "dofuncAdmin.h"
 #include "GMCmdList.h"
+#include "CmdMsg.h"
 
 typedef boost::tokenizer<boost::char_separator<char> > stokenizer;
 static boost::char_separator<char> sep(" ", NULL, boost::drop_empty_tokens);
@@ -268,8 +269,15 @@ void CGMCmdList::load(void)
 	add(new CGMCmd(GM_CMD_POPUP_NOTICE, 9, do_popup_notice));
 	add(new CGMCmd(GM_CMD_POPUP_NOTICEOFF, 9, do_popup_noticeoff));
 	add(new CGMCmd(GM_CMG_MASTERSTONE_PROB, 9, do_masterstone_prob_test));
+	add(new CGMCmd(GM_CMD_GUILD_BATTLE_CORE, 9, do_guild_battle_score));
+	add(new CGMCmd(GM_CMD_GUILD_BATTLE_LIST, 9, do_guild_battle_list));
 
 	add(new CGMCmd(GM_CMD_TEST_COMMAND, 9, do_test));
+	
+	add(new CGMCmd(GM_CMD_GUILD_MEMBER_OUT_TIME, 9, do_GM_Guild_Memberout_Time));
+	add(new CGMCmd(GM_CMD_GUILD_CREATE_TIME, 9, do_GM_Guild_Create_time));
+
+	add(new CGMCmd(GM_CMD_RESERVED_GM_COMMAND, 9, do_GM_reserve_command));
 }
 
 void CGMCmdList::add(CGMCmd* gmcmd)
@@ -300,29 +308,54 @@ void CGMCmdList::run(CPC* pc, const char* arg)
 	if (vec.empty())
 		return;
 
-	const char* p = arg;
+	std::string p = arg;
 	char command[512];
-	p = AnyOneArg(p, command, true);
+	p = AnyOneArg(p.c_str(), command, true);
 
 	// 존재하는지 검색
 	CGMCmd* pGMCmd = find(vec[0]);
 	if ( pGMCmd == NULL )
+	{
+		//system msg
+		if(pc->m_admin > 0)
+		{
+			std::string message = boost::str(boost::format("Not found gm command"));
+			CNetMsg::SP rmsg(new CNetMsg);
+			SayMsg(rmsg, MSG_CHAT_GM, 0, "", "", message.c_str());
+			SEND_Q(rmsg, pc->m_desc);
+		}
 		return;
+	}
 
 	// 실행할 수 있는지 검색
 	if ( !canRun( pGMCmd, pc ) )
+	{
+		if(pc->m_admin > 0)
+		{
+			//system msg
+			std::string message = boost::str(boost::format("Not enough gm level"));
+			CNetMsg::SP rmsg(new CNetMsg);
+			SayMsg(rmsg, MSG_CHAT_GM, 0, "", "", message.c_str());
+			SEND_Q(rmsg, pc->m_desc);
+		}
 		return;
+	}
+	
 
-	GAMELOG << init("GM COMMAND")
-			<< command << delim << p << delim
-			<< pc->m_index << delim
-			<< pc->m_name << delim
-			<< pc->m_nick << delim
-			<< end;
+	if(p.empty() == true)
+	{
+		p = " ";
+	}
+
+	char* buf = (char*)p.c_str();
+	char* name = pc->m_name.getBuffer();
+	char* nick = pc->m_nick.getBuffer();
+	
+	LOG_INFO("GM COMMAND : %s : %s : %d : %s : %s ", command, buf, pc->m_index, name, nick);
 
 	// 실행
 	vec.erase(vec.begin());
-	pGMCmd->run(pc, p, vec);
+	pGMCmd->run(pc, p.c_str(), vec);
 }
 
 CGMCmd* CGMCmdList::find(std::string& command)

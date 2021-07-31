@@ -41,8 +41,38 @@ void CServer::CommandInterpreter(CDescriptor* d, CNetMsg::SP& msg)
 
 	case MSG_RESERVED_GM_COMMAND:
 		{
-			RequestClient::reservedGMCommandList* packet = reinterpret_cast<RequestClient::reservedGMCommandList*>(msg->m_buf);
-			ReservedGmCommandManager::Instance()->sendListToClient(d->service_, packet->m_Index, packet->year, packet->month);
+			pTypeBase* pBase = reinterpret_cast<pTypeBase*>(msg->m_buf);
+
+			switch (pBase->subType)
+			{
+			case MSG_SUB_ADD_RESERVED_GM_COMMAND_BY_GMCOMMAND:
+				{
+					RequestClient::reservedGMCommandAddByGMCommand* packet = reinterpret_cast<RequestClient::reservedGMCommandAddByGMCommand*>(msg->m_buf);
+					ReservedGmCommandManager::dataInfoToGmCommand data;
+					data.subno = packet->subNo;
+					strcpy(data.command, packet->command);
+					data.startTime = packet->startTime;
+					ReservedGmCommandManager::Instance()->Add_gm(data);
+				}
+				break;
+			case MSG_SUB_DELETE_RESERVED_GM_COMMAND_BY_GMCOMMAND:
+				{
+					RequestClient::reservedGMCommandDeleteByGMCommand* packet = reinterpret_cast<RequestClient::reservedGMCommandDeleteByGMCommand*>(msg->m_buf);
+					ReservedGmCommandManager::Instance()->Delete_gm(packet->index);
+				}
+				break;
+			case MSG_SUB_LIST_RESERVED_GM_COMMAND_BY_GMCOMMAND:
+				{
+					RequestClient::reservedGMCommandListByGMCommand* packet = reinterpret_cast<RequestClient::reservedGMCommandListByGMCommand*>(msg->m_buf);
+					ReservedGmCommandManager::Instance()->sendListToClinetByGm(d->service_, packet->char_index);
+				}
+				break;
+
+			default:
+				RequestClient::reservedGMCommandList* packet = reinterpret_cast<RequestClient::reservedGMCommandList*>(msg->m_buf);
+				ReservedGmCommandManager::Instance()->sendListToClient(d->service_, packet->m_Index, packet->year, packet->month);
+				break;
+			}
 		}
 		break;
 

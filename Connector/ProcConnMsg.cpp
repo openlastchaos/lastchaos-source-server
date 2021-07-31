@@ -11,7 +11,7 @@
 #include "../ShareLib/CheckPassword.h"
 #endif
 #ifdef PASSWORD_ENCRYPT_SHA256
-#include "LCSha256.h"
+#include "../Sharelib/LCSha256.h"
 #endif // PASSWORD_ENCRYPT_SHA256
 #include <boost/format.hpp>
 
@@ -324,8 +324,11 @@ MSG_CONN_ERRORCODE ReadDB(const char* name, const char* pw, int server, int subn
 #ifdef LOGIN_TIME_CHECK
 			int logincheck;
 			cmd.GetRec("logincheck", logincheck);
-			if(logincheck >= 60 || logincheck < 0)
-				return MSG_CONN_ERROR_NOTALLOW_LOGINSERVER;
+			if(playmode != MSG_LOGIN_GM)
+			{
+				if(logincheck >= 60 || logincheck < 0)
+					return MSG_CONN_ERROR_NOTALLOW_LOGINSERVER;
+			}
 #endif // LOGIN_TIME_CHECK
 
 #ifdef CHARDEL_CHECKID
@@ -456,8 +459,6 @@ bool WriteDB(const char* name)
 
 	std::string updateQuery = boost::str(boost::format(
 			"UPDATE t_users SET a_end_date = NOW(), a_zone_num = -1 WHERE a_idname = '%s'")	% name);
-	;
-
 
 	CDBCmd cmd;
 	cmd.Init(&gserver.m_dbuser);
@@ -496,7 +497,7 @@ void ConnPlaying(CDescriptor* d, CNetMsg::SP& msg)
 		return ;
 	}
 
-	CUser* user = gserver.m_userList[d->m_subno - 1].Find(id);
+	CUser* user = gserver.m_user_list->findByUserName(id.getBuffer());
 
 	if (!user)
 	{
@@ -515,9 +516,9 @@ void ConnPlaying(CDescriptor* d, CNetMsg::SP& msg)
 			<< zone
 			<< end;
 
-	gserver.m_userList[d->m_subno - 1].m_playersPerZone[user->m_zone]--;
-	gserver.m_userList[d->m_subno - 1].m_playersPerZone[zone]++;
-
+	gserver.m_user_list->decreasePlayerZoneCount(user->m_subnum, user->m_zone);
+	gserver.m_user_list->increasePlayerZoneCount(user->m_subnum, zone);
+	
 	user->m_state = (mode == MSG_LOGIN_NEW) ? CONN_PLAYING : CONN_CHANGE_SERVER;
 	user->m_zone = zone;
 	user->m_checkTics = 0;

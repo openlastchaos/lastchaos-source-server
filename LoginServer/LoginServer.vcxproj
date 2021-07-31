@@ -589,8 +589,8 @@
     <LibraryPath Condition="'$(Configuration)|$(Platform)'=='PGMAN_KOR|Win32'">$(VCInstallDir)lib;$(VCInstallDir)atlmfc\lib;$(WindowsSdkDir)lib;$(FrameworkSDKDir)\lib;D:\98_ServerUtil\Lib\mysql_4.0.27_binary\lib\opt;D:\00_Source_Safe\xxx\LCCrypt_DES\Release;D:\00_Source_Safe\xxx\LCCrypt_DES\Debug;</LibraryPath>
     <IncludePath Condition="'$(Configuration)|$(Platform)'=='PGMAN_MAL|Win32'">$(VCInstallDir)include;$(VCInstallDir)atlmfc\include;$(WindowsSdkDir)include;$(FrameworkSDKDir)\include;D:\00_Source_Safe\xxx\LCCrypt_DES;D:\98_ServerUtil\Lib\mysql_4.0.27_binary\include;D:\98_ServerUtil\Lib\zlib;</IncludePath>
     <LibraryPath Condition="'$(Configuration)|$(Platform)'=='PGMAN_MAL|Win32'">$(VCInstallDir)lib;$(VCInstallDir)atlmfc\lib;$(WindowsSdkDir)lib;$(FrameworkSDKDir)\lib;D:\98_ServerUtil\Lib\mysql_4.0.27_binary\lib\opt;D:\00_Source_Safe\xxx\LCCrypt_DES\Release;D:\00_Source_Safe\xxx\LCCrypt_DES\Debug;</LibraryPath>
-    <IncludePath Condition="'$(Configuration)|$(Platform)'=='PGMAN_USA|Win32'">$(VCInstallDir)include;$(VCInstallDir)atlmfc\include;$(WindowsSdkDir)include;$(FrameworkSDKDir)\include;D:\00_Source_Safe\xxx\LCCrypt_DES;D:\98_ServerUtil\Lib\mysql_4.0.27_binary\include;D:\98_ServerUtil\Lib\zlib;</IncludePath>
-    <LibraryPath Condition="'$(Configuration)|$(Platform)'=='PGMAN_USA|Win32'">$(VCInstallDir)lib;$(VCInstallDir)atlmfc\lib;$(WindowsSdkDir)lib;$(FrameworkSDKDir)\lib;D:\98_ServerUtil\Lib\mysql_4.0.27_binary\lib\opt;D:\00_Source_Safe\xxx\LCCrypt_DES\Release;D:\00_Source_Safe\xxx\LCCrypt_DES\Debug;</LibraryPath>
+    <IncludePath Condition="'$(Configuration)|$(Platform)'=='PGMAN_USA|Win32'">$(IncludePath)</IncludePath>
+    <LibraryPath Condition="'$(Configuration)|$(Platform)'=='PGMAN_USA|Win32'">C:\Source\ServerSrc\Release;$(LibraryPath)</LibraryPath>
     <IncludePath Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(VCInstallDir)include;$(VCInstallDir)atlmfc\include;$(WindowsSdkDir)include;$(FrameworkSDKDir)\include;D:\00_Source_Safe\xxx\LCCrypt_DES;D:\98_ServerUtil\Lib\mysql_4.0.27_binary\include;D:\98_ServerUtil\Lib\zlib;</IncludePath>
     <LibraryPath Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(VCInstallDir)lib;$(VCInstallDir)atlmfc\lib;$(WindowsSdkDir)lib;$(FrameworkSDKDir)\lib;D:\98_ServerUtil\Lib\mysql_4.0.27_binary\lib\opt;D:\00_Source_Safe\xxx\LCCrypt_DES\Release;D:\00_Source_Safe\xxx\LCCrypt_DES\Debug;</LibraryPath>
     <IncludePath Condition="'$(Configuration)|$(Platform)'=='TEST_SERVER_Debug|Win32'">$(VCInstallDir)include;$(VCInstallDir)atlmfc\include;$(WindowsSdkDir)include;$(FrameworkSDKDir)\include;D:\Source\xxx\LCCrypt_DES;D:\SVN\SERVER\MySQL\mysql_4.0.27_binary\include;D:\Source\Utils\zlib;</IncludePath>
@@ -1686,6 +1686,7 @@
       <WarningLevel>Level3</WarningLevel>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
+      <AdditionalOptions>/MP14 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>

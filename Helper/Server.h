@@ -191,9 +191,7 @@ public:
 	void SendGuildMemberList(CGuild* guild, CDescriptor* desc);
 	void SendExtendGuildMemberList(CGuild* guild, CDescriptor* desc);
 
-#ifdef PARTY_BUG_GER
 	void PrintPartyMemberList(int nSubNo, int nFindCharIdx);
-#endif // PARTY_BUG_GER
 
 #ifdef EXTREME_CUBE_VER2
 	int m_CubePointUpdateTime;

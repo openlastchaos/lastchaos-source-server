@@ -92,6 +92,11 @@ class CGuildMember
 	int				m_listindex;
 	char			m_online;
 
+	int				m_contributeExp_min;
+	int				m_contributeExp_max;
+	int				m_contributeFame_min;
+	int				m_contributeFame_max;
+
 	int				m_contributeExp;	// 경험치에서 길드 포인트로 기여할 %
 	int				m_contributeFame;	// 명성치에서 길드 포인트로 기여할 %
 	int				m_cumulatePoint;	// 기여한 누적 포인트
@@ -221,6 +226,42 @@ public:
 		return m_zoneindex;
 	}
 
+	void SetContributeExp_min(int value)
+	{
+		m_contributeExp_min = value;
+	}
+	void SetContributeExp_max(int value)
+	{
+		m_contributeExp_max = value;
+	}
+	int GetcontributeExp_min()
+	{
+		return m_contributeExp_min;
+	}
+	int GetcontributeExp_max()
+	{
+		return m_contributeExp_max;
+	}
+
+	void SetContributeFame_min(int value)
+	{
+		m_contributeFame_min = value;
+	}
+	void SetContributeFame_max(int value)
+	{
+		m_contributeFame_max = value;
+	}
+	int GetcontributeFame_min()
+	{
+		return m_contributeFame_min;
+	}
+	int GetcontributeFame_max()
+	{
+		return m_contributeFame_max;
+	}
+	
+
+
 private:
 	void listindex(int idx)
 	{
@@ -244,7 +285,8 @@ class CGuild
 
 	// 길드전 -------------------
 	int				m_battleIndex;
-	int				m_battlePrize;
+	int				m_battlePrize_nas;
+	int				m_battlePrize_gp;
 	int				m_battleZone;
 	int				m_battleTime;
 	int				m_killCount;
@@ -264,6 +306,8 @@ class CGuild
 public:
 	CGuild(int guildindex, const char* name, int level, int battleIndex = -1, int battlePrize = 0, int battleTime = 0, int batttleZone = -1, int battleKillCount = 0, int battleState = -1);
 	~CGuild();
+
+	int m_create_date;
 
 	void landcount( int landcount )
 	{
@@ -396,9 +440,14 @@ public:
 		return m_battleIndex;
 	}
 
-	int battlePrize()
+	int battlePrizeNas()
 	{
-		return m_battlePrize;
+		return m_battlePrize_nas;
+	}
+
+	int battlePrizeGp()
+	{
+		return m_battlePrize_gp;
 	}
 
 	int battleZone()
@@ -406,11 +455,12 @@ public:
 		return m_battleZone;
 	}
 
-	void BattleSet (int i, int m, int z)
+	void BattleSet (int index, int nas, int zone_index, int gp)
 	{
-		m_battleIndex = i;
-		m_battlePrize = m;
-		m_battleZone = z;
+		m_battleIndex = index;
+		m_battlePrize_nas = nas;
+		m_battleZone = zone_index;
+		m_battlePrize_gp = gp;
 	}
 
 	int battlePulse()
@@ -526,6 +576,18 @@ public:
 	bool isPossibleKickMaster(void);		// 보스 추방이 가능한지?
 	bool isPastLastChangeBoss(void);		// 최종 보스가 변경된 후 7일이 지났는지?
 	int getNewBossByKick(void);				// 추방으로 인한 새로운 보스 구하기
+
+	bool m_isUseTheStashAndSkill;
+
+	int m_battle_win_count;
+	int m_battle_lose_count;
+	int m_battle_total_count;
+
+	int m_guild_contribute_all_exp_min;
+	int m_guild_contribute_all_exp_max;
+
+	int m_guild_contribute_all_fame_min;
+	int m_guild_contribute_all_fame_max;
 };
 
 class CGuildList
@@ -540,8 +602,8 @@ public:
 	////////////////////
 	// Function name	: create
 	// Description	    : 길드를 생성 -> 멤버에 boss추가 -> boss 설정 -> 1명짜리 온전한 독립 길드 생성
-	static CGuild* create(int guildindex, const char* guildname, int charindex, const char* bossname);
-	static CGuild* create(int guildindex, const char* guildname, int guildlevel, int battleIndex, int battlePrize, int battleTime, int batttleZone, int battleKillCount, int battleState);
+	static CGuild* create(int guildindex, const char* guildname, int charindex, const char* bossname, int create_date);
+	static CGuild* create(int guildindex, const char* guildname, int guildlevel, int battleIndex, int battlePrize, int battleTime, int batttleZone, int battleKillCount, int battleState, int create_date);
 
 	void add(CGuild* guild);
 	void Remove(CGuild* guild);

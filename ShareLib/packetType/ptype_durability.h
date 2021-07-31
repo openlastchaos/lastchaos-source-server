@@ -31,6 +31,7 @@ struct repairDurability : public pTypeBase	// 장비 내구도 일반 수리
 	unsigned short		invenIndex;
 	int					virualIndex;
 	LONGLONG			fee;
+	int					npcIndex;
 };
 
 struct specialRepairDurability : public pTypeBase // 장비 내구도 특수 수리
@@ -43,6 +44,7 @@ struct specialRepairDurability : public pTypeBase // 장비 내구도 특수 수
 	unsigned short		material_tab_no;
 	unsigned short		material_invenIndex;
 	int					material_virtualIndex;
+	int					npcIndex;
 };
 
 struct recoveryDurability : public pTypeBase // 장비 내구도 복구

@@ -1692,30 +1692,16 @@ void DropLacaRette(CNPC* npc, CPC* pc, CPC* tpc, int level )
 	if(npc == NULL)
 		return ;
 
-	if(tpc->m_level - npc->m_level >= 10)		// 나의 레벨이 몬스터의 레벨보다 10이상 클때
+	if(tpc->m_level - npc->m_level >= 15)		// 나의 레벨이 몬스터의 레벨보다 10이상 클때
 		return ;
-
-	switch(gserver->m_tRealSystemTime.tm_min)	// 매시간 9분, 19분, 29분, 39분, 49분, 59분 에서 1분간만 드롭되는 시간이다.
-	{
-	case 9:
-	case 19:
-	case 29:
-	case 39:
-	case 49:
-	case 59:
-		break;
-	default:
-		return;
-		break;
-	}
 
 	static const int nIndexItem = 5123; // 일반 토큰
 
-	int nProb = 2000;							// 기본 확률은 20%
+	int nProb = 150;							// 기본 확률은 1.5%
 
-	if (npc->m_level < tpc->m_level)			// npc레벨이 나의 레벨보다 작을때 2%/1lv 수치로 확률은 줄어듬.
+	if (npc->m_level < tpc->m_level)			// npc레벨이 나의 레벨보다 작을때 0.1%/1lv 수치로 확률은 줄어듬.
 	{
-		nProb -= (tpc->m_level - npc->m_level) * 200;
+		nProb -= (tpc->m_level - npc->m_level) * 10;
 	}
 
 	int drop_count = 1;

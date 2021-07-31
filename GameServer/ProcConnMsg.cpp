@@ -566,10 +566,14 @@ void OnCashItemPurchaselist(CNetMsg::SP& msg)
 		return;
 	}
 
+	pc->m_cash_purchase_list.clear();
+
 	for(i = 0; i < count; i++)
 	{
 		RefMsg(msg) >> idx[i]
 					>> ctid[i];
+
+		pc->m_cash_purchase_list.push_back(std::pair<int, int>(idx[i], ctid[i]));
 	}
 
 	{
@@ -1518,11 +1522,9 @@ void OnCashItemGiftRecvList(CNetMsg::SP& msg)
 	if( !pc )
 		return;
 
-	{
-		CNetMsg::SP rmsg(new CNetMsg);
-		CashItemGiftRecvListRepMsg(rmsg, listflag, msg);
-		SEND_Q(rmsg, pc->m_desc);
-	}
+	CNetMsg::SP rmsg(new CNetMsg);
+	CashItemGiftRecvListRepMsg(rmsg, listflag, pc->m_cash_gift_list, msg);
+	SEND_Q(rmsg, pc->m_desc);
 }
 void OnCashItemGiftRecv(CNetMsg::SP& msg)
 {

@@ -242,7 +242,6 @@
 #define PULSE_MONSTER_RAID_MOVE         (14 * PULSE_REAL_MIN)   // 몬스터 레이드 이동 시간
 #define EXTREME_CUBE                                    // 익스트림 큐브
 #define HANARO_EVENT					//초보지원이벤트 추가(2014-5-28)
-#define PARTY_BUG_GER
 #define MONSTER_COMBO_FIX
 #define LOGIN_TIME_CHECK
 #define BATTLE_PARTY_BOSS_CHANGE		// 전투파티 시 파티장 변경에 대한 조건 검사
@@ -252,7 +251,6 @@
 
 #define XTRAP
 #define	_COMPOSITE_ITEM_UPGRADE_BUG_FIX
-#define CHECK_CASTLE_AREA						// 공성지역 체크 안되는 버그 수정
 #define BUGFIX_WARP_TO_WARZONE								// 소환마법서 아이템을 이용하여 공성지역 이동불가
 #define TIME_IN_WARCASTLE_BUG_FIX				// 공성중 텔레키네시스 스킬 못쓰도록 막음
 #define NEW_DOUBLE_GM_AUTO
@@ -279,7 +277,6 @@
 #define SYSTEM_TREASURE_MAP_LINKZONE_DROP                    // 던전 보물 지도 드랍
 #define DEV_LETS_PARTYTIME									// 파티형 아이템
 #define JUNO_RENEWAL_MESSAGEBOX								// 독일용, 신규캐릭터 이동 시 쥬노로 갔다가 버뱅크로 간다.
-#define GUILD_CONTRIBUTE_EXP_LIMIT		50			// 길두 기부 경험치를 max 50% 까지만 가능하도록 수정
 #define BUGFIX_WARCASTLE_REGEN						// 부활진지 리젠시간 수정
 #define BUGFIX_ITEMSELL_HACKUSER					// 아이템판매시 아이템 카운트 검사 추가
 #define BUGFIX_REFINE_SPECIAL_ITEM					// 128레벨 아이템 변환시 100% 고급제련석으로 주는 버그 수정. 방어구와 똑같이 처리하도록 수정.

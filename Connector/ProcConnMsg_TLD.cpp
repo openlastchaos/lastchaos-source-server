@@ -45,7 +45,8 @@ void ConnLogin(CDescriptor* d, CNetMsg::SP& msg)
 	}
 
 	// 유저 찾기
-	CUser* user = gserver.m_userList[subno - 1].Find(id);
+	CUser* user = gserver.m_user_list->findByUserName(id.getBuffer());
+	
 	if (user == NULL)
 	{
 		// 유저 없을 때
@@ -57,6 +58,19 @@ void ConnLogin(CDescriptor* d, CNetMsg::SP& msg)
 					<< "From" << delim << d->m_subno << delim
 					<< errcode
 					<< end;
+			CNetMsg::SP rmsg(new CNetMsg);
+			LoginRepMsg(rmsg, errcode, id, NULL);
+			SEND_Q(rmsg, d);
+			return ;
+		}
+
+		CUser* user_dummy = gserver.m_user_list->findByUserIndex(user->m_index);
+		if(user_dummy != NULL)
+		{
+			GAMELOG << init("LOGIN_FAIL", id)
+				<< "From" << delim << d->m_subno << delim
+				<< errcode
+				<< end;
 			CNetMsg::SP rmsg(new CNetMsg);
 			LoginRepMsg(rmsg, errcode, id, NULL);
 			SEND_Q(rmsg, d);
@@ -80,20 +94,33 @@ void ConnLogin(CDescriptor* d, CNetMsg::SP& msg)
 		}
 
 		// 플레이어 리스트에 추가
-		if (gserver.m_userList[subno - 1].Add(user) == NULL)
+
+		if( gserver.m_user_list->getUserCountInChannel(user->m_subnum) > MAX_PLAYING )
 		{
 			GAMELOG << init("LOGIN_FAIL", id)
-					<< "From" << delim << d->m_subno << delim
-					<< MSG_CONN_ERROR_FULLUSER
-					<< end;
+				<< "From" << delim << d->m_subno << delim
+				<< MSG_CONN_ERROR_FULLUSER
+				<< end;
 			CNetMsg::SP rmsg(new CNetMsg);
 			LoginRepMsg(rmsg, MSG_CONN_ERROR_FULLUSER, id, NULL);
 			SEND_Q(rmsg, d);
 			return ;
 		}
 
+		if( gserver.m_user_list->insert_(user) == false )
+		{
+			GAMELOG << init("LOGIN_FAIL", id)
+				<< "From" << delim << d->m_subno << delim
+				<< MSG_CONN_ERROR_ALREADY
+				<< end;
+			CNetMsg::SP rmsg(new CNetMsg);
+			LoginRepMsg(rmsg, MSG_CONN_ERROR_ALREADY, id, NULL);
+			SEND_Q(rmsg, d);
+			return ;
+		}
+
 		// 존별 사용자 수 카운트
-		gserver.m_userList[subno - 1].m_playersPerZone[user->m_zone]++;
+		gserver.m_user_list->increasePlayerZoneCount(user->m_subnum, user->m_zone);
 
 		/*
 		if (!gserver.m_billing.IsRunning())
@@ -167,130 +194,17 @@ void ConnLogout(CDescriptor* d, CNetMsg::SP& msg)
 
 	// 유저를 찾고
 	CUser* user = NULL;
-	if (d->m_bLoginServer)
-	{
-		int i;
-		for (i = 0; i < gserver.m_maxSubServer; i++)
-		{
-			user = gserver.m_userList[i].Find(id);
-			if (user != NULL)
-				break;
-		}
-	}
-	else
-	{
-		user = gserver.m_userList[d->m_subno - 1].Find(id);
-	}
+	user = gserver.m_user_list->findByUserName(id.getBuffer());
 
 	if (user == NULL)
 	{
 		GAMELOG << init("SYS_ERR", id)
 				<< "From" << delim << d->m_subno << delim
 				<< "Not Found User" << end;
-
-// TODO : DELETE 		// 빌링에 로그아웃 알리기
-// TODO : DELETE 		if (gserver.m_billing.IsRunning())
-// TODO : DELETE 			gserver.m_billing.Logout(user->m_name);
-
-//		// DB에 저장
-//		if (!WriteDB(id))
-//			GAMELOG << init("SYS_ERR", id)
-//					<< "From" << delim << d->m_subno << delim
-//					<< "Cannot Update DB for Logout" << end;
 		return ;
 	}
 
 	gserver.ProcessLogout(user);
-}
-
-void ConnBLogin(CDescriptor* d, CNetMsg::SP& msg)
-{
-	unsigned char subtype;
-	msg->MoveFirst();
-	RefMsg(msg) >> subtype;
-
-	CLCString id(MAX_ID_NAME_LENGTH + 1);
-	CLCString ip(HOST_LENGTH + 1);
-
-	RefMsg(msg) >> id >> ip;
-
-	CUser* user = NULL;
-	if (d->m_bLoginServer)
-	{
-		int i;
-		for (i = 0; i < gserver.m_maxSubServer; i++)
-		{
-			user = gserver.m_userList[i].Find(id);
-			if (user != NULL)
-				break;
-		}
-	}
-	else
-	{
-		user = gserver.m_userList[d->m_subno - 1].Find(id);
-	}
-
-	if (user == NULL)
-	{
-		GAMELOG << init("SYS_ERR", id)
-				<< "From" << delim << d->m_subno << delim
-				<< "BLogin" << delim << "Not Found User" << end;
-		user = NULL;
-		delete user;
-		return ;
-	}
-
-	if (gserver.m_billing.IsRunning())
-	{
-		gserver.m_billing.Login(user->m_name, user->m_name, ip);
-	}
-	user = NULL;
-	delete user;
-}
-
-void ConnBLogout(CDescriptor* d, CNetMsg::SP& msg)
-{
-	unsigned char subtype;
-	msg->MoveFirst();
-	RefMsg(msg) >> subtype;
-
-	CLCString id(MAX_ID_NAME_LENGTH + 1);
-
-	RefMsg(msg) >> id;
-
-	CUser* user = NULL;
-	if (d->m_bLoginServer)
-	{
-		int i;
-		for (i = 0; i < gserver.m_maxSubServer; i++)
-		{
-			user = gserver.m_userList[i].Find(id);
-			if (user != NULL)
-				break;
-		}
-	}
-	else
-	{
-		user = gserver.m_userList[d->m_subno - 1].Find(id);
-	}
-
-	if (user == NULL)
-	{
-		GAMELOG << init("SYS_ERR", id)
-				<< "From" << delim << d->m_subno << delim
-				<< "BLogout" << delim << "Not Found User" << end;
-
-		user = NULL;
-		delete user;
-		return ;
-	}
-
-	if (gserver.m_billing.IsRunning())
-	{
-		gserver.m_billing.Logout(user->m_name);
-	}
-	user = NULL;
-	delete user;
 }
 
 void ConnCashItemPurchaseHistoryReq(CDescriptor* d, CNetMsg::SP& msg)

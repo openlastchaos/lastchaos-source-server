@@ -899,7 +899,8 @@ bool CAssistList::DecreaseTime(CCharacter* ch, LONGLONG* changestate)
 								if( pSkill )
 								{
 									bool bApply = false ;
-									if( 0 != ApplySkill( ch, ch, pSkill, -1 , bApply ) )
+									ApplySkill( ch, ch, pSkill, -1 , bApply );
+									if(bApply == true)
 										return ret;
 								}
 							}
@@ -993,7 +994,8 @@ bool CAssistList::DecreaseTime(CCharacter* ch, LONGLONG* changestate)
 					if( pSkill )
 					{
 						bool bApply = false ;
-						if( 0 != ApplySkill( ch, ch, pSkill, old_itemIndex , bApply ) )
+						ApplySkill( ch, ch, pSkill, old_itemIndex , bApply );
+						if(bApply == true)
 							return ret;
 					}
 				}

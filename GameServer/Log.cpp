@@ -20,7 +20,7 @@ CLogBuffer::~CLogBuffer()
 
 CLogBuffer& CLogBuffer::operator << (const char* m)
 {
-	m_nowpos += snprintf(m_buf + m_nowpos, MAX_BUFFER_SIZE - m_nowpos, m);
+	m_nowpos += snprintf(m_buf + m_nowpos, MAX_BUFFER_SIZE - m_nowpos, "%s", m);
 	return *this;
 }
 

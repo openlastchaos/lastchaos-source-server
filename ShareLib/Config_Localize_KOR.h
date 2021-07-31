@@ -175,7 +175,6 @@
 #define GM_TREASURE_MAP_SAVE_FILE    ".treasuremapsave"
 #define SYSTEM_TREASURE_MAP_LINKZONE_DROP                       // 던전 보물 지도 드랍
 #define DEV_LETS_PARTYTIME
-#define CHANGE_WARCASTLE_SETTING				// 공성 전 PVP 설정 변경
 //#endif
 ///////////////////////// 110615 UPDATE ////////////////////////////
 /////////////// 버그 수정 ////////////////

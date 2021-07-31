@@ -222,6 +222,19 @@ CTitle* CTitleList::Find(int index)
 	return NULL;
 }
 
+CTitle* CTitleList::FindCustomTitle(int custom_title_index)
+{
+	CTitleNode* node = m_head;
+	while (node)
+	{
+		if (node->m_title->m_custom_title_index == custom_title_index)
+			return node->m_title;
+		else
+			node = node->m_next;
+	}
+	return NULL;
+}
+
 bool CTitleList::HaveTitle(int index)
 {
 	CTitleNode* node = m_head;

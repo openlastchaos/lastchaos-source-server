@@ -965,8 +965,10 @@ void checkExpireItemInTradeAgent()
 
 		// LCE에 아이템 / 돈 넣기
 		insertItemToLCE(item, sell_charindex, EXPRESS_SEND_TYPE_TRADE_AGENT_NPC_RETURN);
-		insertNasToLCE(guaranty, sell_charindex, dbChar.GetRec("a_sell_charname"), EXPRESS_SEND_TYPE_TRADE_AGENT_NPC_RETURN);
-
+		if (guaranty > 0)
+		{
+			insertNasToLCE(guaranty, sell_charindex, dbChar.GetRec("a_sell_charname"), EXPRESS_SEND_TYPE_TRADE_AGENT_NPC_RETURN);
+		}
 		sendMessageToUserSellOrReturned(TRADEAGENT_DB_MSG_TYPE_RETURNED, sell_charindex,
 										item.item_index, item.quantity);
 	}

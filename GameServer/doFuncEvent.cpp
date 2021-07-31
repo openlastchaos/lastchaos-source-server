@@ -5474,13 +5474,39 @@ void EventWordlcup2010Trade(CPC *ch, CNetMsg::SP& msg)
 
 void EventWordlcup2010TOTO(CPC *ch, CNetMsg::SP& msg)
 {
-	static int national_flag[32] = {1485,1486,1487,1488,1489,1490,1491,1492,1493,1496,1498,1499,1500,1501,1505,1506,1507,1508,1510,1513,1515,5332,5333,5334,5338,5342,5343,5344,10297,10298,10299,10300};
+	static int national_flag[] = 
+	{
+		1490,
+		1486,
+		1487,
+		1488,
+		1492,
+		1493,
+		1503,
+		11304,
+		10297,
+		5340,
+		1494,
+		1500,
+		11305,
+		11303,
+		10300,
+		1498,
+		11307,
+		11308,
+		1497,
+		11309,
+		1495,
+		11310,
+		11311,
+		11312
+	};
 
 	int Countryitemindex;
 	RefMsg(msg) >> Countryitemindex;
 
 	// 국기가 아니면
-	for(int i = 0; i < 32; i++)
+	for(int i = 0; i < (sizeof(national_flag) / sizeof(national_flag[0])); i++)
 	{
 		if (national_flag[i] == Countryitemindex)
 			break;

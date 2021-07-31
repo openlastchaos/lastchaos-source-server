@@ -81,6 +81,18 @@ void process_durability_normal_repair(CPC* ch, CNetMsg::SP& msg)
 {
 	RequestClient::repairDurability* packet = reinterpret_cast<RequestClient::repairDurability*>(msg->m_buf);
 
+	if (ch->m_premiumChar.isActive() == false)
+	{
+		CNPC* pNpc = ch->m_pArea->FindProtoNPCInCell(ch, packet->npcIndex, false, 2);
+		if (pNpc == NULL)
+		{
+			LOG_ERROR("HACKING? : not found npc. char_index[%d] npcIndex[%d]",
+				ch->m_index, packet->npcIndex);
+			ch->m_desc->Close("not found npc");
+			return;
+		}
+	}
+
 	CItem* weapon = pre_check_for_item(ch, packet->tab_no, packet->invenIndex, packet->virualIndex, __FUNCTION__, __LINE__);
 	if (weapon == NULL)
 		return;
@@ -153,6 +165,18 @@ void process_durability_normal_repair(CPC* ch, CNetMsg::SP& msg)
 void process_durability_special_repair(CPC* ch, CNetMsg::SP& msg)
 {
 	RequestClient::specialRepairDurability* packet = reinterpret_cast<RequestClient::specialRepairDurability*>(msg->m_buf);
+
+	if (ch->m_premiumChar.isActive() == false)
+	{
+		CNPC* pNpc = ch->m_pArea->FindProtoNPCInCell(ch, packet->npcIndex, false, 2);
+		if (pNpc == NULL)
+		{
+			LOG_ERROR("HACKING? : not found npc. char_index[%d] npcIndex[%d]",
+				ch->m_index, packet->npcIndex);
+			ch->m_desc->Close("not found npc");
+			return;
+		}
+	}
 
 	CItem* weapon = pre_check_for_item(ch, packet->tab_no, packet->invenIndex, packet->virualIndex, __FUNCTION__, __LINE__);
 	if (weapon == NULL)

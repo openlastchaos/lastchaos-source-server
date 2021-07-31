@@ -61,9 +61,6 @@ void do_ItemUse_MasterStone_USA(CPC* ch, CNetMsg::SP& msg);
 void do_Ex_CashItem(CPC* ch, CNetMsg::SP& msg);
 int usePeriodItem(int* useTime, bool* bprolong);
 int usePeriodItem_7(int* useTime, bool* bprolong);
-// 상품 가져오기와, 선물 가져오기, 같은 프로세스를 사용함,
-// bPresent가 트루이면 선물
-void CashItemBringProcess(CPC* ch, CNetMsg::SP& msg, bool bPresent);
 
 void CashItemListProcess(CPC* ch, int SearchKey, int ReqPage);
 void CashItemRecommandProcess(CPC* ch, int category);
@@ -235,6 +232,10 @@ int do_CheckGuildJoin(CPC* _guildMaster, CPC* _joinCharacter);
 #endif // GUILD_REMOTE_INVITE
 
 void do_GuildRecall(CPC* pc, CNetMsg::SP& rmsg);
+
+void do_GuildContributeData(CPC* pc, CNetMsg::SP& rmsg);
+void do_GuildContributeSet(CPC* pc, CNetMsg::SP& rmsg);
+void do_GuildContributeSetAll(CPC* pc, CNetMsg::SP& rmsg);
 
 // 변신 관련
 void do_Change(CPC* ch, CNetMsg::SP& msg);
@@ -518,6 +519,7 @@ void do_RVR(CPC* ch, CNetMsg::SP& msg);
 
 void do_GPS(CPC* ch, CNetMsg::SP& msg);
 void do_ItemCollection(CPC* pc, CNetMsg::SP& msg);
+void do_Guild_Battle_Extend(CPC* pc, CNetMsg::SP& msg);
 
 void do_setTarget(CPC* ch, CNetMsg::SP& msg);
 

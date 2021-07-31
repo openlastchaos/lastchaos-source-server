@@ -2020,6 +2020,7 @@ bool _GMGoZone(CPC* ch, CPC* pc)
 						CNetMsg::SP rmsg(new CNetMsg);
 						PartyMsg(rmsg, MSG_PARTY_QUIT);
 						do_Party(ch, rmsg);
+						break;
 					}
 				}
 			}

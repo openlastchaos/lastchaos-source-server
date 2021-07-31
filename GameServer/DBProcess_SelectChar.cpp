@@ -70,7 +70,7 @@ void DBProcess::SelectChar( boost::any& argv )
 	CPC* pChar = new CPC;
 
 	pChar->m_first_inmap = true;
-	pChar->m_guildInfo = static_cast<CGuildMember*>(guild);
+	pChar->m_guildInfo = NULL;
 
 	dbChar.GetRec("a_name", pChar->m_name, true);
 	dbChar.GetRec("a_nick", pChar->m_nick, true);
@@ -120,6 +120,7 @@ void DBProcess::SelectChar( boost::any& argv )
 	dbChar.GetRec("a_mp",				pChar->m_mp);
 	pChar->m_tempMP = pChar->m_mp;
 	dbChar.GetRec("a_max_mp",			pChar->m_dbMP);
+	dbChar.GetRec("a_ep",				pChar->m_ep);
 	dbChar.GetRec("a_silence_pulse",	pChar->m_silencePulse);
 	pChar->m_silencePulse += gserver->m_pulse;
 	dbChar.GetRec("a_pkpenalty",		pChar->m_pkPenalty);
@@ -127,7 +128,7 @@ void DBProcess::SelectChar( boost::any& argv )
 	dbChar.GetRec("a_pkrecover",		pChar->m_pkRecoverPulse);
 	dbChar.GetRec("a_pkpenaltyhp",		pChar->m_pkPenaltyHP);
 	dbChar.GetRec("a_pkpenaltymp",		pChar->m_pkPenaltyMP);
-	dbChar.GetRec("a_guildoutdate",		pChar->m_guildoutdate);
+	dbChar.GetRec("a_guildindate",		pChar->m_guild_in_date);
 	dbChar.GetRec("a_pluseffect_option",	pChar->m_plusEffect);
 	dbChar.GetRec("a_loseexp",			pChar->m_loseexp);
 	dbChar.GetRec("a_losesp",			pChar->m_losesp);
@@ -149,10 +150,14 @@ void DBProcess::SelectChar( boost::any& argv )
 	dbChar.GetRec("a_was_area",			nArea);
 	dbChar.GetRec("a_was_yLayer",		nYlayer);
 
-#ifdef REFORM_PK_PENALTY_201108
 	int	lcstamptime;
 	dbChar.GetRec("a_lcdatestamp", lcstamptime);
-#endif
+
+	if(pChar->m_ep > 0 && (lcstamptime + (60 * 10) < gserver->m_nowseconds))
+	{
+		pChar->m_ep = -1;
+	}
+
 	int attendance = 0;
 	dbChar.GetRec("a_attendance_assure", attendance);
 	pChar->m_attendanceManager.setUseAssure(attendance);
@@ -3481,6 +3486,15 @@ void DBProcess::SelectChar( boost::any& argv )
 
 					if(use != 0)
 					{
+						//사용중일 때 타이틀 리스트에 등록된 커스텀 타이틀이 아니라면 삭제
+						if(pChar->m_titleList.FindCustomTitle(title->title_index) == NULL)
+						{
+							std::string query = boost::str(boost::format("DELETE FROM t_title_make where a_index = %d and a_char_index = %d") % title->title_index % pChar->m_index );
+							DBManager::instance()->pushQuery(0, query);
+							pChar->m_nCurrentTitle = TITLE_SYSTEM_NO_TITLE;
+							delete title;
+							continue;
+						}
 						pChar->m_custom_title_index = title->title_index;
 					}
 					
@@ -4003,11 +4017,34 @@ void DBProcess::SelectChar( boost::any& argv )
 					wearPos -= COSTUME2_WEARING_START;
 				}
 
-				// 펫 아이템이면 리스트에 추가
+				// 펫 리스트에 없으면 아이템 오류
 				if (item->IsPet())
-					listPetItem.push_back(item);
-				if (item->IsAPet())
-					listAPetItem.push_back(item);
+				{
+					if (!pChar->GetPet(item->getPlus()))
+					{
+						delete item;
+						continue ;
+					}
+					else
+					{
+						listPetItem.push_back(item);
+					}
+				}
+
+				// APet 검사
+				if ( item->IsAPet() )
+				{
+					if (!pChar->GetAPet(item->getPlus()))
+					{
+						delete item;
+						continue ;
+					}
+					else
+					{
+						listAPetItem.push_back(item);
+					}
+				}
+					
 				//한벌 의상인 경우
 				if (item->m_itemProto->getItemTypeIdx() == ITYPE_WEAR && item->m_itemProto->getItemSubTypeIdx() == IWEAR_SUIT && wearPos != WEARING_NONE)
 				{

@@ -1,5 +1,3 @@
-void ConnBLogin(CDescriptor* d, CNetMsg::SP& msg);
-void ConnBLogout(CDescriptor* d, CNetMsg::SP& msg);
 void ConnCashItemBringReq(CDescriptor* d, CNetMsg::SP& msg);
 void ConnCashItemBalanceReq(CDescriptor* d, CNetMsg::SP& msg);
 void ConnCashItemPurchaseReq(CDescriptor* d, CNetMsg::SP& msg);

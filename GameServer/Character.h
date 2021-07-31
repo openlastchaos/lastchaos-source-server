@@ -676,6 +676,12 @@ public:
 	CPC();
 	virtual ~CPC();
 
+	bool is_valid_cash_purchase_list(int purchaseindex, int ctid);
+	void erase_cash_purchase_list(int purchaseindex, int ctid);
+
+	bool is_valid_cash_gift_list(int purchaseindex, int ctid);
+	void erase_cash_gift_list(int purchaseindex, int ctid);
+
 	////////////
 	// 기본 정보
 #ifdef STASH_PASSWORD
@@ -692,6 +698,8 @@ public:
 	bool    m_bLoadChar;        // 캐릭터 로딩 여부
 	CLCString m_nick;           // 별명(이름 변경카드)
 	int     m_billReqTime;      // 빌링 아이템 지급 타임
+	std::vector<std::pair<int, int> > m_cash_purchase_list;	// 자신이 구매한 아이템의 카탈로그 리스트
+	std::vector<std::pair<int, int> > m_cash_gift_list;	// 선물 받은 카탈로그 리스트
 
 	int     m_speedup;          // 운영자 명령어 : speedup
 	int     m_autoSkillTime;
@@ -700,9 +708,7 @@ public:
 
 	unsigned short m_recentAtt;  // 최근 위치 속성맵 값
 
-#ifdef NO_CHATTING
 	int     m_nflag;            // 캐릭터 flag - 채팅금지
-#endif
 
 	bool            m_bTradeAgentRegIng;    //현재 등록 처리중인가(거래대행)
 	bool            m_bTradeAgentCalcIng;   //현재 정산 처리중인가(거래대행)
@@ -973,7 +979,8 @@ public:
 	// 길드 관련
 	CGuildMember*   m_guildInfo;                // 길드 정보, 상위길드원이면서 길드장인 경우 자신이 길드 장인 길드 정보
 	int             m_regGuild;
-	int             m_guildoutdate;             // 길드 탈퇴 일
+	int             m_guild_in_date;             // 길드 가입 일
+	bool			m_guildStashLock;			// 길드 창고에 물건을 넣을때 lock 시킴
 
 	////////////////
 	// 균등파티시 아이템을 받은적이 있는가?
@@ -1683,6 +1690,7 @@ public:
 public:
 	
 	CItem* holy_water_item;
+	std::vector<CItem*> m_deadnpc_toggle_item;
 
 	ItemCollectionManager m_itemCollectionManager;
 	
@@ -1706,6 +1714,8 @@ public:
 
 	std::map<int, MAKE_TITLE*> _map_title;
 	int	m_custom_title_index;
+
+	bool use_express_flag;
 };
 
 ////////////
@@ -2574,6 +2584,8 @@ public:
 	{
 		m_llAccExp = _accexp;
 	}
+
+	void	applyItemPlusValue(int& value, int plus);
 };
 
 void CheckQuestCondition(CPC* ch, CItem* item, LONGLONG itemSum);

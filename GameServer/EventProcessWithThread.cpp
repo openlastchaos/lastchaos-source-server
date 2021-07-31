@@ -176,7 +176,7 @@ void EventProcessForDB::process_char_list( boost::any& any )
 	desc->m_bCreate90Lv = data->m_bCreate90Lv;
 	desc->m_bIsNSCreateCardUse = data->m_bIsNSCreateCardUse;
 
-#if defined(LC_TLD) && defined(GMTOOL)
+#if defined(GMTOOL)
 	if (desc->m_userFlag & IS_GM_CHAR)
 	{
 		desc->request_start_game_flag_ = false;
@@ -318,6 +318,9 @@ void EventProcessForDB::process_select_character( boost::any& any )
 		desc->m_pChar->m_syndicateManager.applySyndicateSkill(SYNDICATE::eSYNDICATE_DEALERMOON);
 	}
 
+	//길드 정보 세팅
+	desc->m_pChar->m_guildInfo = gserver->m_guildlist.findmember(desc->m_pChar->m_index);
+
 	memcpy(desc->m_notice, data->m_notice, sizeof(desc->m_notice));
 
 	{
@@ -353,7 +356,7 @@ void EventProcessForDB::process_select_character( boost::any& any )
 		SEND_Q(rmsg, gserver->m_subHelper);
 	}
 
-#if defined(LC_TLD) && defined(GMTOOL)
+#if defined(GMTOOL)
 	if (desc->m_userFlag & IS_GM_CHAR)
 	{
 		gserver->GMToolCharPrePlay(desc);
@@ -384,6 +387,7 @@ void EventProcessForDB::process_select_character_other_zone( boost::any& any )
 void EventProcessForDB::process_express_take( boost::any& any )
 {
 	expressTake* data = boost::any_cast<expressTake>(&any);
+	bool isSuccess = true;
 
 	CPC* ch = PCManager::instance()->getPlayerByUserIndex(data->m_index);
 	if (ch == NULL)
@@ -392,7 +396,7 @@ void EventProcessForDB::process_express_take( boost::any& any )
 	if (STATE(ch->m_desc) != CON_PLAYING)
 	{
 		LOG_ERROR("EXPRESS SYSTEM TAKE. not play user. user_index[%d]", ch->m_desc->m_index);
-		return;
+		isSuccess = false;
 	}
 
 	// 아이템 정보를 캐릭터 정보에 저장
@@ -464,7 +468,7 @@ void EventProcessForDB::process_express_take( boost::any& any )
 			ResponseClient::makeExpressTake(rmsg, ResponseClient::ERR_CAN_NOT_CREATE_ITEM);
 			SEND_Q(rmsg, ch->m_desc);
 
-			return;
+			isSuccess = false;
 		}
 
 		if (data->itemInfo.serial[0] == '\0' && !(pItem->m_itemProto->getItemFlag() & ITEM_FLAG_COUNT))
@@ -491,7 +495,7 @@ void EventProcessForDB::process_express_take( boost::any& any )
 			SEND_Q(rmsg, ch->m_desc);
 
 			LOG_ERROR("EXPRESS SYSTEM TAKE. Inven is Full. charIndex : %d", ch->m_index);
-			return;
+			isSuccess = false;
 		}
 	}
 	else
@@ -502,17 +506,24 @@ void EventProcessForDB::process_express_take( boost::any& any )
 
 		LOG_FATAL("EXPRESS SYSTEM TAKE. item info is invalid. charIndex : %d : item_index : %d : nas : %lld", ch->m_index, data->itemInfo.item_index, data->itemInfo.nas);
 
-		return;
+		isSuccess = false;
 	}
 
-	CNetMsg::SP rmsg(new CNetMsg);
-	ResponseClient::makeExpressTake(rmsg, ResponseClient::ERR_NO_ERROR);
-	SEND_Q(rmsg, ch->m_desc);
-
-	LOG_INFO("EXPRESS SYSTEM TAKE. TAKE SUCCESS. charIndex : %d, itemIndex : %d", ch->m_index, data->itemInfo.item_index);
+	if(data->isSend == true)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ResponseClient::makeExpressTake(rmsg, ResponseClient::ERR_NO_ERROR);
+		SEND_Q(rmsg, ch->m_desc);
+	}
 
 	// 정상적으로 저장되었다면 DB에서 삭제
-	DBManager::instance()->PushExpressDelete(ch->m_desc, data->itemInfo.index);
+	if(isSuccess == true)
+	{
+		DBManager::instance()->PushExpressDelete(ch->m_desc, data->itemInfo.index);
+		LOG_INFO("EXPRESS SYSTEM TAKE. TAKE SUCCESS. charIndex : %d, itemIndex : %d", ch->m_index, data->itemInfo.item_index);
+	}
+
+	ch->use_express_flag = false;
 }
 
 void EventProcessForDB::process_send_message_to_client( boost::any& any )
@@ -530,4 +541,10 @@ void EventProcessForDB::process_send_message_to_client( boost::any& any )
 		return;
 
 	SEND_Q(data->msg, desc);
+
+	if(data->msg->m_mtype == MSG_EXPRESS_SYSTEM)
+	{
+		if(desc->m_pChar != NULL)
+			desc->m_pChar->use_express_flag = false;
+	}
 }

@@ -30,6 +30,8 @@ int GetExpLevelPenalty(int nLevelDiff);
 // SP 레벨 패널티 비율 구함
 int GetSPLevelPenalty(int nLevelDiff);
 
+int GetExpSPLevelPenaltyNew(int nLevelDiff);
+
 // npc 사망시 경험치 배분
 // 퍼스널 던전에서 레벨업에 의한 존 이동 발생시에는 true를 리턴
 bool DivisionExpSP(CNPC* npc, CPC* pPreferencePC, LONGLONG nTotalDamage)
@@ -303,7 +305,7 @@ bool DivisionExpSP(CNPC* npc, CPC* pPreferencePC, LONGLONG nTotalDamage)
 #endif //NEW_ACCERY_ADD
 
 				CAPet* apet = expNode->pc->GetAPet();
-				if( apet )
+				if( apet && apet->m_bSummon == true)
 				{
 					LONGLONG petexp = (npc->m_level) / 5 * ( npc->m_proto->CheckFlag(NPC_MBOSS|NPC_BOSS)? 4:1 );
 					apet->AddExpSP( petexp , 0 );
@@ -384,11 +386,7 @@ bool DivisionExpSP(CNPC* npc, CPC* pPreferencePC, LONGLONG nTotalDamage)
 void DivisionExpSPParty(CParty* party, CNPC* npc, CPC* pPreferencePC, LONGLONG nTotalDamage)
 {
 	// 파티 보너스 테이블 [%] : 1인부터 시작
-#if defined (LC_USA) || defined(LC_BILA)
-	static const int countBonus[MAX_PARTY_MEMBER] = { 0, 30, 40, 50, 60, 70, 75, 80};
-#else
-	static const int countBonus[MAX_PARTY_MEMBER] = { 15, 30, 40, 50, 60, 70, 70, 70};
-#endif // #if defined (LC_USA) || defined (LC_BILA)
+	static const int countBonus[MAX_PARTY_MEMBER] = { 20, 35, 50, 65, 80, 95, 105, 115 };
 
 	EXP_LIST*			expParty = NULL;		// 파티원중 경험치 받을 리스트
 	EXP_LIST*			expPartyNode = NULL;	// 파티원 노드
@@ -400,6 +398,7 @@ void DivisionExpSPParty(CParty* party, CNPC* npc, CPC* pPreferencePC, LONGLONG n
 	int					nPartyLevelTotal = 0;	// 파티원 레벨 합
 	int					nPartyLevelMax = 0;		// 파티원 최대 레벨
 	int					nPartyLevel = 0;		// 파티 평균 레벨
+	int					nPartyLevelNew = 0;		// 파티 평균 레벨 new
 	LONGLONG			nExpParty = 0;			// 파티 경험치
 	LONGLONG			nSPParty = 0;			// 파티 SP
 	LONGLONG			nExpPenalty;			// 경험치 패널티
@@ -471,6 +470,8 @@ void DivisionExpSPParty(CParty* party, CNPC* npc, CPC* pPreferencePC, LONGLONG n
 		// 파티 평균 레벨
 		nPartyLevel = (nPartyLevelMax - (nPartyLevelTotal / nParty) > 5) ? (nPartyLevelMax - 5) : (nPartyLevelTotal / nParty);
 
+		nPartyLevelNew = nPartyLevelTotal / nParty;
+
 		// 레벨차이 구하기
 		int nLevelDiff = nPartyLevel - npc->m_level;
 
@@ -479,8 +480,14 @@ void DivisionExpSPParty(CParty* party, CNPC* npc, CPC* pPreferencePC, LONGLONG n
 		nSPPenalty  = GetSPLevelPenalty(nLevelDiff);
 
 		// 파티	보너스 구하기
-		LONGLONG nExpBonus	= 100 + basic_party_plus_exp + countBonus[nParty - 1];
-		LONGLONG nSPBonus	= 100 + basic_party_plus_sp + 5 * (nParty - 1);
+		LONGLONG nExpBonus = 100;
+		LONGLONG nSPBonus = 100;
+
+		if(nParty > 1)
+		{
+			nExpBonus = 100 + basic_party_plus_exp + countBonus[nParty - 1];
+			nSPBonus = 100 + basic_party_plus_sp + 6 * (nParty - 1);
+		}
 
 		// 파티가 받을 경험치/SP 구하기
 #ifdef PREMIUM_CHAR
@@ -502,6 +509,8 @@ void DivisionExpSPParty(CParty* party, CNPC* npc, CPC* pPreferencePC, LONGLONG n
 		if (nExpNPC >= 0 && nExpParty <= 0)
 			nExpParty	= nExpNPC * nExpBonus / 100 * nExpPenalty / 100 * nPartyDamage / nTotalDamage;
 
+		nExpParty = nExpParty * GetExpSPLevelPenaltyNew(nLevelDiff) / 100;
+
 #ifdef PREMIUM_CHAR
 		int tSkillPoint;
 		if(pPreferencePC != NULL)
@@ -519,17 +528,11 @@ void DivisionExpSPParty(CParty* party, CNPC* npc, CPC* pPreferencePC, LONGLONG n
 		if (tSkillPoint > 0 && nSPParty <= 0)
 			nSPParty	= tSkillPoint  * nSPBonus  / 100 * nSPPenalty  / 100 * nPartyDamage / nTotalDamage;
 
+		nSPParty = nSPParty * GetExpSPLevelPenaltyNew(nLevelDiff) / 100;
+
 		// 랜덤 적용
-#if defined (LC_USA) || defined(LC_BILA)
-		if (nParty >= 2 )
-		{
-			nExpParty = nExpParty + (nExpParty * GetRandom(-10, 10) / 100);
-			nSPParty  = nSPParty  + (nSPParty *  GetRandom(-10, 10) / 100);
-		}
-#else
 		nExpParty = nExpParty + (nExpParty * GetRandom(-10, 10) / 100);
 		nSPParty  = nSPParty  + (nSPParty *  GetRandom(-10, 10) / 100);
-#endif // #if defined (LC_USA) || defined (LC_BILA)
 	}
 	else
 	{
@@ -794,6 +797,13 @@ void DivisionExpSPParty(CParty* party, CNPC* npc, CPC* pPreferencePC, LONGLONG n
 			}
 		}
 
+
+		//새로운 페널티 공식 적용
+		if(expNode->pc->m_level <nPartyLevelNew)
+		{
+			nGiveExp = nGiveExp * GetExpSPLevelPenaltyNew(nPartyLevelNew - expNode->pc->m_level) / 100;
+			nGiveSP = nGiveSP * GetExpSPLevelPenaltyNew(nPartyLevelNew - expNode->pc->m_level) / 100;
+		}
 		
 		// 경험치 지급
 		expNode->pc->AddExpSP(nGiveExp, (int)nGiveSP, true, false, false, bArtifact);
@@ -884,11 +894,7 @@ void DivisionExpSPParty(CParty* party, CNPC* npc, CPC* pPreferencePC, LONGLONG n
 void DivisionExpSPExped(CExpedition* Exped, CNPC* npc, CPC* pPreferencePC, LONGLONG nTotalDamage)
 {
 	// 파티 보너스 테이블 [%] : 1인부터 시작
-#if defined (LC_USA) || defined(LC_BILA)
-	static const int countBonus[MAX_PARTY_MEMBER] = { 0, 30, 40, 50, 60, 70, 75, 80};
-#else
-	static const int countBonus[MAX_PARTY_MEMBER] = { 15, 30, 40, 50, 60, 70, 70, 70};
-#endif
+	static const int countBonus[MAX_PARTY_MEMBER] = { 20, 35, 50, 65, 80, 95, 105, 115 };
 
 	EXP_LIST*			expExped = NULL;		// 원정대중 경험치 받을 리스트
 	EXP_LIST*			expExpedNode = NULL;	// 원정대원 노드
@@ -996,7 +1002,7 @@ void DivisionExpSPExped(CExpedition* Exped, CNPC* npc, CPC* pPreferencePC, LONGL
 		if(nExped > 8)
 			tempSPBonus = 35;
 		else
-			tempSPBonus = 5 * (nExped - 1);
+			tempSPBonus = 6 * (nExped - 1);
 
 		LONGLONG nSPBonus	= 100 + basic_Exped_plus_sp + tempSPBonus;
 
@@ -1397,4 +1403,28 @@ LONGLONG GetTeachSPBonus(CPC *ch, LONGLONG sp)
 		}
 	}
 	return 0;
+}
+
+int GetExpSPLevelPenaltyNew( int nLevelDiff )
+{
+	int value = 100;
+
+	if(nLevelDiff >= 150)
+	{
+		value = 30;
+	}
+	else if(nLevelDiff >= 100)
+	{
+		value = 50;
+	}
+	else if(nLevelDiff >= 50)
+	{
+		value = 80;
+	}
+	else if(nLevelDiff >= 30)
+	{
+		value = 90;
+	}
+
+	return value;
 }

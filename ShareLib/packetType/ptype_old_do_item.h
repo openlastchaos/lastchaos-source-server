@@ -289,8 +289,6 @@ struct doItemGroceryItemSell : public pTypeBase
 struct doItemUseWarpDoc : public pTypeBase
 {
 	int					virtualIndex;
-	int					zone;
-	int					extra;
 };
 
 // MSG_ITEM : MSG_ITEM_USE_PRESSCORPS
@@ -395,6 +393,13 @@ struct doItemCompose : public pTypeBase
 	slotItemInfo matInfo[MAX_COMPOSE_SLOT_COUNT];	//	재료 아이템 인포
 };
 
+struct doItemUpgradePet : public pTypeBase
+{
+	unsigned int		wearPos;			// 착용중인 펫 장비 장착위치 정보
+	unsigned short		tab;				// 제련석 아이템 tab
+	unsigned short		inven_index;		// 제련석 아이템 inven_index
+};
+
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -416,6 +421,12 @@ enum
 	EXCHANGE_ERR_NOT_ENOUGH_MONEY,	//돈 부족
 	EXCHANGE_ERR_INVENTORY_FULL,	//인벤토리 공간 부족
 	EXCHANGE_ERR_OK,				//교환 성공
+
+	//펫 장비 강화
+	PET_ITEM_UPGRADE_PLUS,			//강화 성공
+	PET_ITEM_UPGRADE_MINUS,			//강화 실패 1마이너스
+	PET_ITEM_UPGRADE_NO_CHANGE,		//강화 실패 변화 없음
+	PET_ITEM_UPGRADE_BROKE,			//강화 실패 장비 파괴
 };
 struct doItemUse : public pTypeBase
 {
@@ -460,6 +471,11 @@ struct doItemUseMasterStoneUSA : public pTypeBase
 {
 	int success_type;
 	int error;
+};
+
+struct doItemUpgradePet : public pTypeBase
+{
+	unsigned int		error;
 };
 
 #ifndef _CLIENT_
@@ -581,6 +597,14 @@ inline void makeMasterStone(CNetMsg::SP& msg, int random_success, int error)
 	msg->setSize(sizeof(ResponseClient::doItemUseMasterStoneUSA));
 }
 
+inline void makePetItemUpgrade(CNetMsg::SP& msg, int error_code)
+{
+	doItemUpgradePet* packet = reinterpret_cast<doItemUpgradePet*>(msg->m_buf);
+	packet->type = MSG_ITEM;
+	packet->subType = MSG_ITEM_UPGRADE_PET;
+	packet->error = error_code;
+	msg->setSize(sizeof(doItemUpgradePet));
+}
 #endif
 }
 

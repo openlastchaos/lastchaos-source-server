@@ -485,7 +485,7 @@ CPC::CPC()
 
 	m_guildInfo = NULL;
 	m_regGuild = 0;
-	m_guildoutdate = 0;
+	m_guild_in_date = 0;
 	m_joinMerac = WCJF_NONE;
 
 	m_raList = NULL;
@@ -593,9 +593,7 @@ CPC::CPC()
 
 	m_bPhoenix_Char = 2;
 
-#ifdef NO_CHATTING
 	m_nflag = 0;
-#endif
 
 	m_Owners_target = NULL;
 	m_Slave_npc = NULL;
@@ -660,6 +658,8 @@ CPC::CPC()
 	holy_water_item = NULL;
 	m_isNotCoolBoxItem = false;
 	m_custom_title_index = -1;
+	use_express_flag = false;
+	m_guildStashLock = false;
 }
 
 CPC::~CPC()
@@ -961,9 +961,14 @@ bool CPC::AddExpSP(LONGLONG exp, int sp, bool bUseEvent, bool IsQuestExp, bool b
 	{
 		sp = 0;
 	}
-
-	if(this->m_party != NULL && m_assist.FindBySkillIndex(SKILL_GUILD_PARTY_EXP) != 0)
+	
+	if(IsQuestExp == false && 
+		bUseEvent == true &&
+		this->m_party != NULL && 
+		m_assist.FindBySkillIndex(SKILL_GUILD_PARTY_EXP) != 0)
+	{
 		return false;
+	}
 
 	LONGLONG lsp = sp;
 
@@ -1147,7 +1152,7 @@ bool CPC::AddExpSP(LONGLONG exp, int sp, bool bUseEvent, bool IsQuestExp, bool b
 
 	if (m_assist.FindBySkillIndex(654))
 	{
-		if (m_level < 60)
+		if (m_level <= 60)
 		{
 			exp *= 2;
 			lsp  *= 2;
@@ -1292,7 +1297,7 @@ bool CPC::AddExpSP(LONGLONG exp, int sp, bool bUseEvent, bool IsQuestExp, bool b
 		m_skillPoint += sp;
 
 	CAPet *apet = GetAPet();
-	if( apet )
+	if( apet && apet->m_bSummon == true)
 	{
 		apet->AddAccExp( exp, GetLevelupExp(m_level) );
 	}
@@ -3097,9 +3102,10 @@ void CPC::ApplyItemValue(bool bSend)
 
 			if (bNormalItem && pItemNormal)
 			{
+				int rareoption_damage = 0;
+
 				if (pItemNormal->IsRangeWeapon())	// 활이면 원거리
 				{
-					int rareoption_damage = 0;
 					if(pItemNormal->m_pRareOptionProto)
 						rareoption_damage = pItemNormal->m_pRareOptionProto->GetDamageUp();
 						
@@ -3113,7 +3119,11 @@ void CPC::ApplyItemValue(bool bSend)
 
 					m_eqMelee = ItemUpgradeFuckingFunction( nNormalPlus, pItemNormal->GetItemLevel(), pItemNormal->m_itemProto->getItemNum0() + pItemNormal->getPlus_2() + rareoption_damage);
 				}
-				m_eqMagic = ItemUpgradeFuckingFunction( nNormalPlus, pItemNormal->GetItemLevel(), pItemNormal->m_itemProto->getItemNum1() );
+
+				if(pItemNormal->m_pRareOptionProto)
+					rareoption_damage = pItemNormal->m_pRareOptionProto->GetMagicUp();
+
+				m_eqMagic = ItemUpgradeFuckingFunction( nNormalPlus, pItemNormal->GetItemLevel(), pItemNormal->m_itemProto->getItemNum1() + pItemNormal->getPlus_2() + rareoption_damage);
 				m_attackSpeed = pItemNormal->m_itemProto->getItemNum2();
 
 				if ( pItemNormal->IsRareItem() )
@@ -4246,11 +4256,6 @@ void CPC::do_QuestGiveUp(CPC* ch, CQuest* quest)
 		break;
 	}
 
-	bool bGoZone = false;
-
-	if (pQuestProto->m_type[0] == QTYPE_KIND_DEFEAT || pQuestProto->m_type[0] == QTYPE_KIND_SAVE || pQuestProto->m_type[0] == QTYPE_KIND_TUTORIAL)
-		bGoZone = true;
-
 	// Quest GiveUp Log
 	GAMELOG << init("QUEST FORCE GIVEUP", ch)
 			<< pQuestProto->m_index
@@ -4272,23 +4277,7 @@ void CPC::do_QuestGiveUp(CPC* ch, CQuest* quest)
 		QuestForceGiveUpMsg(rmsg, quest);
 		SEND_Q(rmsg, ch->m_desc);
 	}
-
-	// 격파, 구출 테스트의 경우 존이동
-	if (bGoZone)
-	{
-		// 가까운 마을로
-		int nearZone;
-		int nearZonePos;
-		CZone* pZone = gserver->FindNearestZone(ch->m_pZone->m_index, GET_X(ch), GET_Z(ch), &nearZone, &nearZonePos);
-		if (pZone == NULL)
-			return ;
-
-		GoZone(ch, nearZone,
-			   pZone->m_zonePos[nearZonePos][0],															// ylayer
-			   GetRandom(pZone->m_zonePos[nearZonePos][1], pZone->m_zonePos[nearZonePos][3]) / 2.0f,		// x
-			   GetRandom(pZone->m_zonePos[nearZonePos][2], pZone->m_zonePos[nearZonePos][4]) / 2.0f);		// z
-	}
-
+	
 	// 포기했으면 싱글던전 입장권 받을 기회 줄인다. 최소 0
 	ch->m_questList.DecreaseQuestComepleteCount();
 }
@@ -5056,45 +5045,6 @@ bool CPC::CanPvP(CCharacter* target, bool bIgnoreInvisible)
 
 	bool bSkipLevel = false;
 
-#ifdef CHANGE_WARCASTLE_SETTING
-	int nZoneIdx = -1;
-	CWarCastle* castle = CWarCastle::GetCastleObject(ZONE_DRATAN);
-	if (castle && castle->GetState() != WCSF_NORMAL)
-	{
-		nZoneIdx = ZONE_DRATAN;
-	}
-	else
-	{
-		castle = CWarCastle::GetCastleObject(ZONE_MERAC);
-		if (castle && castle->GetState() != WCSF_NORMAL)
-		{
-			nZoneIdx = ZONE_MERAC;
-		}
-	}
-	if ( nZoneIdx > 0 )
-	{
-		// 공,수성 관계일 경우 레벨 상관없이 공격 가능하다.
-		if ( (IS_DEFENSE_TEAM(this->GetJoinFlag(nZoneIdx)) && IS_ATTACK_TEAM(tpc->GetJoinFlag(nZoneIdx))) ||
-				( IS_ATTACK_TEAM(this->GetJoinFlag(nZoneIdx)) && tpc->GetJoinFlag(nZoneIdx) != WCJF_NONE) )
-		{
-			bSkipLevel = true;
-		}
-		// 공격자가 공수성이고, 타겟이 3세력이면 공성 전장 내에서 레벨 상관없이 공격 가능하다.
-#ifdef CHECK_CASTLE_AREA
-		if ((this->m_pZone->m_index == nZoneIdx && tpc->m_pZone->m_index == nZoneIdx) &&
-				(this->GetMapAttr() & MATT_WAR || this->m_pZone->IsWarZone((int)this->m_pos.m_x, (int)this->m_pos.m_z)) &&
-				(tpc->GetMapAttr() & MATT_WAR || tpc->m_pZone->IsWarZone((int)tpc->m_pos.m_x, (int)tpc->m_pos.m_z)) )
-#else
-		if ( this->m_pZone->m_index == nZoneIdx && tpc->m_pZone->m_index == nZoneIdx && this->GetMapAttr() == tpc->GetMapAttr() && this->GetMapAttr() & MATT_WAR )
-#endif // CHECK_CASTLE_AREA
-		{
-			if ( (IS_DEFENSE_TEAM(this->GetJoinFlag(nZoneIdx)) && tpc->GetJoinFlag(nZoneIdx) == WCJF_NONE ) ||
-					( IS_ATTACK_TEAM(this->GetJoinFlag(nZoneIdx)) && tpc->GetJoinFlag(nZoneIdx) == WCJF_NONE) )
-				bSkipLevel = true;
-		}
-	}
-#else // CHANGE_WARCASTLE_SETTING
-#ifdef CHECK_CASTLE_AREA
 	CWarCastle* castle = CWarCastle::GetCastleObject(m_pZone->m_index);
 	if (castle && castle->GetState() != WCSF_NORMAL)
 	{
@@ -5103,20 +5053,6 @@ bool CPC::CanPvP(CCharacter* target, bool bIgnoreInvisible)
 				( target->GetMapAttr() & MATT_WAR || target->m_pZone->IsWarZone((int)target->m_pos.m_x, (int)target->m_pos.m_z)) ) // 둘다 공성지역 안에 있어야 하고, 공격자가 공성에 참여해있어야 한다.
 			bSkipLevel = true;
 	}
-#else
-	// 공성전 지역에서 공성 진행시에는 레벨 검사 안함(BRZ 공성전 15레벨 이하 공격  안됨:에러 수정:2009/0702)
-	if (m_pZone->m_index == target->m_pZone->m_index && (m_pZone->m_index == ZONE_DRATAN || m_pZone->m_index == ZONE_MERAC) &&
-			GetMapAttr() == target->GetMapAttr() && GetMapAttr() & MATT_WAR)
-//	if (m_pZone->m_index == target->m_pZone->m_index && m_pZone->m_index == CWarCastle::GetCurSubServerCastleZoneIndex() && GetMapAttr() == target->GetMapAttr() && GetMapAttr() == MAPATT_WARZONE) //에러
-	{
-		CWarCastle* castle = CWarCastle::GetCastleObject(m_pZone->m_index);
-		if (castle && castle->GetState() != WCSF_NORMAL)
-		{
-			bSkipLevel = true;
-		}
-	}
-#endif // CHECK_CASTLE_AREA
-#endif // CHANGE_WARCASTLE_SETTING
 
 #ifdef FREE_PK_SYSTEM
 	bSkipLevel = true;

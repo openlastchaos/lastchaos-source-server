@@ -3,8 +3,8 @@
 
 CXX = ccache g++ -g
 
-BOOST_INCLUDE = /usr/local/include/boost-1_58
-BOOST_LIB_VER = -gcc44-mt-d-1_58
+BOOST_INCLUDE = /usr/local/include/boost-1_60
+BOOST_LIB_VER = -gcc44-mt-d-1_60
 
 OPT_CRYPT = -I../ShareLib \
 		-I/usr/include/mysql \

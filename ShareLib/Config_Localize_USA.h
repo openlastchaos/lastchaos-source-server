@@ -1,7 +1,7 @@
 #ifdef LC_USA
 
 #define JUNO_RENEWAL_MESSAGEBOX					// 독일용, 신규캐릭터 이동 시 쥬노로 갔다가 버뱅크로 간다.
-#define SERVER_AUTHENTICATION		// 서버 기동 제한 시스템
+//efine SERVER_AUTHENTICATION		// 서버 기동 제한 시스템
 #define GIVE_ITEM_IN_CHANGE_JOB		// 전직시 아이템 지급하기
 
 ////// 국가 필드 설정 //////////////////////////////////////////////////////////////////////////
@@ -37,7 +37,7 @@
 ////// 업데이트 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define XTRAP
+//#define XTRAP
 
 #define DROP_MAKE_DOCUMENT
 #define DURABILITY
@@ -78,7 +78,7 @@
 #define DOUBLE_PET_EXP
 #define DOUBLE_ATTACK
 
-#define EGEHA_ZONE_PAYMENT      800000	// 에게하 입장료
+#define EGEHA_ZONE_PAYMENT      500000	// 에게하 입장료
 
 #define KICK_PC_MULTI
 #define SILENCE_PC_MULTI
@@ -211,12 +211,14 @@
 
 #define GUILD_REMOTE_INVITE		// 길드 원격 가입 시스템
 
-#define BCRYPT_USA // 미국 BCRPYT 적용
+//#define BCRYPT_USA // 미국 BCRPYT 적용
 //////// UPDATE 121Q-1 (12년 4월 26일 ) ////////
 #define EX_ROGUE	// EX 로그 캐릭터
 #define ASSIST_DECREASE_SKILL_MP
 #define ASSIST_REDUCE_SKILL
 #define SKILL_TYPE_NO_COOL_TIME
+
+#define PASSWORD_ENCRYPT_SHA256
 
 #define EX_MAGE
 ////// 운영자 레벨 제한 ////////////////////////////////////////////////////////////////////////

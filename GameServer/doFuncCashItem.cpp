@@ -6,6 +6,8 @@
 #include "CmdMsg.h"
 #include "doFunc.h"
 #include "../ShareLib/DBCmd.h"
+#include "../ShareLib/ptype_cashshop.h"
+#include "../ShareLib/format.h"
 
 void doCashItemPurchaseHistory(CPC* ch, CNetMsg::SP& msg)
 {
@@ -42,170 +44,133 @@ void doCashItemPurchaseList(CPC* ch, CNetMsg::SP& msg)
 	}
 }
 
-void CashItemBringProcess(CPC* ch, CNetMsg::SP& msg, bool bPresent)
+void doCashItemBring(CPC* ch, CNetMsg::SP& msg)
 {
-	// 케릭터 ?걸고 현재 인벤칸/ 소지량 정보를 확인후 결과에따라 에러 메세지를 보내거나 아이템을 지급후 커넥터에 세팅 요청을 한다
-	// 커넥터가 제대로 세팅 못했을 경우 롤백한다.
-	//MSG_EX_CASHITEM_BRING_REQ,			// 가져오기			: count(n) idx(n) ctid(n)
-	int count = 0;
-	int ctid[10], idx[10], i;
-	int invenSpace = 0;
-	int sumItem = 0;
-	memset(idx, -1, sizeof(idx) );
-	memset(ctid, -1, sizeof(ctid) );
-
-	RefMsg(msg) >> count;
-
-	if(count == 0)
+	if(gserver->isRunConnector() == false)
 	{
-		// 옮길 물품이 없어요
-		ch->ResetPlayerState(PLAYER_STATE_CASHITEM);
-		ch->m_billReqTime = 0;
 		CNetMsg::SP rmsg(new CNetMsg);
-		CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_NOTITEM, bPresent);
+		CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_CONN, false);
 		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
 
+	RequestClient::cash_purchase_bring* pmsg = reinterpret_cast<RequestClient::cash_purchase_bring*>(msg->m_buf);
+
+	if (pmsg->count_ <= 0 || pmsg->count_ > 10)
+	{
+		std::string error_msg = fmt::format("invalid count : {}", (int)pmsg->count_);
+		LOG_INFO(error_msg.c_str());
+		ch->m_desc->Close(error_msg);
+		return;
+	}
+
+	int sumItem = 0;
 	ch->SetPlayerState(PLAYER_STATE_CASHITEM);
 	ch->m_billReqTime = PULSE_BILLITEMREQ;
-	invenSpace = ch->m_inventory.getEmptyCount();
-	CCtItemList* ctItemList = NULL;
-	for(i = 0; i < count; i++)
+
+	for(int i = 0; i < pmsg->count_; i++)
 	{
-		RefMsg(msg) >> idx[i]
-					>> ctid[i];
+		{
+			// 자신이 구매한 이력이 있는지 검사
+			if (ch->is_valid_cash_purchase_list(pmsg->data_[i].purchase_index_, pmsg->data_[i].ct_item_index_) == false)
+			{
+				std::string error_msg = fmt::format("invalid purchase index:{}:ctid:{}",
+					pmsg->data_[i].purchase_index_, pmsg->data_[i].ct_item_index_);
+				LOG_INFO(error_msg.c_str());
+				ch->m_desc->Close(error_msg);
+				return;
+			}
+		}
 
-		int j = 0;
-		CCatalog* m_catalog = gserver->m_catalogList.Find(ctid[i]);
+		CCatalog* m_catalog = gserver->m_catalogList.Find(pmsg->data_[i].ct_item_index_);
+		if (m_catalog == NULL)
+		{
+			std::string error_msg = fmt::format("invalid catalog list: {}", pmsg->data_[i].ct_item_index_);
+			LOG_INFO(error_msg.c_str());
+			ch->m_desc->Close(error_msg);
+			return;
+		}
 
-		if( !m_catalog )
+		CCtItemList* ctItemList = m_catalog->GetCtItemList();
+		if (ctItemList == NULL || ctItemList->GetCount() <= 0)
 		{
 			ch->ResetPlayerState(PLAYER_STATE_CASHITEM);
-			ch->m_billReqTime = 0;
 			CNetMsg::SP rmsg(new CNetMsg);
-			CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_NOTITEM, bPresent);
+			CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_NOTITEM, false);
 			SEND_Q(rmsg, ch->m_desc);
 			return;
 		}
 
-		ctItemList = m_catalog->GetCtItemList();
-		while(ctItemList && j < ctItemList->GetCount())
+		int itemcount = ctItemList->GetCount();
+		for (int j = 0; j < itemcount; ++j)
 		{
 			CItem* item = ctItemList->GetItem(j);
-			if( !item )
+			if (item == NULL)
 			{
 				ch->ResetPlayerState(PLAYER_STATE_CASHITEM);
 				CNetMsg::SP rmsg(new CNetMsg);
-				CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_NOTITEM, bPresent);
+				CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_NOTITEM, false);
 				SEND_Q(rmsg, ch->m_desc);
 				return;
 			}
-			sumItem++;
-			j++;
+
+			++sumItem;
 		}
 	}
 
-	if (sumItem > invenSpace)
+	if (sumItem > ch->m_inventory.getEmptyCount())
 	{
 		// 케릭터 락해제
 		ch->ResetPlayerState(PLAYER_STATE_CASHITEM);
 		ch->m_billReqTime = 0;
 		CNetMsg::SP rmsg(new CNetMsg);
-		CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_LACKINVEN, bPresent);
+		CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_LACKINVEN, false);
 		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
 
-	if(gserver->isRunConnector())
+	GAMELOG << init("CASH_ITEM_BRING_REQ", ch )
+		<< "NOT_PRESENT" << delim
+		<< pmsg->count_ << delim;
+
+	int ctid[10] = {0,};
+	int purchase_index[10] = {0,};
+
+	for(int i = 0; i < pmsg->count_; i++)
 	{
-		GAMELOG << init("CASH_ITEM_BRING_REQ", ch )
-				<< (bPresent ? "PRESENT" : "NOT_PRESENT") << delim
-				<< count << delim;
-		CCtItemList* ctItemList = NULL;
-		for(i = 0; i < count; i++)
+		// m_catalog의 유효성은 윗쪽 for loop에서 검사함
+		CCatalog* m_catalog = gserver->m_catalogList.Find(pmsg->data_[i].ct_item_index_);
+		GAMELOG << m_catalog->GetIndex() << delim << m_catalog->GetName()  << delim;
+
+		// ctItemList의 유효성은 윗쪽 for loop에서 검사함
+		CCtItemList* ctItemList = m_catalog->GetCtItemList();
+		int itemcount = ctItemList->GetCount();
+
+		GAMELOG << itemcount << delim;
+
+		for(int j = 0; j < itemcount; j++)
 		{
-			int j = 0;
-			CCatalog* m_catalog = gserver->m_catalogList.Find(ctid[i]);
+			// pitem의 유효성은 윗쪽 for loop에서 검사함 
+			CItem* pitem = ctItemList->GetItem(j);
+			ch->GiveItem(pitem->m_itemProto->getItemIndex(),
+				pitem->getPlus(),
+				pitem->getFlag(),
+				pitem->Count() );
 
-			if( !m_catalog )
-			{
-				// 케릭터 락해제
-				ch->ResetPlayerState(PLAYER_STATE_CASHITEM);
-				ch->m_billReqTime = 0;
-				CNetMsg::SP rmsg(new CNetMsg);
-				CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_NOTITEM, bPresent);
-				SEND_Q(rmsg, ch->m_desc);
-				return;
-			}
-
-			GAMELOG << m_catalog->GetIndex() << delim
-					<< m_catalog->GetName()  << delim;
-
-			ctItemList = m_catalog->GetCtItemList();
-
-			if( !ctItemList )
-			{
-				// 케릭터 락해제
-				ch->ResetPlayerState(PLAYER_STATE_CASHITEM);
-				ch->m_billReqTime = 0;
-				CNetMsg::SP rmsg(new CNetMsg);
-				CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_NOTITEM, bPresent);
-				SEND_Q(rmsg, ch->m_desc);
-				return;
-			}
-
-			int itemcount = ctItemList->GetCount();
-
-			GAMELOG << itemcount << delim;
-
-			CItem* item;
-			for(j = 0; j < itemcount; j++)
-			{
-				item = ctItemList->GetItem(j);
-
-				if( !item )
-				{
-					// 케릭터 락해제
-					ch->ResetPlayerState(PLAYER_STATE_CASHITEM);
-					ch->m_billReqTime = 0;
-					CNetMsg::SP rmsg(new CNetMsg);
-					CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_NOTITEM, bPresent);
-					SEND_Q(rmsg, ch->m_desc);
-					return;
-				}
-
-				ch->GiveItem(item->m_itemProto->getItemIndex(),
-							 item->getPlus(),
-							 item->getFlag(),
-							 item->Count() );
-
-//				GAMELOG << itemlog(item);		생성되는 아이템 로그로 대체
-			}
+			ch->erase_cash_purchase_list(pmsg->data_[i].purchase_index_, pmsg->data_[i].ct_item_index_);
 		}
 
-		{
-			CNetMsg::SP rmsg(new CNetMsg);
-			ConnCashItemBringReq(rmsg, bPresent, ch->m_desc->m_index, ch->m_index, count, idx, ctid);
-			SEND_Q(rmsg, gserver->m_connector);
-		}
-
-		GAMELOG << end;
+		ctid[i] = pmsg->data_[i].ct_item_index_;
+		purchase_index[i] = pmsg->data_[i].purchase_index_;
 	}
-	else
+
+	GAMELOG << end;
+
 	{
-		// 콘넥터 에라 메세지
-		// 케릭터 락해제
-		ch->ResetPlayerState(PLAYER_STATE_CASHITEM);
 		CNetMsg::SP rmsg(new CNetMsg);
-		CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_CONN, bPresent);
-		SEND_Q(rmsg, ch->m_desc);
+		ConnCashItemBringReq(rmsg, false, ch->m_desc->m_index, ch->m_index, pmsg->count_, purchase_index, ctid);
+		SEND_Q(rmsg, gserver->m_connector);
 	}
-}
-
-void doCashItemBring(CPC* ch, CNetMsg::SP& msg)
-{
-	CashItemBringProcess(ch, msg, false);
 }
 
 void doCashItemBalanceReq(CPC* ch, CNetMsg::SP& msg)
@@ -467,8 +432,131 @@ void doCashItemGiftRecvList(CPC* ch, CNetMsg::SP& msg)
 
 void doCashItemGiftRecv(CPC* ch, CNetMsg::SP& msg)
 {
-	// 받는 케릭터 락걸고 가져오기 프로세스 돌리기
-	CashItemBringProcess(ch, msg, true);
+	if(gserver->isRunConnector() == false)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_CONN, true);
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
+
+	RequestClient::cash_gift_bring* pmsg = reinterpret_cast<RequestClient::cash_gift_bring*>(msg->m_buf);
+
+	if (pmsg->count_ <= 0 || pmsg->count_ > 10)
+	{
+		std::string error_msg = fmt::format("invalid count : {}", (int)pmsg->count_);
+		LOG_INFO(error_msg.c_str());
+		ch->m_desc->Close(error_msg);
+		return;
+	}
+
+	int sumItem = 0;
+	ch->SetPlayerState(PLAYER_STATE_CASHITEM);
+	ch->m_billReqTime = PULSE_BILLITEMREQ;
+
+	for(int i = 0; i < pmsg->count_; i++)
+	{
+		{
+			// 자신이 구매한 이력이 있는지 검사
+			if (ch->is_valid_cash_gift_list(pmsg->data_[i].purchase_index_, pmsg->data_[i].ct_item_index_) == false)
+			{
+				std::string error_msg = fmt::format("invalid purchase index:{}:ctid:{}",
+					pmsg->data_[i].purchase_index_, pmsg->data_[i].ct_item_index_);
+				LOG_INFO(error_msg.c_str());
+				ch->m_desc->Close(error_msg);
+				return;
+			}
+		}
+
+		CCatalog* m_catalog = gserver->m_catalogList.Find(pmsg->data_[i].ct_item_index_);
+		if (m_catalog == NULL)
+		{
+			std::string error_msg = fmt::format("invalid catalog list: {}", pmsg->data_[i].ct_item_index_);
+			LOG_INFO(error_msg.c_str());
+			ch->m_desc->Close(error_msg);
+			return;
+		}
+
+		CCtItemList* ctItemList = m_catalog->GetCtItemList();
+		if (ctItemList == NULL || ctItemList->GetCount() <= 0)
+		{
+			ch->ResetPlayerState(PLAYER_STATE_CASHITEM);
+			CNetMsg::SP rmsg(new CNetMsg);
+			CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_NOTITEM, true);
+			SEND_Q(rmsg, ch->m_desc);
+			return;
+		}
+
+		int itemcount = ctItemList->GetCount();
+		for (int j = 0; j < itemcount; ++j)
+		{
+			CItem* item = ctItemList->GetItem(j);
+			if (item == NULL)
+			{
+				ch->ResetPlayerState(PLAYER_STATE_CASHITEM);
+				CNetMsg::SP rmsg(new CNetMsg);
+				CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_NOTITEM, true);
+				SEND_Q(rmsg, ch->m_desc);
+				return;
+			}
+
+			++sumItem;
+		}
+	}
+
+	if (sumItem > ch->m_inventory.getEmptyCount())
+	{
+		// 케릭터 락해제
+		ch->ResetPlayerState(PLAYER_STATE_CASHITEM);
+		ch->m_billReqTime = 0;
+		CNetMsg::SP rmsg(new CNetMsg);
+		CashItemBringRepMsg(rmsg, MSG_EX_CASHITEM_ERROR_LACKINVEN, true);
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
+
+	GAMELOG << init("CASH_ITEM_BRING_REQ", ch )
+		<< "PRESENT" << delim
+		<< pmsg->count_ << delim;
+
+	int ctid[10] = {0,};
+	int purchase_index[10] = {0,};
+
+	for(int i = 0; i < pmsg->count_; i++)
+	{
+		// m_catalog의 유효성은 윗쪽 for loop에서 검사함
+		CCatalog* m_catalog = gserver->m_catalogList.Find(pmsg->data_[i].ct_item_index_);
+		GAMELOG << m_catalog->GetIndex() << delim << m_catalog->GetName()  << delim;
+
+		// ctItemList의 유효성은 윗쪽 for loop에서 검사함
+		CCtItemList* ctItemList = m_catalog->GetCtItemList();
+		int itemcount = ctItemList->GetCount();
+
+		GAMELOG << itemcount << delim;
+
+		for(int j = 0; j < itemcount; j++)
+		{
+			// pitem의 유효성은 윗쪽 for loop에서 검사함 
+			CItem* pitem = ctItemList->GetItem(j);
+			ch->GiveItem(pitem->m_itemProto->getItemIndex(),
+				pitem->getPlus(),
+				pitem->getFlag(),
+				pitem->Count() );
+
+			ch->erase_cash_gift_list(pmsg->data_[i].purchase_index_, pmsg->data_[i].ct_item_index_);
+		}
+
+		ctid[i] = pmsg->data_[i].ct_item_index_;
+		purchase_index[i] = pmsg->data_[i].purchase_index_;
+	}
+
+	GAMELOG << end;
+
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ConnCashItemBringReq(rmsg, true, ch->m_desc->m_index, ch->m_index, pmsg->count_, purchase_index, ctid);
+		SEND_Q(rmsg, gserver->m_connector);
+	}
 }
 
 void doCashItemShopOpenReq(CPC* ch, CNetMsg::SP& msg)

@@ -6,7 +6,7 @@ import socket
 
 from common_util import *
 
-HEADER_DUMP_STRING_GER = '<HiH'
+HEADER_DUMP_STRING_GER = '>HiH'
 HEADER_SIZE_FOR_GER = struct.calcsize(HEADER_DUMP_STRING_GER)
 
 def hander_client_for_ger_read_header(client_socket):
@@ -23,6 +23,7 @@ def hander_client_for_ger_read_header(client_socket):
 	print (hexdump.hexdump(data))
 
 	ptype, psn, psize = struct.unpack(HEADER_DUMP_STRING_GER, data)
+	print ("ptype=%s / sn=%s / size=%s" % (ptype, psn, psize))
 	return ptype, psize
 
 def handler_client_for_ger_read_body(client_socket, body_size):
@@ -51,29 +52,31 @@ def handler_client_for_ger_process(type, packet_body, user_index_map, ctid_map, 
 
 	elif type == 1700:
 		# now cash
-		user_id, packet_body = getstring(packet_body)
-		cpid, packet_body = getint(packet_body)
+		print (hexdump.hexdump(packet_body))
+		user_id, packet_body = getstring_length(packet_body, 50)
+		cpid, packet_body = getbyte(packet_body)
 		user_index, packet_body = getint(packet_body)
 		print ('user_index : %s : user_id : %s : cpid : %s' % (user_index, user_id, cpid))
 		######################################################
 		cash = getCash(user_index_map, user_index)
 
 		body = struct.pack('b', 0) # return code
-		body += setstring(user_id)
+		body += setstring_length(user_id, 50)
 		body += struct.pack('b', cpid)
 		body += struct.pack('>i', user_index)
 		body += struct.pack('>i', cash)
 		body += struct.pack('>i', cash // 2)
 		rpacket = make_packet_for_ger(type + 1000, body)
+		print (hexdump.hexdump(rpacket))
 		client_socket.send(rpacket)
 		return
 
 	elif type == 1720:
 		# can buy
-		user_id, packet_body = getstring(packet_body)
-		cpid, packet_body = getint(packet_body)
+		user_id, packet_body = getstring_length(packet_body, 50)
+		cpid, packet_body = getbyte(packet_body)
 		user_index, packet_body = getint(packet_body)
-		ip, packet_body = getstring(packet_body)
+		ip, packet_body = getstring_length(packet_body, 15)
 		count, packet_body = getbyte(packet_body)
 		ctid = []
 		for i in range(count):
@@ -86,7 +89,7 @@ def handler_client_for_ger_process(type, packet_body, user_index_map, ctid_map, 
 		cash = getCash(user_index_map, user_index)
 
 		body = struct.pack('b', 0) # return code
-		body += setstring(user_id)
+		body += setstring_length(user_id, 50)
 		body += struct.pack('b', cpid)
 		body += struct.pack('>i', user_index)
 		body += struct.pack('b', count)
@@ -99,10 +102,10 @@ def handler_client_for_ger_process(type, packet_body, user_index_map, ctid_map, 
 		return
 
 	elif type == 1740:
-		user_id, packet_body = getstring(packet_body)
-		cpid, packet_body = getint(packet_body)
+		user_id, packet_body = getstring_length(packet_body, 50)
+		cpid, packet_body = getbyte(packet_body)
 		user_index, packet_body = getint(packet_body)
-		ip, packet_body = getstring(packet_body)
+		ip, packet_body = getstring_length(packet_body, 15)
 		count, packet_body = getbyte(packet_body)
 		ctid = []
 		for i in range(count):
@@ -115,7 +118,7 @@ def handler_client_for_ger_process(type, packet_body, user_index_map, ctid_map, 
 		cash = getCash(user_index_map, user_index)
 
 		body = struct.pack('b', 0) # return code
-		body += setstring(user_id)
+		body += setstring_length(user_id, 50)
 		body += struct.pack('b', cpid)
 		body += struct.pack('>i', user_index)
 		body += struct.pack('b', len(ctid))

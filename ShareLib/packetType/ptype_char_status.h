@@ -115,6 +115,10 @@ enum
 	MSG_SUB_UPDATE_ARTIFACT_FIND_USER_COUNT_MSG,
 
 	MSG_SUB_REQUEST_GUILD_RECALL,			//서버에서 길드원들에게 길드방 리콜 확인 여부 요청 업데이트 패킷
+
+	MSG_SUB_UPDATE_EP_INIT,					//이그니션 포인트 초기화
+
+	MSG_SUB_UPDATE_CHAR_HPMP,				//HPMP 정보 업데이트
 };
 
 #pragma pack(push, 1)
@@ -244,16 +248,14 @@ struct charAtMsg : public pTypeBase
 	float			r;
 	char			yLayer;
 	int				userIndex;
-	int				guildoutdate;
+	int				guildindate;
 	char			plusEffect;
 	unsigned short	mapAttr;
 
 	int				key;
 	int				currentTitle;
 
-#ifdef NO_CHATTING
 	int				chatingFlag;
-#endif
 
 #ifdef ENABLE_SUBJOB
 	int				jobSub;
@@ -370,6 +372,15 @@ struct charStatusPc : public pTypeBase
 	char		pkName;
 	LONGLONG	state;
 	LONGLONG	state2;
+};
+
+struct charStatusHPMP : public pTypeBase
+{
+	int			charIndex;
+	int			hp;
+	int			maxHp;
+	int			mp;
+	int			maxMp;	
 };
 
 struct charStatusNpc : public pTypeBase
@@ -500,6 +511,11 @@ struct GuildRoomRecall : public pTypeBase
 {
 };
 
+struct EPInit : public pTypeBase
+{
+	bool isInit;				//true = 초기화, false = 유지
+};
+
 #ifndef _CLIENT_
 inline void makeOldTimerItem(CNetMsg::SP& msg, int mempos, int stashext)
 {
@@ -573,6 +589,27 @@ inline void GuildRoomRecallRequestMsg(CNetMsg::SP& msg)
 	packet->type = MSG_UPDATE_DATA_FOR_CLIENT;
 	packet->subType = MSG_SUB_REQUEST_GUILD_RECALL;
 	msg->setSize(sizeof(GuildRoomRecall));
+}
+
+inline void EPInitMsg(CNetMsg::SP& msg, bool isInit)
+{
+	EPInit* packet = reinterpret_cast<EPInit*>(msg->m_buf);
+	packet->type = MSG_UPDATE_DATA_FOR_CLIENT;
+	packet->subType = MSG_SUB_UPDATE_EP_INIT;
+	packet->isInit = isInit;
+	msg->setSize(sizeof(EPInit));
+}
+
+inline void CharStatusHPMP(CNetMsg::SP& msg, int max_hp, int hp, int max_mp, int mp)
+{
+	charStatusHPMP* packet = reinterpret_cast<charStatusHPMP*>(msg->m_buf);
+	packet->type = MSG_UPDATE_DATA_FOR_CLIENT;
+	packet->subType = MSG_SUB_UPDATE_CHAR_HPMP;
+	packet->maxHp = max_hp;
+	packet->hp = hp;
+	packet->maxMp = max_mp;
+	packet->mp = mp;
+	msg->setSize(sizeof(charStatusHPMP));
 }
 #endif
 }

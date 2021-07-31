@@ -1,5 +1,7 @@
 #ifdef LC_RUS
 
+#define DOUBLE_PET_EXP
+
 #define JUNO_RENEWAL_MESSAGEBOX					// 독일용, 신규캐릭터 이동 시 쥬노로 갔다가 버뱅크로 간다.
 #define SERVER_AUTHENTICATION		// 서버 기동 제한 시스템
 #define GIVE_ITEM_IN_CHANGE_JOB		// 전직시 아이템 지급하기
@@ -152,7 +154,6 @@
 // ---------------- Update 1104 -----------------------
 
 // test server [110608], live server [110614]
-#define CHANGE_WARCASTLE_SETTING				// 공성 전 PVP 설정 변경
 
 // ---------------- Update 1105 -----------------------
 // test server : [110615], live server [110628]

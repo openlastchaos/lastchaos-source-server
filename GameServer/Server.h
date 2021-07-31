@@ -1613,6 +1613,12 @@ public:
 	bool	tld_event;
 	void	checkTldEvent();
 #endif
+
+	int m_battle_guild_index;	//길드 인덱스
+	int m_battle_guild_gm;		//gm 인덱스
+
+	std::set<std::string> set_gmlist;
+	void gm_list_init();
 };
 
 extern CServer* gserver;

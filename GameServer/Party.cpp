@@ -522,6 +522,8 @@ bool CParty::ChangeBoss(const char* strNewBossName)
 
 void CParty::SetEndParty()
 {
+	LOG_INFO("PARTY_CALL_SET_END_PARTY. boss_index[%d], boss_name[%s]", this->GetBossIndex(), this->GetBossName());
+
 	updateCalcMember();
 
 	{

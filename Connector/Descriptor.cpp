@@ -144,7 +144,7 @@ bool CDescriptor::GetLogin(CNetMsg::SP& msg)
 		{
 			RefMsg(msg) >> zone_num;
 			m_nZoneIndex[i] = zone_num;
-			gserver.m_userList[subnum - 1].m_playersPerZone[zone_num] = 0;
+			gserver.m_user_list->setPlayerZoneCount(subnum, zone_num, 0);
 			if (zone_num == ZONE_START)
 				m_bStartServer = true;
 		}

@@ -13,6 +13,8 @@ void ProcDead_RVR(CPC* op, CNPC* df);
 void ProcDeadQuestProc(CPC * opc,CNPC * df, int partyScale); //[2009/12/28 derek] 막타 친넘과 데미지 많이 준넘이 다른 넘일 경우 퀘스트 검색을 하지 않아서 퀘스트 처리부분을 함수로 뺐다.
 #endif
 
+extern bool do_ItemUsePotion(CPC* ch, CItem* item, int extra1);
+
 void ProcDead(CNPC* df, CCharacter* of)
 {
 	CPC*		opc				= NULL;
@@ -808,6 +810,54 @@ END_PROC:
 		DelAttackList(df);
 		of->m_pArea->CharFromCell(df, true);
 		of->m_pArea->DelNPC(df);
+	}
+
+	//몬스터 죽었을 때 발동되는 토글형 아이템 체크
+	if(opc != NULL)
+	{
+		if(opc->m_deadnpc_toggle_item.size() > 0)
+		{
+			std::vector<CItem*>::iterator it = opc->m_deadnpc_toggle_item.begin();
+
+			CItem* item;
+
+			for(; it != opc->m_deadnpc_toggle_item.end(); )
+			{
+				item = opc->m_inventory.getItem( (*it)->tab(), (*it)->getInvenIndex() );
+				
+				if(item == NULL)
+				{
+					it = opc->m_deadnpc_toggle_item.erase(it);
+					continue;
+				}
+
+				if( (item->m_itemProto->getItemFlag() & ITEM_FLAG_TOGGLE) == false )
+				{
+					it = opc->m_deadnpc_toggle_item.erase(it);
+					continue;
+				}
+
+				if(item->m_toggle == true)
+				{
+					if( do_ItemUsePotion(opc, item, 0) == false)
+					{
+						it++;
+						continue;
+					}
+					
+					if(item->getItemCount() == 1)
+						it = opc->m_deadnpc_toggle_item.erase(it);
+					else
+						it++;
+
+					opc->m_inventory.decreaseItemCount(item, 1);
+				}
+				else
+				{
+					it = opc->m_deadnpc_toggle_item.erase(it);
+				}
+			}
+		}
 	}
 }
 

@@ -459,27 +459,30 @@ void ProcSubHelperTitleSystemInsertTitleRep(CNetMsg::SP& msg)
 		if(ch == NULL)
 		{
 			CNetMsg::SP rmsg(new CNetMsg);
-			SubHelperTitleSystemTitleDelReq(rmsg, char_index, title_index);
+			SubHelperTitleSystemTitleDelReq(rmsg, char_index, title_index, custom_title_index);
 			SEND_Q(rmsg, gserver->m_subHelper);
 
 			return ;
 		}
 		title = gserver->m_titleProtoList.Create(title_index, endtime);
-		title->m_custom_title_index = custom_title_index;
 
 		if(title == NULL)
 		{
 			CNetMsg::SP rmsg(new CNetMsg);
-			SubHelperTitleSystemTitleDelReq(rmsg, char_index, title_index);
+			SubHelperTitleSystemTitleDelReq(rmsg, char_index, title_index, custom_title_index);
 			SEND_Q(rmsg, gserver->m_subHelper);
 
 			return ;
 		}
+		
+		title->m_custom_title_index = custom_title_index;
+		
 		item = ch->m_inventory.getItem(tab, invenIndex);
+
 		if(item == NULL)
 		{
 			CNetMsg::SP rmsg(new CNetMsg);
-			SubHelperTitleSystemTitleDelReq(rmsg, char_index, title_index);
+			SubHelperTitleSystemTitleDelReq(rmsg, char_index, title_index, custom_title_index);
 			SEND_Q(rmsg, gserver->m_subHelper);
 
 			return ;
@@ -488,7 +491,7 @@ void ProcSubHelperTitleSystemInsertTitleRep(CNetMsg::SP& msg)
 		if(item->Count() < 1)
 		{
 			CNetMsg::SP rmsg(new CNetMsg);
-			SubHelperTitleSystemTitleDelReq(rmsg, char_index, title_index);
+			SubHelperTitleSystemTitleDelReq(rmsg, char_index, title_index, custom_title_index);
 			SEND_Q(rmsg, gserver->m_subHelper);
 
 			return ;
@@ -497,7 +500,7 @@ void ProcSubHelperTitleSystemInsertTitleRep(CNetMsg::SP& msg)
 		if (item->m_serial != (const char *)serial)
 		{
 			CNetMsg::SP rmsg(new CNetMsg);
-			SubHelperTitleSystemTitleDelReq(rmsg, char_index, title_index);
+			SubHelperTitleSystemTitleDelReq(rmsg, char_index, title_index, custom_title_index);
 			SEND_Q(rmsg, gserver->m_subHelper);
 
 			return ;
@@ -506,7 +509,7 @@ void ProcSubHelperTitleSystemInsertTitleRep(CNetMsg::SP& msg)
 		if(ch->m_titleList.m_nCount >= MAX_TITLE_COUNT)
 		{
 			CNetMsg::SP rmsg(new CNetMsg);
-			SubHelperTitleSystemTitleDelReq(rmsg, char_index, title_index);
+			SubHelperTitleSystemTitleDelReq(rmsg, char_index, title_index, custom_title_index);
 			SEND_Q(rmsg, gserver->m_subHelper);
 
 			return ;

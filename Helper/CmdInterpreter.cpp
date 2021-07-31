@@ -7,7 +7,10 @@
 #include "doFunc.h"
 #include "../ShareLib/packetType/ptype_server_to_server.h"
 #include "../ShareLib/packetType/ptype_server_to_server_kick.h"
+#include "../ShareLib/packetType/ptype_guild_battle.h"
 #include "../ShareLib/LogInOutManager.h"
+
+#include <boost/format.hpp>
 
 void ServerSrandom(unsigned long initial_seed);
 void kickUser(rnSocketIOService* service, CNetMsg::SP& msg);
@@ -15,6 +18,11 @@ void kickUserAnswer(rnSocketIOService* service, CNetMsg::SP& msg);
 void kickUserByCharIndex(rnSocketIOService* service, CNetMsg::SP& msg);
 void kickUserByUserIndex(rnSocketIOService* service, CNetMsg::SP& msg);
 void kickUserByUserId(rnSocketIOService* service, CNetMsg::SP& msg);
+void GuildBattleReg(rnSocketIOService* service, CNetMsg::SP& msg);
+void GuildBattleChallenge(rnSocketIOService* service, CNetMsg::SP& msg);
+bool checkGuildBattleNas(int guild_index, GoldType_t nas);
+void GuildBattleStashLockOff(rnSocketIOService* service, CNetMsg::SP& msg);
+void GuildBattleStashLockOffAll(rnSocketIOService* service, CNetMsg::SP& msg);
 
 void CServer::CommandInterpreter(CDescriptor* d, CNetMsg::SP& msg)
 {
@@ -74,6 +82,22 @@ void CServer::CommandInterpreter(CDescriptor* d, CNetMsg::SP& msg)
 
 			case MSG_SUB_SERVERTOSERVER_KICK_BY_USER_ID_REQ:
 				kickUserByUserId(d->service_, msg);
+				break;
+
+			case MSG_SUB_GUILD_BATTLE_REG_TO_HELPER:
+				GuildBattleReg(d->service_, msg);
+				break;
+
+			case MSG_SUB_GUILD_BATTLE_CHALLENGE_TO_HELPER:
+				GuildBattleChallenge(d->service_, msg);
+				break;
+
+			case MSG_SUB_GUILD_BATTLE_STASH_LOCK_OFF:
+				GuildBattleStashLockOff(d->service_, msg);
+				break;
+
+			case MSG_SUB_GUILD_BATTLE_STASH_LOCK_OFF_ALL:
+				GuildBattleStashLockOffAll(d->service_, msg);
 				break;
 
 			default:
@@ -188,3 +212,115 @@ void kickUserByUserId(rnSocketIOService* service, CNetMsg::SP& msg)
 	}
 
 }
+
+void GuildBattleReg(rnSocketIOService* service, CNetMsg::SP& msg)
+{
+	ServerToServerPacket::GuildBattleRegToHelper* packet = reinterpret_cast<ServerToServerPacket::GuildBattleRegToHelper*>(msg->m_buf);
+
+	CGuild* guild = gserver.m_guildlist.findguild(packet->guild_index);
+
+	if(guild == NULL)
+	{
+		packet->error_code = GUILD_BATTLE_ERROR_CONDITION;
+	}
+	
+	else if(checkGuildBattleNas(packet->guild_index, packet->stake_nas) == false)
+	{
+		packet->error_code = GUILD_BATTLE_ERROR_CONDITION;
+	}
+	
+	else
+	{
+		CDBCmd cmd;
+		cmd.Init(&gserver.m_dbchar);
+		std::string query = boost::str(boost::format("SELECT avg( c.a_level ) as ave_level FROM t_guildmember as gm, t_characters as c"
+			" WHERE gm.a_char_index = c.a_index AND gm.a_guild_index = %d") % packet->guild_index);
+		cmd.SetQuery(query);
+		cmd.Open();
+
+		while(cmd.MoveNext())
+		{
+			cmd.GetRec("ave_level", packet->ave_level);
+		}
+
+		packet->error_code = GUILD_BATTLE_SUCCESS_REGIST;
+	}
+
+	service->deliver(msg);
+
+	//길드창고 사용 못하도록 처리
+	if(packet->error_code == GUILD_BATTLE_SUCCESS_REGIST)
+		guild->m_isUseTheStashAndSkill = false;
+}
+
+void GuildBattleChallenge(rnSocketIOService* service, CNetMsg::SP& msg)
+{
+	ServerToServerPacket::GuildBattleChallengeToHelper* packet = reinterpret_cast<ServerToServerPacket::GuildBattleChallengeToHelper*>(msg->m_buf);
+
+	CGuild* guild = gserver.m_guildlist.findguild(packet->guild_index);
+
+	if(guild == NULL)
+		packet->error_code = GUILD_BATTLE_ERROR_CONDITION;
+	
+	else if(checkGuildBattleNas(packet->guild_index, packet->stake_nas) == false)
+		packet->error_code = GUILD_BATTLE_ERROR_CONDITION;
+	
+	else
+		packet->error_code = GUILD_BATTLE_SUCCESS_CHALLENGE;
+
+	service->deliver(msg);
+
+	//길드창고 사용 못하도록 처리
+	if(packet->error_code == GUILD_BATTLE_SUCCESS_CHALLENGE)
+		guild->m_isUseTheStashAndSkill = false;
+}
+
+void GuildBattleStashLockOff(rnSocketIOService* service, CNetMsg::SP& msg)
+{
+	ServerToServerPacket::GuildBattleStashLockOff* packet = reinterpret_cast<ServerToServerPacket::GuildBattleStashLockOff*>(msg->m_buf);
+	
+	CGuild* guild = gserver.m_guildlist.findguild(packet->guild_index);
+
+	if(guild == NULL)
+		return;
+
+	guild->m_isUseTheStashAndSkill = true;
+}
+
+void GuildBattleStashLockOffAll(rnSocketIOService* service, CNetMsg::SP& msg)
+{
+	CGuild* ret = gserver.m_guildlist.head();
+	while (ret)
+	{
+		ret->m_isUseTheStashAndSkill = true;
+		ret = ret->nextguild();
+	}
+}
+
+bool checkGuildBattleNas(int guild_index, GoldType_t nas)
+{
+	GoldType_t guild_nas = 0;
+
+	CDBCmd cmd;
+	cmd.Init(&gserver.m_dbchar);
+
+	std::string query = boost::str(boost::format("select * from t_guild_stash_info where a_guild_idx = %d") % guild_index);
+	cmd.SetQuery(query);
+	if( cmd.Open() == false)
+	{
+		return false;
+	}
+
+	while( cmd.MoveNext() )
+	{
+		cmd.GetRec("a_nas", guild_nas);
+	}
+	
+	cmd.Close();
+
+	if(guild_nas < nas)
+		return false;
+
+	return true;
+}
+

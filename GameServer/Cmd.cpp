@@ -122,6 +122,7 @@ void CCmdList::AddMessage()
 #endif
 	Add(MSG_GPS, do_GPS, 0, false, false);
 	Add(MSG_ITEM_COLLECTION, do_ItemCollection, 0, false, false);
+	Add(MSG_GUILD_BATTLE, do_Guild_Battle_Extend, 0, false, false);
 
 #ifdef PREMIUM_CHAR
 	Add(MSG_PREMIUM_CHAR, do_PremiumChar, 0, false, false);

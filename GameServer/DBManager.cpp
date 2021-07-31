@@ -163,6 +163,8 @@ void DBManager::PushExpressList( CDescriptor* desc, int pageIndex )
 
 	int index = desc->m_index % thread_count_;
 	db_process_[index].queue_.push_signal(pushdata);
+
+	desc->m_pChar->use_express_flag = true;
 }
 
 //XX 거래대행 - 찾기 2
@@ -173,6 +175,19 @@ void DBManager::PushExpressTake( CDescriptor* desc, expressIndex_t expressIndex 
 
 	int index = desc->m_index % thread_count_;
 	db_process_[index].queue_.push_signal(pushdata);
+
+	desc->m_pChar->use_express_flag = true;
+}
+
+void DBManager::PushExpressTakeAll(CDescriptor* desc, int pageIndex)
+{
+	DBProcess::expresstakeall_t data(desc->m_seq_index, desc->m_index, desc->m_pChar->m_index, pageIndex);
+	DBProcess::type_t pushdata(DB_PROC_EXPRESS_TAKE_ALL, data);
+
+	int index = desc->m_index % thread_count_;
+	db_process_[index].queue_.push_signal(pushdata);
+
+	desc->m_pChar->use_express_flag = true;
 }
 
 void DBManager::PushExpressInputItem( CDescriptor* desc, ExpressSystemItemInfo* itemInfo, bool contentsFlag )
@@ -257,6 +272,19 @@ void DBManager::PushExpressDelete( CDescriptor* desc, expressIndex_t expressInde
 
 	int index = desc->m_index % thread_count_;
 	db_process_[index].queue_.push_signal(pushdata);
+
+	desc->m_pChar->use_express_flag = true;
+}
+
+void DBManager::PushExpressDeleteAll(CDescriptor* desc, int pageIndex, bool send_flag)
+{
+	DBProcess::expressdeleteall_t data(desc->m_seq_index, desc->m_index, desc->m_pChar->m_index, pageIndex, send_flag);
+	DBProcess::type_t pushdata(DB_PROC_EXPRESS_DELETE_ALL, data);
+
+	int index = desc->m_index % thread_count_;
+	db_process_[index].queue_.push_signal(pushdata);
+
+	desc->m_pChar->use_express_flag = true;
 }
 
 void DBManager::pushQuery( int userIndex, std::string& query )
@@ -520,6 +548,10 @@ void DBProcess::Run()
 			ExpressTake(data.second);
 			break;
 
+		case DB_PROC_EXPRESS_TAKE_ALL:
+			ExpressTakeAll(data.second);
+			break;
+
 		case DB_PROC_EXPRESS_INPUT_ITEM:
 			ExpressInputItem(data.second);
 			break;
@@ -530,6 +562,10 @@ void DBProcess::Run()
 
 		case DB_PROC_EXPRESS_DELETE:
 			ExpressDelete(data.second);
+			break;
+
+		case DB_PROC_EXPRESS_DELETE_ALL:
+			ExpressDeleteAll(data.second);
 			break;
 
 		case DB_PROC_QUERY:
@@ -920,7 +956,7 @@ void DBProcess::DeleteChar( boost::any& argv )
 		query = "UPDATE t_characters SET a_deletedelay=UNIX_TIMESTAMP(NOW())+24*60*60, a_datestamp=now()";
 
 #if defined (LC_GAMIGO)
-		query += boost::str(boost::format(", a_guildoutdate=%1%") % m_guildoutdate);
+		query += boost::str(boost::format(", a_guildindate=%1%") % m_guildoutdate);
 #endif
 
 		query += boost::str(boost::format(" WHERE a_user_index=%1% AND a_server=%2% AND a_index=%3% AND a_enable=1")
@@ -1213,7 +1249,51 @@ void DBProcess::ExpressTake( boost::any& argv )
 	EventProcessForDB::expressTake retData;
 	retData.m_index = m_index;
 	getItemByExpress(&retData.itemInfo, res.get());
+	retData.isSend = true;
 	EventProcessForDB::instance()->pushExpressTake(retData);
+}
+
+void DBProcess::ExpressTakeAll(boost::any& argv)
+{
+	expresslist_t data = boost::any_cast<expresslist_t>(argv);
+	LONGLONG seq_index = boost::tuples::get<0>(data);
+	int& user_index = boost::tuples::get<1>(data);
+	int& char_index = boost::tuples::get<2>(data);
+	int& pageIndex = boost::tuples::get<3>(data);
+
+	int startIndex = pageIndex * EXPRESS_SYSTEM_COUNT_PER_PAGE;
+	int endIndex = EXPRESS_SYSTEM_COUNT_PER_PAGE;
+
+	std::string qry = express_select_string;
+	qry += boost::str(boost::format("WHERE a_char_index=%1% AND now() < a_expire_date LIMIT %2%, %3%")
+		% char_index % startIndex % endIndex);
+	BOOST_MYSQL_RES res = char_db_.select(qry);
+	if (res == NULL)
+		return;
+
+	int count = char_db_.getrowcount();
+
+	if(count == 0)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ResponseClient::makeExpressTake(rmsg, ResponseClient::ERR_NO_TAKE_ITEM);
+		SendMessageToClient(seq_index, user_index, rmsg);
+
+		LOG_ERROR("EXPRESS SYSTEM TAKE. NOT EXIST ITEM(row) index : %d, charIndex : %d", user_index, char_index);
+		return;
+	}
+
+	for(int i = 0 ; i < count; i ++)
+	{
+		EventProcessForDB::expressTake retData;
+		retData.m_index = user_index;
+		getItemByExpress(&retData.itemInfo, res.get());
+
+		if( i == (count - 1) )
+			retData.isSend = true;
+
+		EventProcessForDB::instance()->pushExpressTake(retData);
+	}
 }
 
 void DBProcess::ExpressInputItem( boost::any& argv )
@@ -1348,7 +1428,31 @@ void DBProcess::ExpressDelete( boost::any& argv )
 	expressIndex_t& expressIndex = boost::tuples::get<3>(data);
 	bool send_flag = boost::tuples::get<4>(data);
 
-	LOG_INFO("EXPRESS SYSTEM DELETE. char_index : %d, expressIndex : %d, send_flag : %d", char_index, expressIndex, (int)send_flag);
+	std::string select_qry = express_select_string;
+	select_qry += boost::str(boost::format("WHERE a_char_index=%1% and a_index=%2%")
+		% char_index % expressIndex);
+	BOOST_MYSQL_RES res = char_db_.select(select_qry);
+	if (res == NULL)
+		return;
+
+	int count = char_db_.getrowcount();
+
+	if(count != 1)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ResponseClient::makeExpressTake(rmsg, ResponseClient::ERR_NO_TAKE_ITEM);
+		SendMessageToClient(seq_index, user_index, rmsg);
+
+		LOG_ERROR("EXPRESS SYSTEM TAKE. NOT EXIST ITEM(row) index : %d, charIndex : %d", user_index, char_index);
+		return;
+	}
+
+	MYSQL_ROW row = mysql_fetch_row(res.get());
+	int item_index = atoi(row[char_db_.findfield("a_item_index")]);
+	int item_count = atoi(row[char_db_.findfield("a_item_count")]);
+	GoldType_t nas = atoi(row[char_db_.findfield("a_nas")]);
+
+	LOG_INFO("EXPRESS SYSTEM DELETE. char_index : %d, item_index : %d, item_count : %d, nas : %lld", char_index, item_index, item_count, nas);
 
 	std::string qry = boost::str(boost::format(
 									 "DELETE FROM t_express_system WHERE a_index=%1% AND a_char_index=%2% LIMIT 1") % expressIndex % char_index);
@@ -1359,12 +1463,92 @@ void DBProcess::ExpressDelete( boost::any& argv )
 		CNetMsg::SP rmsg(new CNetMsg);
 		if (qbool)
 		{
-			LOG_INFO("EXPRESS ITEM DELETE SUCCESS. expressIndex : %d, charIndex : %d", expressIndex, char_index);
+			LOG_INFO("EXPRESS ITEM DELETE SUCCESS. char_index : %d, item_index : %d, item_count : %d, nas : %d", char_index, item_index, item_count, nas);
 			ResponseClient::makeExpressDelete(rmsg, ResponseClient::ERR_NO_ERROR);
 		}
 		else
 		{
-			LOG_ERROR("EXPRESS ITEM DELETE FAIL. expressIndex : %d, charIndex : %d", expressIndex, char_index);
+			LOG_ERROR("EXPRESS ITEM DELETE FAIL. char_index : %d, item_index : %d, item_count : %d, nas : %d", char_index, item_index, item_count, nas);
+			ResponseClient::makeExpressDelete(rmsg, ResponseClient::ERR_DB_ERROR);
+		}
+		this->SendMessageToClient(seq_index, user_index, rmsg);
+	}
+}
+
+void DBProcess::ExpressDeleteAll( boost::any& argv )
+{
+	expressdeleteall_t data = boost::any_cast<expressdeleteall_t>(argv);
+	LONGLONG seq_index = boost::tuples::get<0>(data);
+	int user_index = boost::tuples::get<1>(data);
+	int char_index = boost::tuples::get<2>(data);
+	int pageIndex = boost::tuples::get<3>(data);
+	bool send_flag = boost::tuples::get<4>(data);
+
+	int startIndex = pageIndex * EXPRESS_SYSTEM_COUNT_PER_PAGE;
+	int endIndex = EXPRESS_SYSTEM_COUNT_PER_PAGE;
+
+	std::string qry = express_select_string;
+	qry += boost::str(boost::format("WHERE a_char_index=%1% AND now() < a_expire_date LIMIT %2%, %3%")
+		% char_index % startIndex % endIndex);
+	BOOST_MYSQL_RES res = char_db_.select(qry);
+	if (res == NULL)
+		return;
+
+	int count = char_db_.getrowcount();
+
+	if(count == 0)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ResponseClient::makeExpressTake(rmsg, ResponseClient::ERR_NO_TAKE_ITEM);
+		SendMessageToClient(seq_index, user_index, rmsg);
+
+		LOG_ERROR("EXPRESS SYSTEM TAKE. NOT EXIST ITEM(row) index : %d, charIndex : %d", user_index, char_index);
+		return;
+	}
+
+	qry = boost::str(boost::format("DELETE from t_express_system where a_char_index = %d and a_index in (")	% char_index );
+	std::string index_str;
+	int index = 0;
+
+	int item_index;
+	std::string item_index_str;
+	int item_count;
+	std::string item_count_str;
+	GoldType_t nas;
+	std::string nas_str;
+
+	for(int i = 0 ; i < count; i++)
+	{
+		MYSQL_ROW row = mysql_fetch_row(res.get());
+		index = atoi(row[char_db_.findfield("a_index")]);
+		index_str += boost::str(boost::format("%d, ") % index);
+
+		//lod data
+		item_index = atoi(row[char_db_.findfield("a_item_index")]);
+		item_count = atoi(row[char_db_.findfield("a_item_count")]);
+		nas = ATOLL(row[char_db_.findfield("a_nas")]);
+
+		item_index_str += boost::str(boost::format("%d, ") % item_index);
+		item_count_str += boost::str(boost::format("%d, ") % item_count);
+		nas_str += boost::str(boost::format("%d, ") % nas);
+	}
+	int pos = index_str.rfind(",");
+	index_str.erase(pos);
+	qry = qry + index_str + ")";
+
+	bool qbool = char_db_.excute(qry);
+
+	if(send_flag == true)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		if (qbool)
+		{
+			LOG_INFO("EXPRESS ITEM DELETE SUCCESS. item_index(%s), item_count(%s), nas(%s) charIndex : %d", item_index_str.c_str(), item_count_str.c_str(), nas_str.c_str(), char_index);
+			ResponseClient::makeExpressDelete(rmsg, ResponseClient::ERR_NO_ERROR);
+		}
+		else
+		{
+			LOG_ERROR("EXPRESS ITEM DELETE FAIL. item_index(%s), item_count(%s), nas(%s) charIndex : %d", item_index_str.c_str(), item_count_str.c_str(), nas_str.c_str(), char_index);
 			ResponseClient::makeExpressDelete(rmsg, ResponseClient::ERR_DB_ERROR);
 		}
 		this->SendMessageToClient(seq_index, user_index, rmsg);

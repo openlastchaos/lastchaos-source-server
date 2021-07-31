@@ -55,6 +55,7 @@ public:
 	bool CheckTitleTime(int CurrentTitle);
 	bool HaveTitle(int index);
 	CTitle* Find(int index);
+	CTitle* FindCustomTitle(int custom_title_index);
 	CTitleNode* m_head;
 	int m_nCount;
 	bool Remove(CTitle* title);

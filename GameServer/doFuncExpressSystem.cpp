@@ -13,7 +13,9 @@
 //////////////////////////////////////////////////////////////////////////
 void process_expressList(CPC* ch, CNetMsg::SP& msg);
 void process_expressTake(CPC* ch, CNetMsg::SP& msg);
+void process_expressTake_all(CPC* ch, CNetMsg::SP& msg);
 void process_expressDelete(CPC* ch, CNetMsg::SP& msg);
+void process_expressDelete_all(CPC* ch, CNetMsg::SP& msg);
 void process_unsearchable_stonestatue_searchName(CPC* ch, CNetMsg::SP& msg);
 void process_use_unsearchable_stonestatue(CPC* ch, CNetMsg::SP& msg);
 ExpressSystemItemInfo* makeExpressSystemItemInfo(CItem* pItem, int itemCount, int sendType, const char* sendName);
@@ -33,8 +35,16 @@ void do_ExpressSystem(CPC* ch, CNetMsg::SP& msg)
 		process_expressTake(ch, msg);
 		break;
 
+	case MSG_SUB_EXPRESS_TAKE_ALL:
+		process_expressTake_all(ch, msg);
+		break;
+
 	case MSG_SUB_EXPRESS_DELETE:
 		process_expressDelete(ch, msg);
+		break;
+
+	case MSG_SUB_EXPRESS_DELETE_ALL:
+		process_expressDelete_all(ch, msg);
 		break;
 
 	case MSG_SUB_EXPRESS_SEARCH_NICKNAME:
@@ -70,6 +80,14 @@ void process_expressList(CPC* ch, CNetMsg::SP& msg)
 		}
 	}
 
+	if(ch->use_express_flag == true)
+	{
+		//hacking
+		LOG_ERROR("HACKING?. express_system already use. char_index[%d]", ch->m_index);
+		ch->m_desc->Close("express_system already use");
+		return;
+	}
+
 	DBManager::instance()->PushExpressList(ch->m_desc, packet->pageIndex);
 }
 
@@ -93,7 +111,43 @@ void process_expressTake(CPC* ch, CNetMsg::SP& msg)
 		}
 	}
 
+	if(ch->use_express_flag == true)
+	{
+		//hacking
+		LOG_ERROR("HACKING?. express_system already use. char_index[%d]", ch->m_index);
+		ch->m_desc->Close("express_system already use");
+		return;
+	}
+
 	DBManager::instance()->PushExpressTake(ch->m_desc, packet->index);
+}
+
+void process_expressTake_all(CPC* ch, CNetMsg::SP& msg)
+{
+	RequestClient::expressTake_all* packet = reinterpret_cast<RequestClient::expressTake_all*>(msg->m_buf);
+
+	// 원격 창고 기간제 아이템체크, 없으면 NCP 체크
+	if (ch->m_TimerItem.isRemoteExpressSystem() == false)
+	{
+		CNPC* pNpc = ch->m_pArea->FindProtoNPCInCell(ch, packet->npcIndex, false, 2);
+		if (pNpc == NULL)
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			ResponseClient::makeExpressDelete(rmsg, ResponseClient::ERR_NOT_FOUND_NPC);
+			SEND_Q(rmsg, ch->m_desc);
+			return;
+		}
+	}
+
+	if(ch->use_express_flag == true)
+	{
+		//hacking
+		LOG_ERROR("HACKING?. express_system already use. char_index[%d]", ch->m_index);
+		ch->m_desc->Close("express_system already use");
+		return;
+	}
+
+	DBManager::instance()->PushExpressTakeAll(ch->m_desc, packet->pageIndex);
 }
 
 void process_expressDelete(CPC* ch, CNetMsg::SP& msg)
@@ -113,7 +167,43 @@ void process_expressDelete(CPC* ch, CNetMsg::SP& msg)
 		}
 	}
 
+	if(ch->use_express_flag == true)
+	{
+		//hacking
+		LOG_ERROR("HACKING?. express_system already use. char_index[%d]", ch->m_index);
+		ch->m_desc->Close("express_system already use");
+		return;
+	}
+
 	DBManager::instance()->PushExpressDelete(ch->m_desc, packet->index, true);
+}
+
+void process_expressDelete_all(CPC* ch, CNetMsg::SP& msg)
+{
+	RequestClient::expressDelete_all* packet = reinterpret_cast<RequestClient::expressDelete_all*>(msg->m_buf);
+
+	// 원격 창고 기간제 아이템체크, 없으면 NCP 체크
+	if (ch->m_TimerItem.isRemoteExpressSystem() == false)
+	{
+		CNPC* pNpc = ch->m_pArea->FindProtoNPCInCell(ch, packet->npcIndex, false, 2);
+		if (pNpc == NULL)
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			ResponseClient::makeExpressDelete(rmsg, ResponseClient::ERR_NOT_FOUND_NPC);
+			SEND_Q(rmsg, ch->m_desc);
+			return;
+		}
+	}
+
+	if(ch->use_express_flag == true)
+	{
+		//hacking
+		LOG_ERROR("HACKING?. express_system already use. char_index[%d]", ch->m_index);
+		ch->m_desc->Close("express_system already use");
+		return;
+	}
+
+	DBManager::instance()->PushExpressDeleteAll(ch->m_desc, packet->pageIndex, true);
 }
 
 //////////////////////////////////////////////////////////////////////////

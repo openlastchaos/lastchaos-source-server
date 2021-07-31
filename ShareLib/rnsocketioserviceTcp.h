@@ -124,6 +124,8 @@ public:
 		return is_call_close_function_;
 	}
 
+	int								get_rqueue_size()	{ return read_queue_.size(); }
+
 protected:
 	virtual void							_getIp();
 
@@ -133,15 +135,13 @@ protected:
 	}
 
 	void							Init();
-	void							SetReadWaitTimer();
-	void							SetWriteWaitTimer();
 
 	void							HandleAsyncConnect( const boost::system::error_code& error, boost::asio::ip::tcp::resolver::iterator endpoint_iterator );
 	void							HandleReadHeader(const boost::system::error_code& error);
 	void							HandleReadBody(const boost::system::error_code& error);
 	void							HandleWrite(const boost::system::error_code& error, std::size_t bytes_transferred);
-	void							ReadWaitTimerClose(const boost::system::error_code& error);
-	void							WriteWaitTimerClose(const boost::system::error_code& error);
+	void							ReadWaitTimerClose();
+	void							WriteWaitTimerClose();
 	void							__close();
 	void							__deliver(CNetMsg::SP packet);
 	void							__deliver_for_cbpacket(CBPacket::SP packet);

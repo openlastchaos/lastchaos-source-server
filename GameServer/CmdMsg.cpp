@@ -567,7 +567,8 @@ void StatusMsg(CNetMsg::SP& msg, CPC* ch)
 	else
 		meleetype = MSG_DAMAGE_MELEE;
 
-	magic = ch->m_int * 10 / 15 + ch->m_eqMagic + ch->m_opMagic;
+	//magic = ch->m_int * 10 / 15 + ch->m_eqMagic + ch->m_opMagic;
+	magic = ch->m_eqMagic + ch->m_opMagic;
 
 	defense = ch->m_eqDefense + ch->m_opDMelee + ch->m_opDRange;
 	resist = ch->m_eqResist + ch->m_opResist;
@@ -702,6 +703,8 @@ void StatusMsg(CNetMsg::SP& msg, CPC* ch)
 			attack += ch->m_dex * 10 / 15;
 		else
 			attack += ch->m_str * 10 / 15;
+
+		magic += ch->m_int * 10 / 15;
 	}
 
 	// 강신 적용 : 물리방어
@@ -971,7 +974,7 @@ void AtMsg(CNetMsg::SP& msg, CPC* ch)
 	packet->r = GET_R(ch);
 	packet->yLayer = GET_YLAYER(ch);
 	packet->userIndex = ch->m_desc->m_index;
-	packet->guildoutdate = ch->m_guildoutdate;
+	packet->guildindate = ch->m_guild_in_date;
 	packet->plusEffect = ch->m_plusEffect;
 	packet->mapAttr = ch->GetMapAttr();
 
@@ -979,9 +982,7 @@ void AtMsg(CNetMsg::SP& msg, CPC* ch)
 	packet->key = (ch->m_index + ch->m_secretkey) << 1;
 	packet->currentTitle = ch->m_nCurrentTitle;
 
-#ifdef NO_CHATTING
 	packet->chatingFlag = ch->m_nflag;
-#endif
 
 #ifdef ENABLE_SUBJOB
 	packet->jobSub = ch->m_jobSub;
@@ -3103,6 +3104,7 @@ void ConnCashItemPurchaselistReq(CNetMsg::SP& msg, int userindex, int charindex)
 				<< userindex
 				<< charindex;
 }
+
 void ConnCashItemBringReq(CNetMsg::SP& msg, bool bPresent, int userindex, int charindex, int count, int idx[], int ctid[])
 {
 	msg->Init(MSG_CONN_REQ);
@@ -3902,6 +3904,18 @@ void GuildRegistCancelMsg(CNetMsg::SP& msg, bool bTarget)
 				<< (char)target;
 }
 
+void GuildContributeDataMsg(CNetMsg::SP& msg, CPC* pc)
+{
+	msg->Init(MSG_GUILD);
+	RefMsg(msg) << (unsigned char)MSG_GUILD_CONTRIBUTE_DATA
+		<< pc->m_guildInfo->GetcontributeExp()
+		<< pc->m_guildInfo->GetcontributeFame()
+		<< pc->m_guildInfo->GetcontributeExp_min()
+		<< pc->m_guildInfo->GetcontributeExp_max()
+		<< pc->m_guildInfo->GetcontributeFame_min()
+		<< pc->m_guildInfo->GetcontributeFame_max();
+}
+
 void HelperGuildMemberAddReqMsg(CNetMsg::SP& msg, int guildindex, int targetindex, int requester, const char* name)
 {
 	msg->Init(MSG_HELPER_COMMAND);
@@ -3938,13 +3952,14 @@ void GuildMemberOutMsg(CNetMsg::SP& msg, int guildindex, int charindex, const ch
 				<< name;
 }
 
-void HelperGuildKickReqMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex)
+void HelperGuildKickReqMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex, int guild_out_date)
 {
 	msg->Init(MSG_HELPER_COMMAND);
 	RefMsg(msg) << MSG_HELPER_GUILD_MEMBER_KICK_REQ
 				<< guildindex
 				<< bossindex
-				<< charindex;
+				<< charindex
+				<< guild_out_date;
 }
 
 void GuildMemberKickMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex, const char* name)
@@ -4035,25 +4050,36 @@ void HelperGuildFireOfficerReqMsg(CNetMsg::SP& msg, int guildindex, int bossinde
 				<< charindex;
 }
 
-void HelperGuildBattleReqMsg(CNetMsg::SP& msg, int guildindex1, int guildindex2, int prize, int zone, int time)
+void HelperGuildBattleReqMsg(CNetMsg::SP& msg, int guildindex1, int guildindex2, int prize_nas, int prize_gp, int zone, int time)
 {
 	msg->Init(MSG_HELPER_COMMAND);
 
 	RefMsg(msg) << MSG_HELPER_GUILD_BATTLE_REQ
 				<< guildindex1
 				<< guildindex2
-				<< prize
+				<< prize_nas
+				<< prize_gp
 				<< zone
 				<< time;
 }
 
-void HelperGuildBattleStopReqMsg(CNetMsg::SP& msg, int guildindex1, int guildindex2)
+void HelperGuildBattleStopReqMsg(CNetMsg::SP& msg, int guildindex1, int guildindex2, int isAccept)
 {
 	msg->Init(MSG_HELPER_COMMAND);
 
 	RefMsg(msg) << MSG_HELPER_GUILD_BATTLE_STOP_REQ
 				<< guildindex1
-				<< guildindex2;
+				<< guildindex2
+				<< isAccept;
+}
+
+void HelperGuildBattleGiveUpReqMsg(CNetMsg::SP& msg, int giveup_guild_index, int win_guild_index)
+{
+	msg->Init(MSG_HELPER_COMMAND);
+
+	RefMsg(msg) << MSG_HELPER_GUILD_BATTLE_GIVE_UP
+			<< giveup_guild_index
+			<< win_guild_index;
 }
 
 void HelperGuildBattlePeaceReqMsg(CNetMsg::SP& msg, CGuild* g)
@@ -4072,6 +4098,31 @@ void HelperGuildBattleKillReqMsg(CNetMsg::SP& msg, int of_guildindex, int df_gui
 				<< of_guildindex
 				<< df_guildindex;
 }
+
+void HelperGuildContributeSet(CNetMsg::SP& rmsg, int char_index, int guild_index, int exp, int fame)
+{
+	rmsg->Init(MSG_HELPER_COMMAND);
+	RefMsg(rmsg) << MSG_HELPER_GUILD_CONTRIBUTE_SET
+		<< char_index
+		<< guild_index
+		<< exp
+		<< fame;
+}
+
+void HelperGuildContributeSetAll(CNetMsg::SP& rmsg, int char_index, int guild_index, int exp, int exp_min, int exp_max, int fame, int fame_min, int fame_max)
+{
+	rmsg->Init(MSG_HELPER_COMMAND);
+	RefMsg(rmsg) << MSG_HELPER_GUILD_CONTRIBUTE_SET_ALL
+		<< char_index
+		<< guild_index
+		<< exp
+		<< fame
+		<< exp_min
+		<< exp_max
+		<< fame_min
+		<< fame_max;
+}
+
 //0503 kwon
 void HelperEventMoonStoneUpdateReqMsg(CNetMsg::SP& msg)
 {
@@ -4151,6 +4202,12 @@ void GuildBattleEndMsg(CNetMsg::SP& msg, int winner_guildindex, int guildindex1,
 				<< guildindex2
 				<< name2
 				<< prize;
+}
+
+void GuildBattleCoreInitMsg(CNetMsg::SP& msg)
+{
+	msg->Init(MSG_GUILD);
+	RefMsg(msg) << (unsigned char) MSG_GUILD_BATTLE_SCORE_INIT;
 }
 
 void GuildBattleStatusMsg(CNetMsg::SP& msg, int guildindex1, const char* name1, int killcount1, int guildindex2, const char* name2, int killcount2, int battletime, int battleZone)
@@ -4616,7 +4673,7 @@ void CashItemGiftHistoryRepMsg(CNetMsg::SP& msg, bool bSend, MSG_EX_CASHITEM_ERR
 	RefMsg(msg) << (unsigned char) errCode;
 }
 
-void CashItemGiftRecvListRepMsg(CNetMsg::SP& msg, unsigned char listflag, CNetMsg::SP& recvMsg)
+void CashItemGiftRecvListRepMsg(CNetMsg::SP& msg, unsigned char listflag, std::vector<std::pair<int,int> >& vec, CNetMsg::SP& recvMsg)
 {
 	int idx, ctid, count, i;
 	long sendDate;
@@ -4629,6 +4686,8 @@ void CashItemGiftRecvListRepMsg(CNetMsg::SP& msg, unsigned char listflag, CNetMs
 
 	if( listflag & ( 1 << 2 ) )
 	{
+		vec.clear();
+
 		listflag = listflag &~ (1 << 2);
 		listflag |= (1 << 0);
 		RefMsg(msg) << listflag;
@@ -4637,6 +4696,11 @@ void CashItemGiftRecvListRepMsg(CNetMsg::SP& msg, unsigned char listflag, CNetMs
 	}
 	else
 	{
+		if (listflag & 0x01)
+		{
+			vec.clear();
+		}
+
 		RefMsg(msg) << listflag;
 		RefMsg(recvMsg) >> count;
 		RefMsg(msg) << count;
@@ -4648,6 +4712,8 @@ void CashItemGiftRecvListRepMsg(CNetMsg::SP& msg, unsigned char listflag, CNetMs
 							>> sendDate
 							>> sendName
 							>> strMsg;
+
+			vec.push_back(std::pair<int, int>(idx, ctid));
 
 			RefMsg(msg) << idx
 						<< ctid
@@ -7176,7 +7242,7 @@ void GuildPointInfo(CNetMsg::SP& msg, int guildpoint)
 				<< guildpoint;
 }
 
-void GuildMemberListRep( CNetMsg::SP& msg, int membercount, int* membercharindex, int* cumulatePoint,  const char CharName[][MAX_CHAR_NAME_LENGTH  + 1], const char PositionName[][GUILD_POSITION_NAME+1],  char* job, char* job2, int* level, int* position, CGuild* guild )
+void GuildMemberListRep( CNetMsg::SP& msg, int membercount, int* membercharindex, int* cumulatePoint,  const char CharName[][MAX_CHAR_NAME_LENGTH  + 1], const char PositionName[][GUILD_POSITION_NAME+1],  char* job, char* job2, int* level, int* position, CGuild* guild, int* logout_date )
 {
 	msg->Init( MSG_GUILD );
 	RefMsg(msg) << (unsigned char)MSG_NEW_GUILD_MEMBERLIST
@@ -7203,7 +7269,8 @@ void GuildMemberListRep( CNetMsg::SP& msg, int membercount, int* membercharindex
 			RefMsg(msg) << cumulatePoint[i];
 			RefMsg(msg) << job[i]
 						<< job2[i]
-						<< guildmember->pos();
+						<< guildmember->pos()
+						<< logout_date[i];
 		}
 	}
 
@@ -7218,11 +7285,8 @@ void GuildMemberListRep( CNetMsg::SP& msg, int membercount, int* membercharindex
 	}
 }
 
-#ifdef DEV_GUILD_STASH
-void GuildNewManageRep( CNetMsg::SP& msg, int membercount, int* membercharindex, int* contributeExp, int* contributeFame, const char CharName[][MAX_CHAR_NAME_LENGTH  + 1], const char PositionName[][GUILD_POSITION_NAME+1], int* level, int* position, char* stashAuth, CGuild* guild, char first )
-#else
-void GuildNewManageRep( CNetMsg::SP& msg, int membercount, int* membercharindex, int* contributeExp, int* contributeFame, const char CharName[][MAX_CHAR_NAME_LENGTH  + 1], const char PositionName[][GUILD_POSITION_NAME+1], int* level, int* position, CGuild* guild, char first )
-#endif // DEV_GUILD_STASH
+void GuildNewManageRep( CNetMsg::SP& msg, int membercount, int* membercharindex, int* contributeExp, int* contributeFame,
+	int* contributeExp_min, int* contributeExp_max, int* contributeFame_min, int* contributeFame_max, const char CharName[][MAX_CHAR_NAME_LENGTH  + 1], const char PositionName[][GUILD_POSITION_NAME+1], int* level, int* position, char* stashAuth, CGuild* guild, char first )
 {
 	msg->Init( MSG_GUILD );
 	RefMsg(msg) << (unsigned char)MSG_NEW_GUILD_MANAGE
@@ -7239,12 +7303,14 @@ void GuildNewManageRep( CNetMsg::SP& msg, int membercount, int* membercharindex,
 							<< guildmember->GetName()
 							<< guildmember->GetPositionName()
 							<< guildmember->GetPC()->m_level
+							<< contributeExp_min[i]
+							<< contributeExp_max[i]
+							<< contributeFame_min[i]
+							<< contributeFame_max[i]
 							<< contributeExp[i]
 							<< contributeFame[i]
 							<< guildmember->charindex();
-#ifdef DEV_GUILD_STASH
 				RefMsg(msg) << stashAuth[i];			//TODO:: 주의
-#endif //DEV_GUILD_STASH
 			}
 			else
 			{
@@ -7252,12 +7318,14 @@ void GuildNewManageRep( CNetMsg::SP& msg, int membercount, int* membercharindex,
 							<< CharName[i]
 							<< PositionName[i]
 							<< level[i]
+							<< contributeExp_min[i]
+							<< contributeExp_max[i]
+							<< contributeFame_min[i]
+							<< contributeFame_max[i]
 							<< contributeExp[i]
 							<< contributeFame[i]
 							<< membercharindex[i];
-#ifdef DEV_GUILD_STASH
 				RefMsg(msg) << stashAuth[i];
-#endif //DEV_GUILD_STASH
 			}
 		}
 	}
@@ -7347,7 +7415,7 @@ void HelperGuildInclineEstablishReqMsg( CNetMsg::SP& msg, CPC* ch, char guildinc
 				<< guildincline;
 }
 
-void HelperGuildMemberAdjust( CNetMsg::SP& msg, CPC* ch, int charindex, const char* strPositionName, int contributeExp, int contributFame, int pos )
+void HelperGuildMemberAdjust( CNetMsg::SP& msg, CPC* ch, int charindex, const char* strPositionName, int contributeExp_min, int contributeExp_max, int contributeFame_min, int contributeFame_max, int pos )
 {
 	msg->Init( MSG_HELPER_COMMAND );
 	RefMsg(msg) << MSG_HELPER_GUILD_MEMBER_ADJUST_REQ
@@ -7355,8 +7423,10 @@ void HelperGuildMemberAdjust( CNetMsg::SP& msg, CPC* ch, int charindex, const ch
 				<< ch->m_index
 				<< charindex
 				<< strPositionName
-				<< contributeExp
-				<< contributFame;
+				<< contributeExp_min
+				<< contributeExp_max
+				<< contributeFame_min
+				<< contributeFame_max;
 	RefMsg(msg) << pos;
 }
 
@@ -9149,27 +9219,30 @@ void SubHelperTitleSystemCheckTimeReq(CNetMsg::SP& msg, int char_index, CTitleNo
 	{
 		if((head->m_title->m_endtime < gserver->getNowSecond()) && (head->m_title->m_endtime != -1))
 		{
-			RefMsg(msg) << head->m_title->m_proto->m_index;
+			RefMsg(msg) << head->m_title->m_proto->m_index
+				<< head->m_title->m_custom_title_index;
 		}
 		head = head->m_next;
 	}
 }
 
-void SubHelperTitleSystemDeleteReq(CNetMsg::SP& msg, int char_index, int title_index)
+void SubHelperTitleSystemDeleteReq(CNetMsg::SP& msg, int char_index, int title_index, int custom_title_index)
 {
 	// 사용자 수동삭제
 	msg->Init(MSG_SUBHELPER_COMMAND);
 	RefMsg(msg) << MSG_SUBHELPER_TITLE_SYSTEM_TITLE_DELETE_REQ
 				<< char_index
-				<< title_index;
+				<< title_index
+				<< custom_title_index;
 }
-void SubHelperTitleSystemTitleDelReq(CNetMsg::SP& msg, int char_index, int title_index)
+void SubHelperTitleSystemTitleDelReq(CNetMsg::SP& msg, int char_index, int title_index, int custom_title_index)
 {
 	// 기간만료로 인한 자동삭제
 	msg->Init(MSG_SUBHELPER_COMMAND);
 	RefMsg(msg) << MSG_SUBHELPER_TITLE_SYSTEM_TITLE_AUTO_DELETE
 				<< char_index
-				<< title_index;
+				<< title_index
+				<< custom_title_index;
 }
 
 void TakeAgainQuestItemMsg(CNetMsg::SP& msg, MSG_EX_TAKE_AGAIN_QUEST_ITEM_TYPE type)

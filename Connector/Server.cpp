@@ -196,14 +196,6 @@ void CServer::CommandInterpreter(CDescriptor* d, CNetMsg::SP& msg)
 				ConnLogout(d, msg);
 				break;
 
-			case MSG_CONN_BLOGIN_REQ:
-				ConnBLogin(d, msg);
-				break;
-
-			case MSG_CONN_BLOGOUT_REQ:
-				ConnBLogout(d, msg);
-				break;
-
 			case MSG_CONN_PLAYER_REQ:
 				ConnPlayerReq(d, msg);
 				break;
@@ -287,7 +279,7 @@ void CServer::ProcessLogout(CUser* user)
 			<< end;
 
 	// 존별 사용자 수 감소
-	m_userList[subno - 1].m_playersPerZone[user->m_zone]--;
+	m_user_list->decreasePlayerZoneCount(user->m_subnum, user->m_zone);
 
 	// 빌링에 로그아웃 알리기
 	if (m_billing.IsRunning())
@@ -345,7 +337,7 @@ void CServer::ProcessLogout(CUser* user)
 #endif // LOGIN_TIME_CHECK
 
 	// 유저를 리스트에서 삭제
-	m_userList[subno - 1].Remove(user);
+	m_user_list->delete_(user);
 }
 
 void ServerSrandom(unsigned long initial_seed);
@@ -357,6 +349,8 @@ CServer::~CServer()
 
 	if (m_nEventGomdori2007Status)
 		delete [] m_nEventGomdori2007Status;
+
+	delete m_user_list;
 }
 
 char* CServer::GetServerPath()
@@ -512,8 +506,6 @@ bool CServer::ConnectDB()
 
 bool CServer::InitGame()
 {
-	m_userList = new CUserList[m_maxSubServer];
-
 	ServerSrandom((unsigned long)time(0));
 	InitUserData();
 
@@ -556,6 +548,8 @@ bool CServer::InitGame()
 	}
 
 	GAMELOG << init("SYSTEM") << "Entering Connector Loop" << end;
+
+	m_user_list = new UserList(this->m_maxSubServer);
 
 	return true;
 }
@@ -675,20 +669,7 @@ void CServer::CloseSocket(CDescriptor* d)
 	// 사용자 루프 돌면서
 	if (!d->m_bLoginServer && d->m_subno > 0)
 	{
-		int i;
-		for (i = 0; i <= m_userList[d->m_subno - 1].m_last; i++)
-		{
-			// 현재 접속 종료된 서버의 사용자이면
-			if (m_userList[d->m_subno - 1].m_users[i] && m_userList[d->m_subno - 1].m_users[i]->m_descserver == d)
-			{
-				// 로그아웃 처리
-				CNetMsg::SP rmsg(new CNetMsg);
-				rmsg->Init(MSG_CONN_REQ);
-				RefMsg(rmsg) << (unsigned char)MSG_CONN_LOGOUT_REQ
-							 << m_userList[d->m_subno - 1].m_users[i]->m_name;
-				ConnLogout(d, rmsg);
-			}
-		}
+		m_user_list->logout_all(d);
 	}
 
 	REMOVE_FROM_BILIST(d, m_desclist, m_pPrev, m_pNext);
@@ -745,8 +726,8 @@ void CServer::SavePlayersCount()
 
 		for (i = 0; i < MAX_ZONES; i++)
 		{
-			if (m_userList[s].m_playersPerZone[i] < 0)
-				continue ;
+			if(m_user_list->getPlayerZoneCount(s + 1, i) < 0)
+				continue;
 
 			// t_connect_count 갱신: 10분
 			if (m_pulseSaveCount <= now)
@@ -754,11 +735,11 @@ void CServer::SavePlayersCount()
 				// INSERT INTO t_connect_count (a_count, a_date, a_server, a_sub_num, a_zone_num) VALUES (count, date, server, subno, zoneno)
 				std::string insertSql = boost::str(boost::format(
 													   "INSERT INTO t_connect_count (a_count, a_date, a_server, a_sub_num, a_zone_num) VALUES "
-													   "(%d, FROM_UNIXTIME(%d), %d, %d, %d)") % m_userList[s].m_playersPerZone[i] % (int) m_pulseSaveCount % m_serverno % (s + 1) % i);
+													   "(%d, FROM_UNIXTIME(%d), %d, %d, %d)") % m_user_list->getPlayerZoneCount(s + 1, i) % (int) m_pulseSaveCount % m_serverno % (s + 1) % i);
 				cmd.SetQuery(insertSql);
 				cmd.Update();
 
-				GAMELOG << init("COUNT") << "Sub" << delim << (s + 1) << delim << "Zone" << delim << i << delim << m_userList[s].m_playersPerZone[i] << end;
+				GAMELOG << init("COUNT") << "Sub" << delim << (s + 1) << delim << "Zone" << delim << i << delim << m_user_list->getPlayerZoneCount(s + 1, i) << end;
 			}
 
 			// t_connect_max 갱신: 2분
@@ -781,13 +762,13 @@ void CServer::SavePlayersCount()
 						int countmax = 0;
 						cmd.GetRec("a_index", index);
 						cmd.GetRec("a_count_max", countmax);
-						if (countmax < m_userList[s].m_playersPerZone[i])
-							countmax = m_userList[s].m_playersPerZone[i];
+						if (countmax < m_user_list->getPlayerZoneCount(s + 1, i))
+							countmax = m_user_list->getPlayerZoneCount(s + 1, i);
 						// 업데이트
 						// UPDATE t_connect_max SET a_count=count, a_count_max=countmax WHERE a_index=index
 						std::string updateQuery = boost::str(boost::format(
 								"UPDATE t_connect_max SET a_count = %d, a_count_max = %d WHERE a_index = %d")
-															 % m_userList[s].m_playersPerZone[i] % countmax % index);
+															 % m_user_list->getPlayerZoneCount(s + 1, i) % countmax % index);
 
 						cmd.SetQuery(updateQuery);
 						cmd.Update();
@@ -798,7 +779,7 @@ void CServer::SavePlayersCount()
 						// INSERT INTO t_connect_max (a_count, a_count_max, a_date, a_server, a_sub_num, a_zone_num) VALUES (count, countmax, CURDATE(), server, subno, zone)
 						std::string insertQuery = boost::str(boost::format(
 								"INSERT INTO t_connect_max (a_count, a_count_max, a_date, a_server, a_sub_num, a_zone_num) VALUES (%d, %d, CURDATE(), %d, %d, %d) ")
-															 % m_userList[s].m_playersPerZone[i] % m_userList[s].m_playersPerZone[i] % m_serverno % (s + 1) % i);
+															 % m_user_list->getPlayerZoneCount(s + 1, i) % m_user_list->getPlayerZoneCount(s + 1, i) % m_serverno % (s + 1) % i);
 
 						cmd.SetQuery(insertQuery);
 						cmd.Update();

@@ -17,6 +17,7 @@ bool Compare(NoticeStr* a, NoticeStr* b);
 
 Notice::Notice()
 {
+	m_lastRev = 0;
 }
 
 Notice::~Notice()
@@ -146,10 +147,10 @@ void Notice::load()
 		dbcmd.GetRec("a_date", data->date);
 
 		_vec.push_back(data);
-	}
 
-	if(data != NULL)
-		m_lastRev = data->index;
+		if(m_lastRev < data->index)
+			m_lastRev = data->index;
+	}
 }
 
 Notice* Notice::instance()

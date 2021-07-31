@@ -9,6 +9,8 @@
 #include "User.h"
 #include "BillingClient.h"
 #include "WaitPlayerList.h"
+#include "UserList.h"
+
 
 /*
 typedef struct __tagLimitCtSell
@@ -138,7 +140,8 @@ public:
 
 	//////////////
 	// User 리스트
-	CUserList*	m_userList;			// 유저 리스트
+	UserList* m_user_list;
+	
 
 	virtual void operate(rnSocketIOService* service);
 

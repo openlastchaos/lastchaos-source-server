@@ -256,6 +256,11 @@ public:
 		return (m_listMember[0]) ? m_listMember[0]->GetCharIndex() : -1;
 	}
 
+	const char* GetBossName()
+	{
+		return (m_listMember[0]) ? m_listMember[0]->GetCharName() : "";
+	}
+
 	// 해당 캐릭터 인덱스를 갖는 파티원의 리스트 인덱스를 구한다
 	int FindMember(int nCharIndex);
 

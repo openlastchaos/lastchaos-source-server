@@ -97,10 +97,6 @@ bool do_ItemUse_LuckyDrawBoxResult_All(CPC* ch, const CItemProto* itemproto, Luc
 
 bool do_ItemUse_WorldFestivalBox(CPC* ch, CItem* pItem);
 
-//#if defined(EVENT_WORLDCUP_2010) || defined(EVENT_WORLDCUP_2010_TOTO) || defined(EVENT_WORLDCUP_2010_TOTO_STATUS) || defined(EVENT_WORLDCUP_2010_TOTO_GIFT) || defined(EVENT_WORLDCUP_2010_ATTENDANCE)
-bool do_ItemUse_WorldFestivalBox(CPC* ch, CItem* pItem);
-//#endif
-
 bool do_ItemUse_5329(CPC* ch, const CItemProto* itemproto, int nExtar1);
 
 void do_ItemUse_IETC_MonsterMercearyToggle(CPC* pPc, CItem* pItem);
@@ -117,6 +113,10 @@ void do_ItemDivide(CPC* ch, CNetMsg::SP& msg);
 void do_ItemExchange(CPC* ch, CNetMsg::SP& msg);
 
 void do_ItemCompose(CPC* ch, CNetMsg::SP& msg);
+
+void do_ItemUpgradePetReq(CPC* ch, CNetMsg::SP& msg);
+
+extern bool do_ItemUsePotion(CPC* ch, CItem* item, int extra1);
 
 typedef struct _GiftItemInfo
 {
@@ -298,6 +298,10 @@ void do_Item(CPC* ch, CNetMsg::SP& msg)
 
 	case MSG_ITEM_COMPOSE:
 		do_ItemCompose(ch, msg);
+		break;
+
+	case MSG_ITEM_UPGRADE_PET:
+		do_ItemUpgradePetReq(ch, msg);
 		break;
 
 	default:
@@ -1140,1137 +1144,26 @@ void do_ItemUse(CPC* ch, CNetMsg::SP& msg, bool bprolong)
 		break;
 
 	case ITYPE_POTION:
+		if( itemproto->getItemIndex() >= 2482 && itemproto->getItemIndex() <= 2487 )
 		{
-			switch( itemproto->getItemSubTypeIdx() )
+			if( do_useEventItem_HalloweenCandy( ch, item ) )
 			{
-			case IPOTION_NPC_PORTAL:
-				if( ch->m_pZone->m_index == itemproto->getItemNum0() ) // 현재 있는 존과 사용한 스크롤 존이 같으면 리스트를 보내준다.
-				{
-					CNetMsg::SP rmsg(new CNetMsg);
-					NpcPortalListMsg(rmsg, itemproto->getItemNum0());
-					SEND_Q(rmsg, ch->m_desc);
-				}
-				else
-				{
-					CNetMsg::SP rmsg(new CNetMsg);
-					NpcPortalListErrorMsg(rmsg, MSG_NPC_PORTAL_ERROR_LIST);
-					SEND_Q(rmsg, ch->m_desc);
-				}
-				return;
-				break;
-			}
-
-			// 눈물
-			if (itemproto->getItemSubTypeIdx() == IPOTION_TEARS)
-			{
-				switch (itemproto->getItemNum0())
-				{
-				// 구원의 눈물
-				case IPOTION_TEARS_TYPE_SAFE:
-
-					if (ch->m_pkPenalty < -15)
-					{
-						ch->m_pkPenalty++;
-						ch->m_bChangeStatus = true;
-					}
-					else
-						return;
-
-					break;
-
-				// 용서의 눈물
-				case IPOTION_TEARS_TYPE_FORGIVE:
-
-					if (ch->m_exp < 0)
-					{
-						LONGLONG plusexp = GetLevelupExp(ch->m_level) * 5 / 100;
-						ch->m_exp += plusexp;
-
-						if (ch->m_exp > 0)
-							ch->m_exp = 0;
-
-						ch->m_bChangeStatus = true;
-					}
-					else
-						return;
-
-					break;
-
-				default:
-					return;
-				}
+				goto SKIP_SKILL;
 			}
 			else
-			{
-				switch (itemproto->getItemIndex())
-				{
-				case 844:		// 경험치복구 주문서
-				case 845:		// 숙련도복구 주문서
-				case 2035:		// 럭키 경험치복구 주문서
-				case 2036:		// 럭키 숙련도복구 주문서
-					// 부활주문서의 이펙트 인덱스 / 각레벨
-					if( ch->m_assist.Find(184, 2) )
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						ResponseClient::ItemNotUseMsg(rmsg, MSG_ITEM_USE_ERROR_EXP_SP);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					else if( ch->m_assist.Find(185, 2) )
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						ResponseClient::ItemNotUseMsg(rmsg, MSG_ITEM_USE_ERROR_SP_EXP);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-				}
-
-				switch (itemproto->getItemIndex())
-				{
-				case 8165:											//신경 교란 장치(퀘스트 필요 아이템)
-					if(ch->m_questList.FindQuest(636, QUEST_STATE_RUN) == false)
-					{
-						return;
-					}
-
-				case 2855:											// 플래티늄 드랍 증폭제
-					// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
-					if (ch->m_assist.FindByItemIndex(836))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4939);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					if(ch->m_assist.FindByItemIndex(884)
-							|| ch->m_assist.FindByItemIndex(838)
-							|| ch->m_assist.FindByItemIndex(972)
-							|| ch->m_assist.FindByItemIndex(1629)
-							|| ch->m_assist.FindByItemIndex(2856)
-							|| ch->m_assist.FindByItemIndex(6096)
-							|| ch->m_assist.FindByItemIndex(5080) //강운의 스크롤
-							|| ch->m_assist.FindByItemIndex(5081) // 복운의 스크롤
-					  )
-						return;
-					break;
-
-				case 2856:											// 플래티늄 행운의 스크롤
-					if(ch->m_assist.FindByItemIndex(884)
-							|| ch->m_assist.FindByItemIndex(838)
-							|| ch->m_assist.FindByItemIndex(972)
-							|| ch->m_assist.FindByItemIndex(1629)
-							|| ch->m_assist.FindByItemIndex(2855)
-							|| ch->m_assist.FindByItemIndex(6096)
-							|| ch->m_assist.FindByItemIndex(5080) //강운의 스크롤
-							|| ch->m_assist.FindByItemIndex(5081) // 복운의 스크롤
-					  )
-						return;
-					break;
-
-#if defined (PLATINUM_SKILL_POTION_ITEM ) || defined (SKILL_POTION_ITEM)
-				case 2452:		// 숙련의 묘약
-					if (ch->m_assist.FindByItemIndex(2453) || ch->m_assist.FindByItemIndex(7611))
-					{
-						// 플래티늄 훈련 주문서와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2453);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-				case 2453:		// 플래티늄 숙련의 묘약
-				case 2659:		// 초보자용 플래티늄 숙련의 묘약
-				case 7611:		// [이벤트] 플래티늄 숙련의 묘약
-					if (ch->m_assist.FindByItemIndex(2452))
-					{
-						// 훈련 주문서와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2452);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-#endif // defined (PLATINUM_SKILL_POTION_ITEM ) || defined (SKILL_POTION_ITEM)
-
-				case 2582:
-					if (ch->m_assist.FindByItemIndex(2583))
-					{
-						// 훈련 주문서(M)와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2583);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if (ch->m_assist.FindByItemIndex(2139))
-					{
-						// 훈련 주문서와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2139);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if (ch->m_assist.FindByItemIndex(2140))
-					{
-						// 플래티늄 훈련 주문서와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2140);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					else if (ch->m_assist.FindByItemIndex(4937))
-					{
-						// 이벤트용 플래티늄 훈련 주문서 와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4937);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-				case 2583:
-					if (ch->m_assist.FindByItemIndex(2582))
-					{
-						// 훈련 주문서(L)와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2582);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if (ch->m_assist.FindByItemIndex(2139))
-					{
-						// 훈련 주문서와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2139);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if (ch->m_assist.FindByItemIndex(2140))
-					{
-						// 플래티늄 훈련 주문서와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2140);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					else if (ch->m_assist.FindByItemIndex(4937))
-					{
-						// 이벤트용 플래티늄 훈련 주문서 와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4937);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-
-				case 2139:		// 훈련 주문서
-					if (ch->m_assist.FindByItemIndex(2582))
-					{
-						// 훈련 주문서(L)와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2582);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if (ch->m_assist.FindByItemIndex(2583))
-					{
-						// 훈련 주문서(M)와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2583);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if (ch->m_assist.FindByItemIndex(2140))
-					{
-						// 플래티늄 훈련 주문서와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2140);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					else if (ch->m_assist.FindByItemIndex(4937))
-					{
-						// 이벤트용 플래티늄 훈련 주문서 와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4937);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-				case 2140:		// 플래티늄 훈련 주문서
-					if (ch->m_assist.FindByItemIndex(2582))
-					{
-						// 훈련 주문서(L)와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2582);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if (ch->m_assist.FindByItemIndex(2583))
-					{
-						// 훈련 주문서(M)와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2583);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if (ch->m_assist.FindByItemIndex(2139))
-					{
-						// 훈련 주문서와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2139);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					else if (ch->m_assist.FindByItemIndex(4937))
-					{
-						// 이벤트용 플래티늄 훈련 주문서 와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4937);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-				case 4937:		// (이벤트용) 플래티늄 훈련 주문서
-					if (ch->m_assist.FindByItemIndex(2582))
-					{
-						// 훈련 주문서(L)와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2582);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if (ch->m_assist.FindByItemIndex(2583))
-					{
-						// 훈련 주문서(M)와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2583);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if (ch->m_assist.FindByItemIndex(2139))
-					{
-						// 훈련 주문서와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2139);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					else if (ch->m_assist.FindByItemIndex(2140))
-					{
-						// 플래티늄 훈련 주문서와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2140);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-				case 836:		// 수박
-					// 경험치 증폭제는 수박과 불가
-					if (ch->m_assist.FindByItemIndex(882))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 882);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 유료 경험치 증폭제는 수박과 불가
-					if (ch->m_assist.FindByItemIndex(6094))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 6094);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
-					if (ch->m_assist.FindByItemIndex(836))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4939);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-
-				case 837:		// 참외
-					// SP 증폭제는 참외와 불가
-					if (ch->m_assist.FindByItemIndex(883))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 883);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 유료 SP 증폭제는 참외와 불가
-					if (ch->m_assist.FindByItemIndex(6095))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 6095);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
-					if (ch->m_assist.FindByItemIndex(836))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4939);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					// 달콤한 참외
-					if (ch->m_assist.FindByItemIndex(5082))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5082);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-
-				case 838:		// 자두
-					// 아이템 증폭제는 자두와 불가
-					if (ch->m_assist.FindByItemIndex(884))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 884);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					// 유료 아이템 증폭제는 자두와 불가
-					if (ch->m_assist.FindByItemIndex(6096))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 6096);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 플래티늄 드롭 증폭제와 불가
-					if (ch->m_assist.FindByItemIndex(2855))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2855);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 플래티늄 행운의 스크롤과 불가
-					if (ch->m_assist.FindByItemIndex(2856))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2856);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
-					if (ch->m_assist.FindByItemIndex(836))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4939);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					//강운의 스크롤
-					if (ch->m_assist.FindByItemIndex(5080))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5080);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					//복운의 스크롤
-					if (ch->m_assist.FindByItemIndex(5081))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5081);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-
-				case 882:		// 경험치
-				case 6094:
-					// 증폭제는 중복 복용 불가
-					if (ch->m_assist.FindByItemIndex(itemproto->getItemIndex()))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), itemproto->getItemIndex());
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					// 경험치 증폭제는 수박과 불가
-					if (ch->m_assist.FindByItemIndex(836))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 836);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					// 경험치 증폭제는 유료 경험치 증폭제와 불가
-					if (ch->m_assist.FindByItemIndex(6094))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 6094);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					// 유료 경험치 증폭제는 경험치 증폭제와 불가
-					if (ch->m_assist.FindByItemIndex(882))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 882);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-
-				case 883:		// SP
-				case 6095:
-					// 증폭제는 중복 복용 불가
-					if (ch->m_assist.FindByItemIndex(itemproto->getItemIndex()))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), itemproto->getItemIndex());
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					// SP 증폭제는 참외와 불가
-					if (ch->m_assist.FindByItemIndex(837))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 837);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					// SP 증폭제는 유료 SP 증폭제와 불가
-					if (ch->m_assist.FindByItemIndex(6095))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 6095);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					// 유료 SP 증폭제는 SP 증폭제와 불가
-					if (ch->m_assist.FindByItemIndex(883))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 883);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					// 달콤한 참외
-					if (ch->m_assist.FindByItemIndex(5082))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5082);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-
-				case 884:		// 아이템
-				case 6096:
-					// 증폭제는 중복 복용 불가
-					if (ch->m_assist.FindByItemIndex(itemproto->getItemIndex()))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), itemproto->getItemIndex());
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					if (ch->m_assist.FindByItemIndex(838))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 838);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 유료 증폭제와 중복 복용 불가
-					if (ch->m_assist.FindByItemIndex(884))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 884);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if (ch->m_assist.FindByItemIndex(6096))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 6096);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 플래티늄 드랍 증폭제와 불가
-					if (ch->m_assist.FindByItemIndex(2855))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2855);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 플래티늄 행운의 스크롤과 불가
-					if (ch->m_assist.FindByItemIndex(2856))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2856);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					//강운의 스크롤
-					if (ch->m_assist.FindByItemIndex(5080))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5080);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					//복운의 스크롤
-					if (ch->m_assist.FindByItemIndex(5081))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5081);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-
-				case 885:		// 나스
-					// 증폭제는 중복 복용 불가
-					if (ch->m_assist.FindByItemIndex(itemproto->getItemIndex()))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), itemproto->getItemIndex());
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-
-				case 972:
-				case 1629:
-					// 플래티늄 드랍 증폭제와 불가
-					if (ch->m_assist.FindByItemIndex(2855))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2855);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 플래티늄 행운의 스크롤과 불가
-					if (ch->m_assist.FindByItemIndex(2856))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2856);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-
-				case 4939:		// 랜덤 EXP&SP&드롭률 증폭제
-					{
-						// 증폭제는 중복 복용 불가
-						if (ch->m_assist.FindByItemIndex(itemproto->getItemIndex()))
-						{
-							CNetMsg::SP rmsg(new CNetMsg);
-							SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), itemproto->getItemIndex());
-							SEND_Q(rmsg, ch->m_desc);
-							return;
-						}
-						// 수박과 불가
-						if (ch->m_assist.FindByItemIndex(836))
-						{
-							CNetMsg::SP rmsg(new CNetMsg);
-							SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 836);
-							SEND_Q(rmsg, ch->m_desc);
-							return;
-						}
-						// 참외와 불가
-						if (ch->m_assist.FindByItemIndex(837))
-						{
-							CNetMsg::SP rmsg(new CNetMsg);
-							SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 837);
-							SEND_Q(rmsg, ch->m_desc);
-							return;
-						}
-
-						//자두와 불가
-						if (ch->m_assist.FindByItemIndex(838))
-						{
-							CNetMsg::SP rmsg(new CNetMsg);
-							SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 838);
-							SEND_Q(rmsg, ch->m_desc);
-							return;
-						}
-
-						// 플래티늄 드랍 증폭제와 불가
-						if (ch->m_assist.FindByItemIndex(2855))
-						{
-							CNetMsg::SP rmsg(new CNetMsg);
-							SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2855);
-							SEND_Q(rmsg, ch->m_desc);
-							return;
-						}
-
-						// 플래티늄 행운의 스크롤과 불가
-						if (ch->m_assist.FindByItemIndex(2856))
-						{
-							CNetMsg::SP rmsg(new CNetMsg);
-							SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2856);
-							SEND_Q(rmsg, ch->m_desc);
-							return;
-						}
-					}
-					break;
-
-				case 1288:		// 아이리스의 축복
-				case 1416:		// 플래티늄 아이리스의 축복
-				case 2658:		// 초보자용 플래티늄 아이리스의 축복
-				case 2032:		// 럭키 아이리스의 축복
-					if( ch->m_assist.FindBySkillIndex(348) )
-					{
-						if( !packet->extra_1 )
-						{
-							CNetMsg::SP rmsg(new CNetMsg);
-							ResponseClient::ItemNotUseMsg(rmsg, MSG_ITEM_USE_ERROR_EXPUP, packet->tab, packet->invenIndex, packet->virtualIndex);
-							SEND_Q(rmsg, ch->m_desc);
-							return;
-						}
-					}
-					break;
-
-				case 3218:
-					if( ch->m_assist.FindByItemIndex(3218) )
-					{
-						return;
-					}
-					break;
-
-				case 4912:
-					if( ch->m_assist.GetAssistCurseCount() <= 0 )
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						CashItemMoonstoneStartRepMsg(rmsg, MSG_EX_CASHITEM_MOONSTONE_ERROR_CANTUSE_CASHMOON, -1);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-				case 5080:
-					// 복운의 스크롤
-					if (ch->m_assist.FindByItemIndex(5081))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5081);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					//자두와 불가
-					if (ch->m_assist.FindByItemIndex(838))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 838);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}	// 플래티늄 드롭 증폭제와 불가
-					if (ch->m_assist.FindByItemIndex(2855))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2855);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 플래티늄 행운의 스크롤과 불가
-					if (ch->m_assist.FindByItemIndex(2856))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2856);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
-					if (ch->m_assist.FindByItemIndex(836))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 836);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-				case 5081: // 복운의 스크롤
-					// 강운의 스크롤
-					if (ch->m_assist.FindByItemIndex(5080))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5080);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					//자두와 불가
-					if (ch->m_assist.FindByItemIndex(838))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 838);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					// 플래티늄 드롭 증폭제와 불가
-					if (ch->m_assist.FindByItemIndex(2855))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2855);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 플래티늄 행운의 스크롤과 불가
-					if (ch->m_assist.FindByItemIndex(2856))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2856);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
-					if (ch->m_assist.FindByItemIndex(836))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 836);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-
-				case 5082: // 달콤한 참외
-
-					//자두와 불가
-					if (ch->m_assist.FindByItemIndex(837))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 837);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					// SP 증폭제는 참외와 불가
-					if (ch->m_assist.FindByItemIndex(883))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 883);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
-					if (ch->m_assist.FindByItemIndex(836))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 836);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-
-				case 5085: // 플래티늄 아리리스의 축복 lv1
-					if( ch->m_level <1 || ch->m_level > 30)
-						return;
-
-					if( ch->m_assist.FindBySkillIndex(348)
-//						|| ch->m_assist.FindBySkillIndex(5086)
-//						|| ch->m_assist.FindBySkillIndex(5087)
-					  )
-					{
-						if( !packet->extra_1 )
-						{
-							CNetMsg::SP rmsg(new CNetMsg);
-							ResponseClient::ItemNotUseMsg(rmsg, MSG_ITEM_USE_ERROR_EXPUP, packet->tab, packet->invenIndex, packet->virtualIndex);
-							SEND_Q(rmsg, ch->m_desc);
-							return;
-						}
-					}
-					break;
-				case 5086: // 플래티늄 아이리스의 축복 lv31
-					if( ch->m_level <31 || ch->m_level > 60)
-						return;
-
-					if( ch->m_assist.FindBySkillIndex(348)
-//						|| ch->m_assist.FindBySkillIndex(5085)
-//						|| ch->m_assist.FindBySkillIndex(5087)
-					  )
-					{
-						if( !packet->extra_1 )
-						{
-							CNetMsg::SP rmsg(new CNetMsg);
-							ResponseClient::ItemNotUseMsg(rmsg, MSG_ITEM_USE_ERROR_EXPUP, packet->tab, packet->invenIndex, packet->virtualIndex);
-							SEND_Q(rmsg, ch->m_desc);
-							return;
-						}
-					}
-					break;
-				case 5087: // 플래티늄 아이리스의 축복 lv61
-					if( ch->m_level <61 || ch->m_level > 90)
-						return;
-
-					if( ch->m_assist.FindBySkillIndex(348)
-//						|| ch->m_assist.FindBySkillIndex(5085)
-//						|| ch->m_assist.FindBySkillIndex(5086)
-					  )
-					{
-						if( !packet->extra_1 )
-						{
-							CNetMsg::SP rmsg(new CNetMsg);
-							ResponseClient::ItemNotUseMsg(rmsg, MSG_ITEM_USE_ERROR_EXPUP, packet->tab, packet->invenIndex, packet->virtualIndex);
-							SEND_Q(rmsg, ch->m_desc);
-							return;
-						}
-					}
-					break;
-				case 5088: // 플래티늄 숙련의 묘약 lv1
-					if( ch->m_level <1 || ch->m_level > 30)
-						return;
-
-					if (ch->m_assist.FindByItemIndex(2452)
-//						|| ch->m_assist.FindByItemIndex(5089)
-//						|| ch->m_assist.FindByItemIndex(5090)
-					   )
-					{
-						// 훈련 주문서와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2452);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-				case 5089: // 플래티늄 숙련의 묘약 lv31
-					if( ch->m_level <31 || ch->m_level > 60)
-						return;
-
-					if (ch->m_assist.FindByItemIndex(2452)
-//						|| ch->m_assist.FindByItemIndex(5088)
-//						|| ch->m_assist.FindByItemIndex(5090)
-					   )
-					{
-						// 훈련 주문서와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2452);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-
-					break;
-				case 5090: // 플래티늄 숙련의 묘약 lv61
-					if( ch->m_level <61 || ch->m_level > 90)
-						return;
-
-					if (ch->m_assist.FindByItemIndex(2452)
-//						|| ch->m_assist.FindByItemIndex(5088)
-//						|| ch->m_assist.FindByItemIndex(5089)
-					   )
-					{
-						// 훈련 주문서와 중복 불가
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2452);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-				}
-
-				// 경험의 묘약은 아이리스를 사용 중일때 불가능
-				if (itemproto->getItemNum0() == 348)
-				{
-					if (ch->m_assist.FindBySkillIndex(349))
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 1288);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-				}
-
-				if( itemproto->getItemIndex() >= 2482 && itemproto->getItemIndex() <= 2487 )
-				{
-					if( do_useEventItem_HalloweenCandy( ch, item ) )
-					{
-						goto SKIP_SKILL;
-					}
-					else
-						return;
-				}
-
-#ifdef REFORM_PK_PENALTY_201108
-				switch( itemproto->getItemIndex() )
-				{
-				case 7474:
-				case 7475:
-				case 7476:
-					if (ch->m_assist.FindByItemIndex(7474) )
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 7474);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if(  ch->m_assist.FindByItemIndex(7475) )
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 7475);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if ( ch->m_assist.FindByItemIndex(7476) )
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 7476);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-
-				case 7477:
-				case 7478:
-				case 7479:
-					if (ch->m_assist.FindByItemIndex(7477) )
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 7477);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if(  ch->m_assist.FindByItemIndex(7478) )
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 7478);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					if ( ch->m_assist.FindByItemIndex(7479) )
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 7479);
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					break;
-				}
-#endif
-
-				CSkill* skill = NULL;
-
-				// 포션중에 IPOTION_UP 은 아이템 플래그에서 스킬레벨을 가져온다
-				if (itemproto->getItemSubTypeIdx() == IPOTION_UP)
-					skill = gserver->m_skillProtoList.Create(itemproto->getItemNum0(), item->getFlag());
-				else
-					skill = gserver->m_skillProtoList.Create(itemproto->getItemNum0(), itemproto->getItemNum1());
-
-				if (skill == NULL)
-					return;
-
-				// 트루시잉 코덱스와 상급 트루시잉 코덱스
-				if (itemproto->getItemIndex() == 677 || itemproto->getItemIndex() == 3579)
-				{
-					if (ch->IsInPeaceZone(false) )
-					{
-						CNetMsg::SP rmsg(new CNetMsg);
-						delete skill;
-						rmsg->Init(MSG_EXTEND);
-						RefMsg(rmsg) << MSG_EX_STRING
-									 << (unsigned char) MSG_EX_STRING_OUTPUT_SYS
-									 << 393
-									 << 0;
-
-						SEND_Q(rmsg, ch->m_desc);
-						return;
-					}
-					ApplyItem677_or_3579(ch, skill, itemproto->getItemIndex());
-				}
-				else
-				{
-					// 060227 : bs : 중복안되는 스킬인지 검사
-					if ((skill->m_proto->m_flag & SF_NOTDUPLICATE) && ch->m_assist.FindBySkillIndex(skill->m_proto->m_index))
-					{
-						/*중복사용 불가 에러 메시지*/
-						CNetMsg::SP rmsg(new CNetMsg);
-						ResponseClient::makeSkillErrorMsg(rmsg, MSG_SKILL_ERROR_DUPLICATE, skill->m_proto->m_index, 0);
-						SEND_Q(rmsg, ch->m_desc);
-						delete skill;
-						return;
-					}
-					// 확장 포션 : 듀얼 사용중일때 따로 따로 수행 못함
-					if (( skill->m_proto->m_index == 350 || skill->m_proto->m_index == 351 ) && ch->m_assist.FindBySkillIndex(352) )
-					{
-						delete skill;
-						return;
-					}
-					bool bApply = false;
-					if( skill->m_proto->CheckSorcererFlag(SSF_APP_APET) )
-					{
-						if( ch->GetAPet() == NULL )
-						{
-							delete skill;
-							return;
-						}
-						ApplySkill(ch, ch->GetAPet() , skill, itemproto->getItemIndex(), bApply);
-					}
-					else
-					{
-						// 여기서 스킬의 Target Type을 확인하고..파티나 원정대에게도 넣어준다.
-						if(skill->m_proto->m_targetType == STT_PARTY_ALL)
-						{
-							if (ch->IsExped())
-							{
-								ApplySkillExped(ch, skill, itemproto->getItemIndex(), bApply);
-							}
-							else if(ch->IsParty())
-							{
-								ApplySkillParty(ch, skill, itemproto->getItemIndex(), bApply);
-							}
-						}
-						else
-						{
-							ApplySkill(ch, ch, skill, itemproto->getItemIndex(), bApply);
-						}
-					}
-
-					if (!bApply)
-					{
-						delete skill;
-						return;
-					}
-
-					if( itemproto->getItemIndex() == 846 ||	// 부활 주문서
-							itemproto->getItemIndex() == 7456 ||	// 이벤트 부활 주문서
-							itemproto->getItemIndex() == 2667      // 초보자용 부활 주문서
-					  )
-					{
-						// 숙련도 / 경험치 주문서 버프 삭제
-						ch->m_assist.CureByItemIndex(844);
-						ch->m_assist.CureByItemIndex(845);
-						ch->m_assist.CureByItemIndex(2035);
-						ch->m_assist.CureByItemIndex(2036);
-					}
-				}
-				delete skill;
-			}
-
-			{
-				// 포션 사용 이펙트 메시지
-				CNetMsg::SP rmsg(new CNetMsg);
-				EffectItemMsg(rmsg, ch, item);
-				ch->m_pArea->SendToCell(rmsg, ch, true);
-			}
+				return;
 		}
+
+		//토글 아이템인 경우에
+		if(item->m_itemProto->getItemFlag() & ITEM_FLAG_TOGGLE)
+		{
+			if(item->isToggle() == true)
+				break;
+		}
+
+		if(do_ItemUsePotion(ch, item, packet->extra_1) == false)
+			return;
+		
 		break;
 
 	case ITYPE_ETC:
@@ -2388,11 +1281,37 @@ SKIP_SKILL:
 		}
 	}
 
-	//토글 아이템은 토글 동작만 시키고 아이템 수량 변경을 하지 않는다.
 	if(item->m_itemProto->getItemFlag() & ITEM_FLAG_TOGGLE)
 	{
 		ch->changeToggleState(item->getVIndex(), TOGGLE_ITEM);
-		return;
+
+		//토글아이템이긴 한데 몬스터가 죽은 후 사용되는 아이템인경우 (타입 : 포션, 서브타입 : 기타 인 아이템들)
+		if(item->m_itemProto->getItemTypeIdx() == ITYPE_POTION && item->m_itemProto->getItemSubTypeIdx() == IPOTION_ETC)
+		{
+			if(item->isToggle() == true)
+			{
+				if(item->getItemCount() > 1)
+					ch->m_deadnpc_toggle_item.push_back(item);
+			}
+			else
+			{
+				 std::vector<CItem*>::iterator it = ch->m_deadnpc_toggle_item.begin();
+				 std::vector<CItem*>::iterator it_end = ch->m_deadnpc_toggle_item.end();
+
+				 for(; it != it_end; it++)
+				 {
+					 if((*it) == item)
+					 {
+						 ch->m_deadnpc_toggle_item.erase(it);
+						 break;
+					 }
+				 }
+				 //토글사용을 중지하는 경우에는 아이템 차감을 하지 않는다.
+				 return;
+			}
+		}
+		else
+			return;
 	}
 	
 	// Item 수량 변경
@@ -3192,7 +2111,7 @@ void do_ItemThrow(CPC* ch, CNetMsg::SP& msg)
 		return;
 	}
 	
-	if(item->CanDrop())
+	if(item->CanDrop() == false)
 	{
 		return;
 	}
@@ -3229,10 +2148,14 @@ void do_ItemThrow(CPC* ch, CNetMsg::SP& msg)
 	{
 		dropitem = item;
 
-		if(ch->holy_water_item == item)
+		if(item->isToggle() == true)
 		{
-			ch->changeToggleState(ch->holy_water_item->getVIndex(), TOGGLE_ITEM);
-			ch->SendHolyWaterStateMsg(NULL);
+			ch->changeToggleState(item->getVIndex(), TOGGLE_ITEM);
+
+			if(ch->holy_water_item == item)
+			{
+				ch->SendHolyWaterStateMsg(NULL);
+			}
 		}
 		
 		ch->m_inventory.eraseNotFree(item);
@@ -3609,6 +2532,8 @@ void do_ItemSell(CPC* ch, CNetMsg::SP& msg)
 		std::set<int> check_duplication;
 		LONGLONG serverPrice = 0;
 
+		int bonus = 0;
+
 		// 판매 아이템 만들기
 		for (int i = 0; i < packet->sellCount; ++i)
 		{
@@ -3690,17 +2615,25 @@ void do_ItemSell(CPC* ch, CNetMsg::SP& msg)
 			serverPrice += (item[i]->m_itemProto->getItemPrice() * shop->m_sellRate / 100) * packet->list[i].count;
 #endif // BUGFIX_ITEMSELL_HACKUSER
 #endif // LC_USA
-		}
 
-		//패시브 스킬 적용
-		int bonus = 0;
-		if(ch->m_avPassiveAddition.money_sell)
-		{
-			bonus += ch->m_avPassiveAddition.money_sell;
-		}
-		if(ch->m_avPassiveRate.money_sell)
-		{
-			bonus = serverPrice * (ch->m_avPassiveRate.money_sell - 100) / SKILL_RATE_UNIT;
+			if(item[i]->m_itemProto->getItemIndex() != ROOKIE_REGIST_ITEM
+				&& item[i]->m_itemProto->getItemIndex() != SENIOR_REGIST_ITEM
+				&& item[i]->m_itemProto->getItemIndex() != MASTER_REGIST_ITEM
+				)
+			{
+				if(ch->m_avPassiveAddition.money_sell)
+				{
+					bonus += ch->m_avPassiveAddition.money_sell;
+				}
+				if(ch->m_avPassiveRate.money_sell)
+				{
+#ifdef	BUGFIX_ITEMSELL_HACKUSER
+					bonus += itemPrice * (ch->m_avPassiveRate.money_sell - 100) / SKILL_RATE_UNIT;
+#else
+					bonus += ((item[i]->m_itemProto->getItemPrice() * shop->m_sellRate / 100) * packet->list[i].count) * (ch->m_avPassiveRate.money_sell - 100) / SKILL_RATE_UNIT;
+#endif
+				}
+			}
 		}
 
 		// 가격의 차이가 10나스 이하이면 클라이언트 가격에 맞춘다.
@@ -4878,7 +3811,7 @@ void do_ItemOptionAddReq(CPC* ch, CNetMsg::SP& msg)
 {
 	RequestClient::doItemAddOption* packet = reinterpret_cast<RequestClient::doItemAddOption*>(msg->m_buf);
 
-	if (packet->weapon_wearPos > WEARING_BOOTS)
+	if (packet->weapon_wearPos != WEARING_BACKWING && packet->weapon_wearPos > WEARING_BOOTS)
 	{
 		LOG_ERROR("HACKING : invalid wearPos[%d]. charIndex[%d]", packet->weapon_wearPos, ch->m_index);
 		ch->m_desc->Close("invalid wearPos");
@@ -4979,7 +3912,7 @@ void do_ItemOptionAddReq(CPC* ch, CNetMsg::SP& msg)
 	}
 	else
 	{
-		if( (wearItem->m_itemProto->getItemFlag() & ITEM_FLAG_RARE ) || (wearItem->m_itemProto->getItemFlag() & ITEM_FLAG_COMPOSITE) )
+		if( (wearItem->m_itemProto->getItemFlag() & ITEM_FLAG_RARE ) || (wearItem->m_itemProto->getItemFlag() & ITEM_FLAG_COMPOSITE) || (wearItem->m_itemProto->IsOriginItem()) )
 		{
 			CNetMsg::SP rmsg(new CNetMsg);
 			ItemOptionAddRepMsg(rmsg, NULL, MSG_OPTION_ADD_ERROR_ENABLE);
@@ -5163,7 +4096,7 @@ void do_ItemOptionDelReq(CPC* ch, CNetMsg::SP& msg)
 	RequestClient::doItemDelOption* packet = reinterpret_cast<RequestClient::doItemDelOption*>(msg->m_buf);
 
 	// 착용한 아이템이어야지
-	if (packet->weapon_wearPos > WEARING_BOOTS)
+	if (packet->weapon_wearPos != WEARING_BACKWING && packet->weapon_wearPos > WEARING_BOOTS)
 	{
 		LOG_ERROR("HACKING : invalid wearPos[%d]. charIndex[%d]", packet->weapon_wearPos, ch->m_index);
 		ch->m_desc->Close("invalid wearPos");
@@ -6376,6 +5309,14 @@ void do_ItemChangeWeaponReq(CPC* ch, CNetMsg::SP& msg)
 		LOG_ERROR("HACKING? : not equal vIndex. char_index[%d] itemVIndex[%d], packetVIndex[%d]", ch->m_index, olditem->getVIndex(), packet->virtualIndex);
 		ch->m_desc->Close("not equal vIndex");
 		return ;
+	}
+
+	if( olditem->getFlag() & FLAG_ITEM_COMPOSITION )
+	{
+		LOG_ERROR("HACKING? : item was composed. char_index[%d] item_index[%d]",
+			ch->m_index, olditem->getDBIndex());
+		ch->m_desc->Close("composed item");
+		return;
 	}
 	
 	if( CEquipExchangeExtend::instance()->checkValid(olditem, packet->changeType) == false)
@@ -8648,6 +7589,19 @@ void do_ItemTarget(CPC* ch, CNetMsg::SP& msg)
 		return ;
 	}
 
+	if(pSkill->m_proto->m_appRange > 0)
+	{
+		float _distance = GetDistance(ch, tch);
+
+		if(pSkill->m_proto->m_appRange < _distance)
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			ResponseClient::ItemNotUseMsg(rmsg, MSG_ITEM_USE_TOO_FAR_DISTANCE);
+			SEND_Q(rmsg, ch->m_desc);
+			return;
+		}
+	}
+
 	switch(itemproto->getItemIndex())
 	{
 	case 2374:
@@ -8667,8 +7621,7 @@ void do_ItemTarget(CPC* ch, CNetMsg::SP& msg)
 	delete pSkill;
 	pSkill = NULL;
 
-	if(bApply == false)
-		return ;
+	ch->m_inventory.decreaseItemCount(item, 1);
 
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
@@ -8676,7 +7629,8 @@ void do_ItemTarget(CPC* ch, CNetMsg::SP& msg)
 		SEND_Q(rmsg, ch->m_desc);
 	}
 
-	ch->m_inventory.decreaseItemCount(item, 1);
+	if(bApply == false)
+		return ;
 
 	//속성 아이템 사용시 시스템 메시지 전달
 	switch(itemproto->getItemIndex())
@@ -8831,6 +7785,14 @@ void do_ItemUseExchagneEquip( CPC* ch, CNetMsg::SP& msg )
 		LOG_ERROR("HACKING? : not found item. char_index[%d] tab[%d] invenIndex[%d]",
 				  ch->m_index, packet->tab_2, packet->invenIndex_2);
 		ch->m_desc->Close("invalid packet");
+		return;
+	}
+	
+	if( item->getFlag() & FLAG_ITEM_COMPOSITION )
+	{
+		LOG_ERROR("HACKING? : item was composed. char_index[%d] item_index[%d]",
+			ch->m_index, item->getDBIndex());
+		ch->m_desc->Close("composed item");
 		return;
 	}
 
@@ -9165,6 +8127,16 @@ void do_GroceryItemBuy(CPC* ch, CNetMsg::SP& msg)
 		if (serverPrice <= 0)
 			throw 5;
 
+		//패시브 스킬 적용
+		if(ch->m_avPassiveAddition.money_buy)
+		{
+			serverPrice += ch->m_avPassiveAddition.money_buy;
+		}
+		if(ch->m_avPassiveRate.money_buy)
+		{
+			serverPrice += serverPrice * (ch->m_avPassiveRate.money_buy - 100) / SKILL_RATE_UNIT;
+		}
+
 		// 돈검사
 		if ((ch->m_inventory.getMoney() >= serverPrice))
 		{
@@ -9304,6 +8276,8 @@ void do_GroceryItemSell(CPC* ch, CNetMsg::SP& msg)
 		item = new CItem * [packet->sellCount];
 		memset(item, 0, sizeof(CItem*) * packet->sellCount);
 
+		int bonus = 0;
+
 		// 판매 아이템 만들기
 		for (int i = 0; i < packet->sellCount; ++i)
 		{
@@ -9365,6 +8339,24 @@ void do_GroceryItemSell(CPC* ch, CNetMsg::SP& msg)
 			serverPrice += (item[i]->m_itemProto->getItemPrice() * shop->m_sellRate / 100) * packet->list[i].count;
 #endif // BUGFIX_ITEMSELL_HACKUSER
 #endif // LC_USA
+			if(item[i]->m_itemProto->getItemIndex() != ROOKIE_REGIST_ITEM
+				&& item[i]->m_itemProto->getItemIndex() != SENIOR_REGIST_ITEM
+				&& item[i]->m_itemProto->getItemIndex() != MASTER_REGIST_ITEM
+				)
+			{
+				if(ch->m_avPassiveAddition.money_sell)
+				{
+					bonus += ch->m_avPassiveAddition.money_sell;
+				}
+				if(ch->m_avPassiveRate.money_sell)
+				{
+#ifdef	BUGFIX_ITEMSELL_HACKUSER
+					bonus += itemPrice * (ch->m_avPassiveRate.money_sell - 100) / SKILL_RATE_UNIT;
+#else
+					bonus += ((item[i]->m_itemProto->getItemPrice() * shop->m_sellRate / 100) * packet->list[i].count) * (ch->m_avPassiveRate.money_sell - 100) / SKILL_RATE_UNIT;
+#endif
+				}
+			}
 		}
 
 //#ifdef LC_USA
@@ -9392,7 +8384,7 @@ void do_GroceryItemSell(CPC* ch, CNetMsg::SP& msg)
 			throw 3;
 		// 돈 더하기
 		LONGLONG nowMoney = ch->m_inventory.getMoney();
-		if (ch->m_inventory.increaseMoney(serverPrice) == nowMoney)
+		if (ch->m_inventory.increaseMoney(serverPrice, bonus) == nowMoney)
 			throw 4;		// 돈 넣기 실패
 
 		// 인벤에서 파는 아이템 완전 제거
@@ -9525,26 +8517,37 @@ void do_itemUse_WarpDoc(CPC* ch, CNetMsg::SP& msg)
 		return;
 	}
 
-	CZone* pZone = gserver->FindZone(packet->zone);
+	switch(item->m_itemProto->getItemIndex())
+	{
+	case 2860:
+	case 2861:
+	case 2862:
+	case 2863:
+	case 2864:
+		break;
+	default:
+		{
+			LOG_ERROR("HACKING? : Invalid Item. char_index[%d], itemIndex[%d]", ch->m_index, item->m_itemProto->getItemIndex());
+			ch->m_desc->Close("Invalid Item");
+			return;
+		}
+	}
+
+	int zone_index = item->m_itemProto->getItemNum0();
+
+	CZone* pZone = gserver->FindZone(zone_index);
 	if (pZone == NULL)
 	{
-		LOG_ERROR("HACKING? : not found zone. char_index[%d] zone[%d]", ch->m_index, packet->zone);
+		LOG_ERROR("HACKING? : not found zone. char_index[%d], zone[%d], itemIndex[%d]", ch->m_index, zone_index, item->m_itemProto->getItemIndex());
 		ch->m_desc->Close("not found zone");
 		return;
 	}
 
-	if (packet->extra < 0 || packet->extra >= pZone->m_countZonePos)
-	{
-		LOG_ERROR("HACKING? : invalid extra. char_index[%d] extra[%d]", ch->m_index, packet->extra);
-		ch->m_desc->Close("invalid extra");
-		return;
-	}
+	GoZone(ch, zone_index, pZone->m_zonePos[0][0],
+		   GetRandom(pZone->m_zonePos[0][1], pZone->m_zonePos[0][3]) / 2.0f,
+		   GetRandom(pZone->m_zonePos[0][2], pZone->m_zonePos[0][4]) / 2.0f);
 
-	GoZone(ch, packet->zone, pZone->m_zonePos[packet->extra][0],
-		   GetRandom(pZone->m_zonePos[packet->extra][1], pZone->m_zonePos[packet->extra][3]) / 2.0f,
-		   GetRandom(pZone->m_zonePos[packet->extra][2], pZone->m_zonePos[packet->extra][4]) / 2.0f);
-
-	if(ch->m_pZone->m_index == packet->zone)
+	if(ch->m_pZone->m_index == zone_index)
 	{
 		GAMELOG << init("CASH_ITEM_USE", ch)
 				<< itemlog(item) << delim
@@ -11441,42 +10444,34 @@ void do_Item_Make_Fortune(CPC* ch, CNetMsg::SP& msg)
 
 bool do_ItemUse_WorldFestivalBox(CPC* ch, CItem* pItem)
 {
-	// 1번 항목 월드컵 32강 국가 국기 아이템
-	int giftTable1[32][3] =
+	int giftTable1[][3] =
 	{
-		{1485,  1, 100},	//브라질 국기 
-		{1486,	1, 100},	//독일 국기 
-		{1487,	1, 100},	//이탈리아 국기 
-		{1488,	1, 100},	//영국 국기 
-		{1489,	1, 100},	//아르헨티나 국기 
-		{1491,	1, 100},	//네덜란드 국기 
-		{1492,	1, 100},	//스페인 국기 
-		{1493,	1, 100},	//포르투갈 국기 
-		{5332,	1, 100},	//우루과이 국기 
-		{1490,	1, 200},	//프랑스 국기 
-		{1496,	1, 200},	//멕시코 국기 
-		{1498,	1, 200},	//크로아티아
-		{1499,	1, 200},	//미국 국기 
-		{1501,	1, 200},	//코트디부아르 국기 
-		{10297,	1, 200},	//벨기에
-		{10298,	1, 200},	//콜롬비아
-		{10300,	1, 200},	//러시아
-		{1500,	1, 500},	//스위스 국기 
-		{1505,	1, 500},	//대한민국 국기 
-		{1506,	1, 500},	//호주 국기 
-		{1507,	1, 500},	//일본 국기 
-		{1508,	1, 500},	//가나 국기 
-		{1510,	1, 500},	//에콰도르
-		{1513,	1, 500},	//이란
-		{1515,	1, 500},	//코스타리카
-		{5333,	1, 500},	//나이지리아 국기 
-		{5334,	1, 500},	//그리스 국기 
-		{5338,	1, 500},	//카메룬 국기 
-		{5342,	1, 500},	//온두라스 국기 
-		{5343,	1, 500},	//칠레 국기 
-		{5344,	1, 500},	//알제리 국기 
-		{10299,	1, 500},	//보스니아 헤르체고비나
+		{1490,	1, 200},	//프랑스
+		{1486,	1, 200},	//독일
+		{1487,	1, 200},	//이탈리아
+		{1488,	1, 200},	//영국
+		{1492,	1, 200},	//스페인
+		{1493,	1, 200},	//포르투갈
+		{1503,	1, 200},	//폴란드
+		{11304,	1, 200},	//오스트리아
 
+		{10297,	1, 300},	//벨기에
+		{5340,	1, 300},	//슬로바키아
+		{1494,	1, 300},	//체코
+		{1500,	1, 300},	//스위스
+		{11305,	1, 300},	//북아일랜드
+		{11303,	1, 300},	//웨일즈
+		{10300,	1, 300},	//러시아
+
+		{1498,	1, 700},	//크로아티아
+		{11307,	1, 700},	//아이스란드
+		{11308,	1, 700},	//루마니아
+		{1497,	1, 700},	//우크라이나
+		{11309,	1, 700},	//아일란드
+		{1495,	1, 700},	//스웨덴
+		{11310,	1, 700},	//터키
+		{11311,	1, 700},	//알바니아
+		{11312,	1, 700},	//헝가리
 	};
 
 	// 2번 항목
@@ -11507,7 +10502,7 @@ bool do_ItemUse_WorldFestivalBox(CPC* ch, CItem* pItem)
 	};
 
 	int giftCount = 3;
-	int giftItemCount[]= {32,8,7};
+	int giftItemCount[]= {24,8,7};
 	
 	boost::scoped_array< GIFTITEMINFO >	giftItemInfo(new GIFTITEMINFO[giftCount]);
 
@@ -12797,4 +11792,1372 @@ void do_ItemCompose(CPC* ch, CNetMsg::SP& msg)
 	}
 
 	ch->m_inventory.decreaseMoney(data->need_nas);
+}
+
+void do_ItemUpgradePetReq(CPC* ch, CNetMsg::SP& msg)
+{
+	//펫을 착용중인지 검사
+	if(ch->m_wearInventory.getWearItem(WEARING_PET) == NULL)
+	{
+		LOG_ERROR("HACKING? : Not fount pet. char_index[%d]", ch->m_index);
+		ch->m_desc->Close("Not fount pet.");
+		return ;
+	}
+
+	CAPet* apet = ch->GetAPet();
+	if(apet == NULL)
+	{
+		LOG_ERROR("HACKING? : Not fount pet. char_index[%d]", ch->m_index);
+		ch->m_desc->Close("Not fount pet.");
+		return ;
+	}
+
+	//펫 아이템 강화
+	RequestClient::doItemUpgradePet* packet = reinterpret_cast<RequestClient::doItemUpgradePet*>(msg->m_buf);
+
+	if(packet->wearPos < APET_WEAR_HEAD || packet->wearPos > APET_WEAR_WEAPON)
+	{
+		LOG_ERROR("HACKING? : Invalid wear info. char_index[%d] wearPos[%d]", ch->m_index, packet->wearPos);
+		ch->m_desc->Close("Invalid wear info.");
+		return;
+	}
+	
+	CItem* wearItem = apet->m_wearing[packet->wearPos];
+	if (wearItem == NULL)
+	{
+		LOG_ERROR("HACKING? : wearItem not found. char_index[%d] wearPos[%d]", ch->m_index, packet->wearPos);
+		ch->m_desc->Close("wearItem not found.");
+		return;
+	}
+
+	CItem* reItem = ch->m_inventory.getItem(packet->tab, packet->inven_index);
+	if (reItem == NULL)
+	{
+		LOG_ERROR("HACKING? : reitem not found. char_index[%d] tab[%d] invenIndex[%d]", ch->m_index, packet->tab, packet->inven_index);
+		ch->m_desc->Close("reitem item not found.");
+		return;
+	}
+	
+	if (wearItem->CanUpgrade() == false)
+	{
+		LOG_ERROR("wearItem is not upgrade item or lent item. char_index[%d]", ch->m_index);
+		return;
+	}
+
+	if (wearItem->getPlus() >= 15)
+	{
+			CNetMsg::SP rmsg(new CNetMsg);
+			SysMsg(rmsg, MSG_SYS_UPGRADE_NOCONDITION);
+			SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
+
+	int result = ResponseClient::PET_ITEM_UPGRADE_NO_CHANGE;
+
+	//reItem(재련석) 아이템은 고급 제련석, 행운의 고급 제련석, 초고급 제련석, 카오스 제련석만 사용 가능.
+
+	// 행운의 제련석
+	if( reItem->m_itemProto->getItemNum0() == IETC_UPGRADE_LUCKY)
+	{
+		if( wearItem->getPlus() > 5)
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			SysMsg(rmsg, MSG_SYS_UPGRADE_CANT_6LEVEL_LUCKY);
+			SEND_Q(rmsg, ch->m_desc);
+			return;
+		}
+
+		result = ResponseClient::PET_ITEM_UPGRADE_PLUS;
+	}
+	// 고급제련석 - 0627
+	else if (reItem->m_itemProto->getItemNum0() == IETC_UPGRADE_SPECIAL)
+	{
+		int prob = GetRandom(1, 100);
+		int upprob = 60 - (wearItem->getPlus() * 3);
+
+		if(g_bUpgradeEvent)
+			upprob = (upprob * g_nUpgradeProb) / 100;
+
+		if(prob > 0 && prob <= 7)
+		{
+			result = ResponseClient::PET_ITEM_UPGRADE_BROKE;
+
+			if (wearItem->getPlus() < 3)
+				result = ResponseClient::PET_ITEM_UPGRADE_NO_CHANGE;
+		}
+		else if( prob > 7 && prob <= (7 + 13) )
+		{
+			result = ResponseClient::PET_ITEM_UPGRADE_MINUS;
+
+			if (wearItem->getPlus() < 3)
+				result = ResponseClient::PET_ITEM_UPGRADE_NO_CHANGE;
+		}
+		else if( prob > 20 && prob <= (20 + upprob) )
+		{
+			result = ResponseClient::PET_ITEM_UPGRADE_PLUS;
+		}
+		else
+			result = ResponseClient::PET_ITEM_UPGRADE_NO_CHANGE;
+	}
+	// 카오스 제련석
+	else if (reItem->m_itemProto->getItemNum0() == IETC_UPGRADE_CHAOS)
+	{
+		if (wearItem->getPlus() < 12)
+			result = ResponseClient::PET_ITEM_UPGRADE_PLUS;
+		else
+			result = ResponseClient::PET_ITEM_UPGRADE_NO_CHANGE;
+	}
+	//슈퍼고제 - 0627
+	else if(reItem->m_itemProto->getItemNum0() == IETC_UPGRADE_SPECIAL_SUPER)
+	{
+		//슈퍼고제는 +14 아이템에는 사용할수 없다.
+		if (wearItem->getPlus() > 13)
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			SysMsg(rmsg, MSG_SYS_UPGRADE_CANT_14LEVEL);
+			SEND_Q(rmsg, ch->m_desc);
+			return;
+		}
+
+		if(wearItem->getFlag() & FLAG_ITEM_SUPER_STONE_USED)
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			SysMsg(rmsg, MSG_SYS_UPGRADE_CANT_SUPERSTONE);
+			SEND_Q(rmsg, ch->m_desc);
+			return;
+		}
+
+		//100프로 성공 / 한번밖에 사용 못함.
+		result = ResponseClient::PET_ITEM_UPGRADE_PLUS;
+		wearItem->setFlag(wearItem->getFlag() | FLAG_ITEM_SUPER_STONE_USED);
+	}
+	else
+	{
+		return;
+	}
+
+
+	bool bUpdate = false;
+	int nPlusNum = 0;           // +,- 수치
+
+	switch (result)
+	{
+	case ResponseClient::PET_ITEM_UPGRADE_PLUS:
+		{
+			nPlusNum = 1;
+
+			if (reItem->m_itemProto->getItemNum0() == IETC_UPGRADE_DEVIL_RUNE)
+			{
+				int nPlusProb = GetRandom(1, 100);
+				if (nPlusProb < 11)	nPlusNum = 3;
+				else if (nPlusProb < 41)	nPlusNum = 2;
+				else	nPlusNum = 1;
+			}
+
+			wearItem->setPlus(wearItem->getPlus() + nPlusNum);
+			bUpdate = true;
+
+			GAMELOG << init("ITEM_UPGRADE", ch) << "+" << nPlusNum << delim << end;
+		}
+		break;
+	case ResponseClient::PET_ITEM_UPGRADE_MINUS:
+		{
+			GAMELOG << init("ITEM_UPGRADE", ch);
+			
+			wearItem->setPlus(wearItem->getPlus() - 1);
+			bUpdate = true;
+			GAMELOG << "-1" << delim;
+		}
+		break;
+	case ResponseClient::PET_ITEM_UPGRADE_NO_CHANGE:
+		{
+			GAMELOG << init("ITEM_UPGRADE", ch)
+				<< "No change" << delim
+				<< itemlog(wearItem);
+
+			if (reItem->m_itemProto->getItemNum0() == IETC_UPGRADE_GENERAL)
+				GAMELOG << delim << "USE GENERAL" << end;
+			else
+				GAMELOG << delim << "USE SPECIAL" << end;
+
+			
+		}
+		break;
+	case ResponseClient::PET_ITEM_UPGRADE_BROKE:
+		{
+			GAMELOG << init("ITEM_UPGRADE", ch)
+				<< "Broken" << delim
+				<< itemlog(wearItem)
+				<< end;
+
+			if(packet->wearPos != WEARING_NONE)
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				ExAPetFuntionMsg( rmsg, MSG_SUB_DELETE_ITEM, apet, 0 );
+				RefMsg(rmsg) << packet->wearPos;
+				SEND_Q( rmsg, ch->m_desc );
+			}
+		}
+		break;
+	}
+	
+	ch->m_inventory.decreaseItemCount(reItem, 1);
+
+	if(result == ResponseClient::PET_ITEM_UPGRADE_BROKE)
+	{
+		delete wearItem;
+		apet->m_wearing[packet->wearPos] = NULL;
+	}
+	else
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		AddItemExAPetMsg(rmsg, wearItem);
+		SEND_Q(rmsg, ch->m_desc);
+	}
+
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		ResponseClient::makePetItemUpgrade(rmsg, result);
+		SEND_Q(rmsg, ch->m_desc);
+	}
+	
+	apet->CalcStatus(true);
+}
+
+bool do_ItemUsePotion(CPC* ch, CItem* item, int extra1)
+{
+	if(item->m_itemProto->getItemFlag() & ITEM_FLAG_TOGGLE)
+	{
+		std::vector<CItem*>::iterator it = ch->m_deadnpc_toggle_item.begin();
+		std::vector<CItem*>::iterator it_end = ch->m_deadnpc_toggle_item.end();
+
+		for(; it != it_end; it++)
+		{
+			if((*it) != item && (*it)->getDBIndex() == item->getDBIndex())
+				return false;
+		}
+	}
+
+	CItemProto* itemproto = item->m_itemProto;
+	switch( itemproto->getItemSubTypeIdx() )
+	{
+	case IPOTION_NPC_PORTAL:
+		if( ch->m_pZone->m_index == itemproto->getItemNum0() ) // 현재 있는 존과 사용한 스크롤 존이 같으면 리스트를 보내준다.
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			NpcPortalListMsg(rmsg, itemproto->getItemNum0());
+			SEND_Q(rmsg, ch->m_desc);
+		}
+		else
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			NpcPortalListErrorMsg(rmsg, MSG_NPC_PORTAL_ERROR_LIST);
+			SEND_Q(rmsg, ch->m_desc);
+		}
+		return false;
+		break;
+	}
+
+	// 눈물
+	if (itemproto->getItemSubTypeIdx() == IPOTION_TEARS)
+	{
+		switch (itemproto->getItemNum0())
+		{
+			// 구원의 눈물
+		case IPOTION_TEARS_TYPE_SAFE:
+
+			if (ch->m_pkPenalty < -15)
+			{
+				ch->m_pkPenalty++;
+				ch->m_bChangeStatus = true;
+			}
+			else
+				return false;
+
+			break;
+
+			// 용서의 눈물
+		case IPOTION_TEARS_TYPE_FORGIVE:
+
+			if (ch->m_exp < 0)
+			{
+				LONGLONG plusexp = GetLevelupExp(ch->m_level) * 5 / 100;
+				ch->m_exp += plusexp;
+
+				if (ch->m_exp > 0)
+					ch->m_exp = 0;
+
+				ch->m_bChangeStatus = true;
+			}
+			else
+				return false;
+
+			break;
+
+		default:
+			return false;
+		}
+	}
+	else
+	{
+		switch (itemproto->getItemIndex())
+		{
+		case 844:		// 경험치복구 주문서
+		case 845:		// 숙련도복구 주문서
+		case 2035:		// 럭키 경험치복구 주문서
+		case 2036:		// 럭키 숙련도복구 주문서
+			// 부활주문서의 이펙트 인덱스 / 각레벨
+			if( ch->m_assist.Find(184, 2) )
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				ResponseClient::ItemNotUseMsg(rmsg, MSG_ITEM_USE_ERROR_EXP_SP);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			else if( ch->m_assist.Find(185, 2) )
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				ResponseClient::ItemNotUseMsg(rmsg, MSG_ITEM_USE_ERROR_SP_EXP);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+		}
+
+		switch (itemproto->getItemIndex())
+		{
+		case 8165:											//신경 교란 장치(퀘스트 필요 아이템)
+			if(ch->m_questList.FindQuest(636, QUEST_STATE_RUN) == false)
+			{
+				return false;
+			}
+
+		case 2855:											// 플래티늄 드랍 증폭제
+			// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
+			if (ch->m_assist.FindByItemIndex(836))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4939);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			if(ch->m_assist.FindByItemIndex(884)
+				|| ch->m_assist.FindByItemIndex(838)
+				|| ch->m_assist.FindByItemIndex(972)
+				|| ch->m_assist.FindByItemIndex(1629)
+				|| ch->m_assist.FindByItemIndex(2856)
+				|| ch->m_assist.FindByItemIndex(6096)
+				|| ch->m_assist.FindByItemIndex(5080) //강운의 스크롤
+				|| ch->m_assist.FindByItemIndex(5081) // 복운의 스크롤
+				)
+				return false;
+			break;
+
+		case 2856:											// 플래티늄 행운의 스크롤
+			if(ch->m_assist.FindByItemIndex(884)
+				|| ch->m_assist.FindByItemIndex(838)
+				|| ch->m_assist.FindByItemIndex(972)
+				|| ch->m_assist.FindByItemIndex(1629)
+				|| ch->m_assist.FindByItemIndex(2855)
+				|| ch->m_assist.FindByItemIndex(6096)
+				|| ch->m_assist.FindByItemIndex(5080) //강운의 스크롤
+				|| ch->m_assist.FindByItemIndex(5081) // 복운의 스크롤
+				)
+				return false;
+			break;
+
+#if defined (PLATINUM_SKILL_POTION_ITEM ) || defined (SKILL_POTION_ITEM)
+		case 2452:		// 숙련의 묘약
+			if (ch->m_assist.FindByItemIndex(2453) || ch->m_assist.FindByItemIndex(7611))
+			{
+				// 플래티늄 훈련 주문서와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2453);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+		case 2453:		// 플래티늄 숙련의 묘약
+		case 2659:		// 초보자용 플래티늄 숙련의 묘약
+		case 7611:		// [이벤트] 플래티늄 숙련의 묘약
+			if (ch->m_assist.FindByItemIndex(2452))
+			{
+				// 훈련 주문서와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2452);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+#endif // defined (PLATINUM_SKILL_POTION_ITEM ) || defined (SKILL_POTION_ITEM)
+
+		case 2582:
+			if (ch->m_assist.FindByItemIndex(2583))
+			{
+				// 훈련 주문서(M)와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2583);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if (ch->m_assist.FindByItemIndex(2139))
+			{
+				// 훈련 주문서와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2139);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if (ch->m_assist.FindByItemIndex(2140))
+			{
+				// 플래티늄 훈련 주문서와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2140);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			else if (ch->m_assist.FindByItemIndex(4937))
+			{
+				// 이벤트용 플래티늄 훈련 주문서 와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4937);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+		case 2583:
+			if (ch->m_assist.FindByItemIndex(2582))
+			{
+				// 훈련 주문서(L)와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2582);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if (ch->m_assist.FindByItemIndex(2139))
+			{
+				// 훈련 주문서와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2139);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if (ch->m_assist.FindByItemIndex(2140))
+			{
+				// 플래티늄 훈련 주문서와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2140);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			else if (ch->m_assist.FindByItemIndex(4937))
+			{
+				// 이벤트용 플래티늄 훈련 주문서 와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4937);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+
+		case 2139:		// 훈련 주문서
+			if (ch->m_assist.FindByItemIndex(2582))
+			{
+				// 훈련 주문서(L)와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2582);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if (ch->m_assist.FindByItemIndex(2583))
+			{
+				// 훈련 주문서(M)와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2583);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if (ch->m_assist.FindByItemIndex(2140))
+			{
+				// 플래티늄 훈련 주문서와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2140);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			else if (ch->m_assist.FindByItemIndex(4937))
+			{
+				// 이벤트용 플래티늄 훈련 주문서 와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4937);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+		case 2140:		// 플래티늄 훈련 주문서
+			if (ch->m_assist.FindByItemIndex(2582))
+			{
+				// 훈련 주문서(L)와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2582);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if (ch->m_assist.FindByItemIndex(2583))
+			{
+				// 훈련 주문서(M)와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2583);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if (ch->m_assist.FindByItemIndex(2139))
+			{
+				// 훈련 주문서와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2139);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			else if (ch->m_assist.FindByItemIndex(4937))
+			{
+				// 이벤트용 플래티늄 훈련 주문서 와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4937);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+		case 4937:		// (이벤트용) 플래티늄 훈련 주문서
+			if (ch->m_assist.FindByItemIndex(2582))
+			{
+				// 훈련 주문서(L)와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2582);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if (ch->m_assist.FindByItemIndex(2583))
+			{
+				// 훈련 주문서(M)와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2583);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if (ch->m_assist.FindByItemIndex(2139))
+			{
+				// 훈련 주문서와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2139);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			else if (ch->m_assist.FindByItemIndex(2140))
+			{
+				// 플래티늄 훈련 주문서와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2140);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+		case 836:		// 수박
+			// 경험치 증폭제는 수박과 불가
+			if (ch->m_assist.FindByItemIndex(882))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 882);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 유료 경험치 증폭제는 수박과 불가
+			if (ch->m_assist.FindByItemIndex(6094))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 6094);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
+			if (ch->m_assist.FindByItemIndex(836))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4939);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+
+		case 837:		// 참외
+			// SP 증폭제는 참외와 불가
+			if (ch->m_assist.FindByItemIndex(883))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 883);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 유료 SP 증폭제는 참외와 불가
+			if (ch->m_assist.FindByItemIndex(6095))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 6095);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
+			if (ch->m_assist.FindByItemIndex(836))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4939);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			// 달콤한 참외
+			if (ch->m_assist.FindByItemIndex(5082))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5082);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+
+		case 838:		// 자두
+			// 아이템 증폭제는 자두와 불가
+			if (ch->m_assist.FindByItemIndex(884))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 884);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			// 유료 아이템 증폭제는 자두와 불가
+			if (ch->m_assist.FindByItemIndex(6096))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 6096);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 플래티늄 드롭 증폭제와 불가
+			if (ch->m_assist.FindByItemIndex(2855))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2855);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 플래티늄 행운의 스크롤과 불가
+			if (ch->m_assist.FindByItemIndex(2856))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2856);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
+			if (ch->m_assist.FindByItemIndex(836))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 4939);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			//강운의 스크롤
+			if (ch->m_assist.FindByItemIndex(5080))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5080);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			//복운의 스크롤
+			if (ch->m_assist.FindByItemIndex(5081))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5081);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+
+		case 882:		// 경험치
+		case 6094:
+			// 증폭제는 중복 복용 불가
+			if (ch->m_assist.FindByItemIndex(itemproto->getItemIndex()))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), itemproto->getItemIndex());
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			// 경험치 증폭제는 수박과 불가
+			if (ch->m_assist.FindByItemIndex(836))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 836);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			// 경험치 증폭제는 유료 경험치 증폭제와 불가
+			if (ch->m_assist.FindByItemIndex(6094))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 6094);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			// 유료 경험치 증폭제는 경험치 증폭제와 불가
+			if (ch->m_assist.FindByItemIndex(882))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 882);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+
+		case 883:		// SP
+		case 6095:
+			// 증폭제는 중복 복용 불가
+			if (ch->m_assist.FindByItemIndex(itemproto->getItemIndex()))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), itemproto->getItemIndex());
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			// SP 증폭제는 참외와 불가
+			if (ch->m_assist.FindByItemIndex(837))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 837);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			// SP 증폭제는 유료 SP 증폭제와 불가
+			if (ch->m_assist.FindByItemIndex(6095))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 6095);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			// 유료 SP 증폭제는 SP 증폭제와 불가
+			if (ch->m_assist.FindByItemIndex(883))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 883);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			// 달콤한 참외
+			if (ch->m_assist.FindByItemIndex(5082))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5082);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+
+		case 884:		// 아이템
+		case 6096:
+			// 증폭제는 중복 복용 불가
+			if (ch->m_assist.FindByItemIndex(itemproto->getItemIndex()))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), itemproto->getItemIndex());
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			if (ch->m_assist.FindByItemIndex(838))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 838);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 유료 증폭제와 중복 복용 불가
+			if (ch->m_assist.FindByItemIndex(884))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 884);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if (ch->m_assist.FindByItemIndex(6096))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 6096);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 플래티늄 드랍 증폭제와 불가
+			if (ch->m_assist.FindByItemIndex(2855))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2855);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 플래티늄 행운의 스크롤과 불가
+			if (ch->m_assist.FindByItemIndex(2856))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2856);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			//강운의 스크롤
+			if (ch->m_assist.FindByItemIndex(5080))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5080);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			//복운의 스크롤
+			if (ch->m_assist.FindByItemIndex(5081))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5081);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+
+		case 885:		// 나스
+			// 증폭제는 중복 복용 불가
+			if (ch->m_assist.FindByItemIndex(itemproto->getItemIndex()))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), itemproto->getItemIndex());
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+
+		case 972:
+		case 1629:
+			// 플래티늄 드랍 증폭제와 불가
+			if (ch->m_assist.FindByItemIndex(2855))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2855);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 플래티늄 행운의 스크롤과 불가
+			if (ch->m_assist.FindByItemIndex(2856))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2856);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+
+		case 4939:		// 랜덤 EXP&SP&드롭률 증폭제
+			{
+				// 증폭제는 중복 복용 불가
+				if (ch->m_assist.FindByItemIndex(itemproto->getItemIndex()))
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), itemproto->getItemIndex());
+					SEND_Q(rmsg, ch->m_desc);
+					return false;
+				}
+				// 수박과 불가
+				if (ch->m_assist.FindByItemIndex(836))
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 836);
+					SEND_Q(rmsg, ch->m_desc);
+					return false;
+				}
+				// 참외와 불가
+				if (ch->m_assist.FindByItemIndex(837))
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 837);
+					SEND_Q(rmsg, ch->m_desc);
+					return false;
+				}
+
+				//자두와 불가
+				if (ch->m_assist.FindByItemIndex(838))
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 838);
+					SEND_Q(rmsg, ch->m_desc);
+					return false;
+				}
+
+				// 플래티늄 드랍 증폭제와 불가
+				if (ch->m_assist.FindByItemIndex(2855))
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2855);
+					SEND_Q(rmsg, ch->m_desc);
+					return false;
+				}
+
+				// 플래티늄 행운의 스크롤과 불가
+				if (ch->m_assist.FindByItemIndex(2856))
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2856);
+					SEND_Q(rmsg, ch->m_desc);
+					return false;
+				}
+			}
+			break;
+
+		case 1288:		// 아이리스의 축복
+		case 1416:		// 플래티늄 아이리스의 축복
+		case 2658:		// 초보자용 플래티늄 아이리스의 축복
+		case 2032:		// 럭키 아이리스의 축복
+			if( ch->m_assist.FindBySkillIndex(348) )
+			{
+				if( !extra1 )
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					ResponseClient::ItemNotUseMsg(rmsg, MSG_ITEM_USE_ERROR_EXPUP, item->tab(), item->getInvenIndex(), item->getVIndex());
+					SEND_Q(rmsg, ch->m_desc);
+					return false;
+				}
+			}
+			break;
+
+		case 3218:
+			if( ch->m_assist.FindByItemIndex(3218) )
+			{
+				return false;
+			}
+			break;
+
+		case 4912:
+			if( ch->m_assist.GetAssistCurseCount() <= 0 )
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				CashItemMoonstoneStartRepMsg(rmsg, MSG_EX_CASHITEM_MOONSTONE_ERROR_CANTUSE_CASHMOON, -1);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+		case 5080:
+			// 복운의 스크롤
+			if (ch->m_assist.FindByItemIndex(5081))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5081);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			//자두와 불가
+			if (ch->m_assist.FindByItemIndex(838))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 838);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}	// 플래티늄 드롭 증폭제와 불가
+			if (ch->m_assist.FindByItemIndex(2855))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2855);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 플래티늄 행운의 스크롤과 불가
+			if (ch->m_assist.FindByItemIndex(2856))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2856);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
+			if (ch->m_assist.FindByItemIndex(836))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 836);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+		case 5081: // 복운의 스크롤
+			// 강운의 스크롤
+			if (ch->m_assist.FindByItemIndex(5080))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 5080);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			//자두와 불가
+			if (ch->m_assist.FindByItemIndex(838))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 838);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			// 플래티늄 드롭 증폭제와 불가
+			if (ch->m_assist.FindByItemIndex(2855))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2855);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 플래티늄 행운의 스크롤과 불가
+			if (ch->m_assist.FindByItemIndex(2856))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2856);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
+			if (ch->m_assist.FindByItemIndex(836))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 836);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+
+		case 5082: // 달콤한 참외
+
+			//자두와 불가
+			if (ch->m_assist.FindByItemIndex(837))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 837);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			// SP 증폭제는 참외와 불가
+			if (ch->m_assist.FindByItemIndex(883))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 883);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			// 랜덤 EXP&SP&드롭률 증폭제와 사용불가
+			if (ch->m_assist.FindByItemIndex(836))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 836);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+
+		case 5085: // 플래티늄 아리리스의 축복 lv1
+			if( ch->m_level <1 || ch->m_level > 30)
+				return false;
+
+			if( ch->m_assist.FindBySkillIndex(348)
+				//						|| ch->m_assist.FindBySkillIndex(5086)
+				//						|| ch->m_assist.FindBySkillIndex(5087)
+				)
+			{
+				if( !extra1 )
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					ResponseClient::ItemNotUseMsg(rmsg, MSG_ITEM_USE_ERROR_EXPUP, item->tab(), item->getInvenIndex(), item->getVIndex());
+					SEND_Q(rmsg, ch->m_desc);
+					return false;
+				}
+			}
+			break;
+		case 5086: // 플래티늄 아이리스의 축복 lv31
+			if( ch->m_level <31 || ch->m_level > 60)
+				return false;
+
+			if( ch->m_assist.FindBySkillIndex(348)
+				//						|| ch->m_assist.FindBySkillIndex(5085)
+				//						|| ch->m_assist.FindBySkillIndex(5087)
+				)
+			{
+				if( !extra1 )
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					ResponseClient::ItemNotUseMsg(rmsg, MSG_ITEM_USE_ERROR_EXPUP, item->tab(), item->getInvenIndex(), item->getVIndex());
+					SEND_Q(rmsg, ch->m_desc);
+					return false;
+				}
+			}
+			break;
+		case 5087: // 플래티늄 아이리스의 축복 lv61
+			if( ch->m_level <61 || ch->m_level > 90)
+				return false;
+
+			if( ch->m_assist.FindBySkillIndex(348)
+				//						|| ch->m_assist.FindBySkillIndex(5085)
+				//						|| ch->m_assist.FindBySkillIndex(5086)
+				)
+			{
+				if( !extra1 )
+				{
+					CNetMsg::SP rmsg(new CNetMsg);
+					ResponseClient::ItemNotUseMsg(rmsg, MSG_ITEM_USE_ERROR_EXPUP, item->tab(), item->getInvenIndex(), item->getVIndex());
+					SEND_Q(rmsg, ch->m_desc);
+					return false;
+				}
+			}
+			break;
+		case 5088: // 플래티늄 숙련의 묘약 lv1
+			if( ch->m_level <1 || ch->m_level > 30)
+				return false;
+
+			if (ch->m_assist.FindByItemIndex(2452)
+				//						|| ch->m_assist.FindByItemIndex(5089)
+				//						|| ch->m_assist.FindByItemIndex(5090)
+				)
+			{
+				// 훈련 주문서와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2452);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+		case 5089: // 플래티늄 숙련의 묘약 lv31
+			if( ch->m_level <31 || ch->m_level > 60)
+				return false;
+
+			if (ch->m_assist.FindByItemIndex(2452)
+				//						|| ch->m_assist.FindByItemIndex(5088)
+				//						|| ch->m_assist.FindByItemIndex(5090)
+				)
+			{
+				// 훈련 주문서와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2452);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+
+			break;
+		case 5090: // 플래티늄 숙련의 묘약 lv61
+			if( ch->m_level <61 || ch->m_level > 90)
+				return false;
+
+			if (ch->m_assist.FindByItemIndex(2452)
+				//						|| ch->m_assist.FindByItemIndex(5088)
+				//						|| ch->m_assist.FindByItemIndex(5089)
+				)
+			{
+				// 훈련 주문서와 중복 불가
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 2452);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+		}
+
+		// 경험의 묘약은 아이리스를 사용 중일때 불가능
+		if (itemproto->getItemNum0() == 348)
+		{
+			if (ch->m_assist.FindBySkillIndex(349))
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 1288);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+		}
+
+#ifdef REFORM_PK_PENALTY_201108
+		switch( itemproto->getItemIndex() )
+		{
+		case 7474:
+		case 7475:
+		case 7476:
+			if (ch->m_assist.FindByItemIndex(7474) )
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 7474);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if(  ch->m_assist.FindByItemIndex(7475) )
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 7475);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if ( ch->m_assist.FindByItemIndex(7476) )
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 7476);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+
+		case 7477:
+		case 7478:
+		case 7479:
+			if (ch->m_assist.FindByItemIndex(7477) )
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 7477);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if(  ch->m_assist.FindByItemIndex(7478) )
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 7478);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			if ( ch->m_assist.FindByItemIndex(7479) )
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				SysCannotDuplcationMsg(rmsg, itemproto->getItemIndex(), 7479);
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			break;
+		}
+#endif
+
+		CSkill* skill = NULL;
+
+		// 포션중에 IPOTION_UP 은 아이템 플래그에서 스킬레벨을 가져온다
+		if (itemproto->getItemSubTypeIdx() == IPOTION_UP)
+			skill = gserver->m_skillProtoList.Create(itemproto->getItemNum0(), item->getFlag());
+		else
+			skill = gserver->m_skillProtoList.Create(itemproto->getItemNum0(), itemproto->getItemNum1());
+
+		if (skill == NULL)
+			return false;
+
+		// 트루시잉 코덱스와 상급 트루시잉 코덱스
+		if (itemproto->getItemIndex() == 677 || itemproto->getItemIndex() == 3579)
+		{
+			if (ch->IsInPeaceZone(false) )
+			{
+				CNetMsg::SP rmsg(new CNetMsg);
+				delete skill;
+				rmsg->Init(MSG_EXTEND);
+				RefMsg(rmsg) << MSG_EX_STRING
+					<< (unsigned char) MSG_EX_STRING_OUTPUT_SYS
+					<< 393
+					<< 0;
+
+				SEND_Q(rmsg, ch->m_desc);
+				return false;
+			}
+			ApplyItem677_or_3579(ch, skill, itemproto->getItemIndex());
+		}
+		else
+		{
+			// 060227 : bs : 중복안되는 스킬인지 검사
+			if ((skill->m_proto->m_flag & SF_NOTDUPLICATE) && ch->m_assist.FindBySkillIndex(skill->m_proto->m_index))
+			{
+				/*중복사용 불가 에러 메시지*/
+				CNetMsg::SP rmsg(new CNetMsg);
+				ResponseClient::makeSkillErrorMsg(rmsg, MSG_SKILL_ERROR_DUPLICATE, skill->m_proto->m_index, 0);
+				SEND_Q(rmsg, ch->m_desc);
+				delete skill;
+				return false;
+			}
+			// 확장 포션 : 듀얼 사용중일때 따로 따로 수행 못함
+			if (( skill->m_proto->m_index == 350 || skill->m_proto->m_index == 351 ) && ch->m_assist.FindBySkillIndex(352) )
+			{
+				delete skill;
+				return false;
+			}
+			bool bApply = false;
+			if( skill->m_proto->CheckSorcererFlag(SSF_APP_APET) )
+			{
+				if( ch->GetAPet() == NULL )
+				{
+					delete skill;
+					return false;
+				}
+				ApplySkill(ch, ch->GetAPet() , skill, itemproto->getItemIndex(), bApply);
+			}
+			else
+			{
+				// 여기서 스킬의 Target Type을 확인하고..파티나 원정대에게도 넣어준다.
+				if(skill->m_proto->m_targetType == STT_PARTY_ALL)
+				{
+					if (ch->IsExped())
+					{
+						ApplySkillExped(ch, skill, itemproto->getItemIndex(), bApply);
+					}
+					else if(ch->IsParty())
+					{
+						ApplySkillParty(ch, skill, itemproto->getItemIndex(), bApply);
+					}
+				}
+				else
+				{
+					ApplySkill(ch, ch, skill, itemproto->getItemIndex(), bApply);
+				}
+			}
+
+			if (!bApply)
+			{
+				delete skill;
+				return false;
+			}
+
+			if( itemproto->getItemIndex() == 846 ||	// 부활 주문서
+				itemproto->getItemIndex() == 7456 ||	// 이벤트 부활 주문서
+				itemproto->getItemIndex() == 2667      // 초보자용 부활 주문서
+				)
+			{
+				// 숙련도 / 경험치 주문서 버프 삭제
+				ch->m_assist.CureByItemIndex(844);
+				ch->m_assist.CureByItemIndex(845);
+				ch->m_assist.CureByItemIndex(2035);
+				ch->m_assist.CureByItemIndex(2036);
+			}
+		}
+		delete skill;
+	}
+
+	{
+		// 포션 사용 이펙트 메시지
+		CNetMsg::SP rmsg(new CNetMsg);
+		EffectItemMsg(rmsg, ch, item);
+		ch->m_pArea->SendToCell(rmsg, ch, true);
+	}
+
+	return true;
 }

@@ -224,6 +224,15 @@ void do_Guild(CPC* ch, CNetMsg::SP& msg)
 	case MSG_GUILD_ROOM_RECALL:
 		do_GuildRecall(ch, msg);
 		break;
+	case MSG_GUILD_CONTRIBUTE_DATA:
+		do_GuildContributeData(ch, msg);
+		break;
+	case MSG_GUILD_CONTRIBUTE_SET:
+		do_GuildContributeSet(ch, msg);
+		break;
+	case MSG_GUILD_CONTRIBUTE_SETALL:
+		do_GuildContributeSetAll(ch, msg);
+		break;
 	default:
 		break;
 	}
@@ -466,6 +475,14 @@ void do_GuildLevelUp(CPC* ch, CNetMsg::SP& msg)
 			SEND_Q( rmsg, ch->m_desc );
 			return;
 		}
+
+		if( guild->m_isUseTheStashAndSkill == false )
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			GuildErrorMsg( rmsg, MSG_NEW_GUILD_ERRROR_GUILDPOINT );
+			SEND_Q( rmsg, ch->m_desc );
+			return;
+		}
 	}
 
 	// 레벨 검사
@@ -602,6 +619,14 @@ void do_GuildBreakUp(CPC* ch, CNetMsg::SP& msg)
 		return ;
 	}
 
+	if( ch->m_guildInfo->guild()->m_create_date + (GUILD_REG_DELAY * 60 * 60 * 24) >= gserver->m_nowseconds )
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg(rmsg, MSG_GUILD_ERROR_CANNOT_BREAK_10DAYS);
+		SEND_Q(rmsg, ch->m_desc);
+		return ;
+	}
+
 	int ownZoneCount = 0;
 	int* ownZone = CWarCastle::GetOwnCastle(ch->m_guildInfo->guild()->index(), &ownZoneCount);
 	if (ownZone)
@@ -654,18 +679,6 @@ void do_GuildRegistReq(CPC* ch, CNetMsg::SP& msg)
 		GuildErrorMsg(rmsg, MSG_GUILD_ERROR_CANNOT_REGISTER_REQ_ZONE);
 		SEND_Q(rmsg, ch->m_desc);
 		return ;
-	}
-
-	if (ch->m_guildoutdate != 0)
-	{
-		time_t t;
-		if (time(&t) / 60 / 60 / 24 < ch->m_guildoutdate + GUILD_REG_DELAY)
-		{
-			CNetMsg::SP rmsg(new CNetMsg);
-			GuildErrorMsg(rmsg, MSG_GUILD_ERROR_REGDELAY);
-			SEND_Q(rmsg, ch->m_desc);
-			return ;
-		}
 	}
 
 	if (bossindex == ch->m_index || requesterindex != ch->m_index)
@@ -902,6 +915,19 @@ void do_GuildOutReq(CPC* ch, CNetMsg::SP& msg)
 		return ;
 	}
 
+	//길드 탈퇴 패널티 체크
+	if (ch->m_guild_in_date != 0)
+	{
+		time_t t;
+		if (time(&t) / 60 / 60 / 24 < ch->m_guild_in_date + GUILD_REG_DELAY)
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			GuildErrorMsg(rmsg, MSG_GUILD_ERROR_REGDELAY);
+			SEND_Q(rmsg, ch->m_desc);
+			return ;
+		}
+	}
+
 	if (gserver->isRunHelper())
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
@@ -966,6 +992,19 @@ void do_GuildKick(CPC* ch, CNetMsg::SP& msg)
 		return ;
 	}
 
+	////길드 탈퇴 패널티 체크
+	//if (ch->m_guild_in_date != 0)
+	//{
+	//	time_t t;
+	//	if (time(&t) / 60 / 60 / 24 < ch->m_guild_in_date + GUILD_REG_DELAY)
+	//	{
+	//		CNetMsg::SP rmsg(new CNetMsg);
+	//		GuildErrorMsg(rmsg, MSG_GUILD_ERROR_REGDELAY);
+	//		SEND_Q(rmsg, ch->m_desc);
+	//		return ;
+	//	}
+	//}
+
 	CGuildMember* member = guild->findmember(charindex);
 	if (!member)
 	{
@@ -985,8 +1024,14 @@ void do_GuildKick(CPC* ch, CNetMsg::SP& msg)
 
 	if (gserver->isRunHelper())
 	{
+		int guild_out_date = 0;
+
+		if(member->GetPC() != NULL)
+		{
+			guild_out_date = member->GetPC()->m_guild_in_date;
+		}
 		CNetMsg::SP rmsg(new CNetMsg);
-		HelperGuildKickReqMsg(rmsg, guildindex, ch->m_index, charindex);
+		HelperGuildKickReqMsg(rmsg, guildindex, ch->m_index, charindex, guild_out_date);
 		SEND_Q(rmsg, gserver->m_helper);
 	}
 	else
@@ -1278,7 +1323,8 @@ void do_GuildBattleReqReq(CPC* ch, CNetMsg::SP& msg)
 	if (ch->m_pZone->m_index != ZONE_START && ch->m_pZone->m_index != ZONE_DRATAN
 			&& ch->m_pZone->m_index != ZONE_MERAC && ch->m_pZone->m_index != ZONE_EGEHA
 			&& ch->m_pZone->m_index != ZONE_STREIANA && ch->m_pZone->m_index != ZONE_MONDSHINE
-			&& ch->m_pZone->m_index != ZONE_TARIAN && ch->m_pZone->m_index != ZONE_BLOODYMIR)
+			&& ch->m_pZone->m_index != ZONE_TARIAN && ch->m_pZone->m_index != ZONE_BLOODYMIR
+			&& ch->m_pZone->m_index != ZONE_PK_TOURNAMENT)
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
 		GuildBattleErrMsg(rmsg, MSG_GUILD_ERROR_BATTLE_ZONE);
@@ -1363,7 +1409,8 @@ void do_GuildBattleReqReq(CPC* ch, CNetMsg::SP& msg)
 	if (tch->m_pZone->m_index != ZONE_START && tch->m_pZone->m_index != ZONE_DRATAN
 			&& tch->m_pZone->m_index != ZONE_MERAC && tch->m_pZone->m_index != ZONE_EGEHA
 			&& tch->m_pZone->m_index != ZONE_STREIANA && tch->m_pZone->m_index != ZONE_MONDSHINE
-			&& tch->m_pZone->m_index != ZONE_TARIAN && tch->m_pZone->m_index != ZONE_BLOODYMIR)
+			&& tch->m_pZone->m_index != ZONE_TARIAN && tch->m_pZone->m_index != ZONE_BLOODYMIR
+			&& tch->m_pZone->m_index != ZONE_PK_TOURNAMENT)
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
 		GuildBattleErrMsg(rmsg, MSG_GUILD_ERROR_BATTLE_ZONE);
@@ -1551,7 +1598,7 @@ void do_GuildBattleReqAccept(CPC* ch, CNetMsg::SP& msg)
 	}
 
 	// 배팅액이 모질라
-	if (ch->m_inventory.getMoney() < ch->m_guildInfo->guild()->battlePrize())
+	if (ch->m_inventory.getMoney() < ch->m_guildInfo->guild()->battlePrizeNas())
 	{
 		{
 			CNetMsg::SP rmsg(new CNetMsg);
@@ -1572,7 +1619,7 @@ void do_GuildBattleReqAccept(CPC* ch, CNetMsg::SP& msg)
 	}
 
 	// 배팅금액이 없음
-	if (tch->m_inventory.getMoney() < guild->battlePrize())
+	if (tch->m_inventory.getMoney() < guild->battlePrizeNas())
 	{
 		{
 			CNetMsg::SP rmsg(new CNetMsg);
@@ -1592,7 +1639,7 @@ void do_GuildBattleReqAccept(CPC* ch, CNetMsg::SP& msg)
 	}
 
 	// 셋팅된 금액이 틀림
-	if (ch->m_guildInfo->guild()->battlePrize() != guild->battlePrize())
+	if (ch->m_guildInfo->guild()->battlePrizeNas() != guild->battlePrizeNas())
 	{
 		{
 			CNetMsg::SP rmsg(new CNetMsg);
@@ -1636,7 +1683,7 @@ void do_GuildBattleReqAccept(CPC* ch, CNetMsg::SP& msg)
 	if (gserver->isRunHelper())
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
-		HelperGuildBattleReqMsg(rmsg, ch->m_guildInfo->guild()->index(), guild->index(), guild->battlePrize(), guild->battleZone(), guild->battleTime());
+		HelperGuildBattleReqMsg(rmsg, ch->m_guildInfo->guild()->index(), guild->index(), guild->battlePrizeNas(), 0, guild->battleZone(), guild->battleTime());
 		SEND_Q(rmsg, gserver->m_helper);
 	}
 	else
@@ -1838,7 +1885,7 @@ void do_GuildBattleStopAccept(CPC* ch, CNetMsg::SP& msg)
 	if (gserver->isRunHelper())
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
-		HelperGuildBattleStopReqMsg(rmsg, ch->m_guildInfo->guild()->index(), guild->index());
+		HelperGuildBattleStopReqMsg(rmsg, ch->m_guildInfo->guild()->index(), guild->index(), true);
 		SEND_Q(rmsg, gserver->m_helper);
 	}
 	else
@@ -2881,6 +2928,14 @@ void do_GuildInclineEstablist( CPC* ch, CNetMsg::SP& msg )
 		return ;
 	}
 
+	if( ch->m_guildInfo->guild()->m_isUseTheStashAndSkill == false )
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg(rmsg, MSG_NEW_GUILD_ERROR_CHANG_INCLINE);
+		SEND_Q(rmsg, ch->m_desc);
+		return ;
+	}
+
 	//현재 길드 성향
 //#define GUILD_INCLINE_GENERAL		0		// 일반 길드
 //#define GUILD_INCLINE_CHAO			1		// 카오 길드
@@ -2960,8 +3015,8 @@ void do_GuildMemberAdjust( CPC* ch, CNetMsg::SP& msg )
 {
 	int			charindex;
 	CLCString	strPositionName(GUILD_POSITION_NAME+1);
-	unsigned int			contributeExp;
-	unsigned int			contributFame;
+	unsigned int			contributeExp_min, contributeExp_max;
+	unsigned int			contributeFame_min, contributeFame_max;
 	int			pos;
 #ifdef DEV_GUILD_STASH
 	char		cStashAuth;			// 0 :사용불가, 1:사용가능
@@ -2969,18 +3024,39 @@ void do_GuildMemberAdjust( CPC* ch, CNetMsg::SP& msg )
 
 	RefMsg(msg) >> charindex
 				>> strPositionName
-				>> contributeExp
-				>> contributFame;
+				>> contributeExp_min
+				>> contributeExp_max
+				>> contributeFame_min
+				>> contributeFame_max;
 	RefMsg(msg) >> pos;
 
 #ifdef DEV_GUILD_STASH
 	RefMsg(msg) >> cStashAuth;
 #endif //DEV_GUILD_STASH
 
-	if((contributeExp < 0 || contributeExp > 100) ||
-			(contributFame < 0 || contributFame > 100))
+	if( (contributeExp_min < 0 || contributeExp_max > 100) ||
+		(contributeFame_min < 0 || contributeFame_max > 100) )
 	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_INVALID_VALUE );
+		SEND_Q( rmsg, ch->m_desc );
 		return ;
+	}
+
+	if(contributeExp_min > contributeExp_max)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_INVALID_VALUE );
+		SEND_Q( rmsg, ch->m_desc );
+		return;
+	}
+
+	if(contributeFame_min > contributeFame_max)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_INVALID_VALUE );
+		SEND_Q( rmsg, ch->m_desc );
+		return;
 	}
 
 	// 길드가 있는 사람
@@ -3000,16 +3076,6 @@ void do_GuildMemberAdjust( CPC* ch, CNetMsg::SP& msg )
 		SEND_Q(rmsg, ch->m_desc);
 		return ;
 	}
-
-#ifdef GUILD_CONTRIBUTE_EXP_LIMIT // 길두 기부 경험치를 max 50%까지만 가능하도록 수정
-	if( contributeExp > GUILD_CONTRIBUTE_EXP_LIMIT )
-	{
-		CNetMsg::SP rmsg(new CNetMsg);
-		GuildErrorMsg(rmsg, MSG_NEW_GUILD_ERROR_ADJUST_FAIL);
-		SEND_Q(rmsg, ch->m_desc);
-		return;
-	}
-#endif
 
 	if(findPercentChar(strPositionName.getBuffer()) != NULL)
 	{
@@ -3076,7 +3142,7 @@ void do_GuildMemberAdjust( CPC* ch, CNetMsg::SP& msg )
 	if (gserver->isRunHelper())
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
-		HelperGuildMemberAdjust( rmsg, ch, charindex, strPositionName, contributeExp, contributFame, pos );
+		HelperGuildMemberAdjust( rmsg, ch, charindex, strPositionName, contributeExp_min, contributeExp_max, contributeFame_min, contributeFame_max, pos );
 #ifdef DEV_GUILD_STASH
 		RefMsg(rmsg) << cStashAuth;
 #endif // DEV_GUILD_STASH
@@ -3423,6 +3489,14 @@ void do_NewGuildSkillLearn( CPC* ch, CNetMsg::SP& msg )
 	}
 	// gp 검사
 	if( levelproto->m_learnGP > ch->m_guildInfo->guild()->GetGuildPoint() )
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_NEW_GUILD_ERRROR_GUILDPOINT );
+		SEND_Q(rmsg, ch->m_desc);
+		return ;
+	}
+
+	if(ch->m_guildInfo->guild()->m_isUseTheStashAndSkill == false)
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
 		GuildErrorMsg( rmsg, MSG_NEW_GUILD_ERRROR_GUILDPOINT );
@@ -3958,9 +4032,18 @@ void do_newGuildStashKeep( CPC* ch, CNetMsg::SP& msg )
 	}
 	else
 	{
-		CNetMsg::SP rmsg(new CNetMsg);
-		GuildStashErrorMsg( rmsg, MSG_NEW_GUILD_STASH_ERROR, 6 );	 // 6: 길드가 없습니다.
-		SEND_Q( rmsg, ch->m_desc );
+// 		CNetMsg::SP rmsg(new CNetMsg);
+// 		GuildStashErrorMsg( rmsg, MSG_NEW_GUILD_STASH_ERROR, 6 );	 // 6: 길드가 없습니다.
+// 		SEND_Q( rmsg, ch->m_desc );
+		LOG_ERROR("HACKING? : not found guild. char_index[%d]", ch->m_index);
+		ch->m_desc->Close("not found guild");
+		return;
+	}
+
+	if (ch->m_guildStashLock == true)
+	{
+		LOG_ERROR("HACKING? : guild stash is locked. char_index[%d]", ch->m_index);
+		ch->m_desc->Close("guild");
 		return;
 	}
 
@@ -3986,8 +4069,8 @@ void do_newGuildStashKeep( CPC* ch, CNetMsg::SP& msg )
 
 	if (packet->listCount < 0 || packet->listCount > 5)
 	{
-		LOG_ERROR("HACKING? : invalid itemCount[%d]. char_index[%d]", packet->listCount, ch->m_index);
-		ch->m_desc->Close("invalid itemCount");
+		LOG_ERROR("HACKING? : invalid listCount[%d]. char_index[%d]", packet->listCount, ch->m_index);
+		ch->m_desc->Close("invalid listCount");
 		return;
 	}
 
@@ -4149,6 +4232,8 @@ void do_newGuildStashKeep( CPC* ch, CNetMsg::SP& msg )
 		}
 
 		SEND_Q( rmsg, gserver->m_helper );
+
+		ch->m_guildStashLock = true;
 	}
 }
 
@@ -4177,6 +4262,13 @@ void do_newGuildStashTake( CPC* ch, CNetMsg::SP& msg )
 		return;
 	}
 
+	if (ch->m_guildStashLock == true)
+	{
+		LOG_ERROR("HACKING? : guild stash is locked. char_index[%d]", ch->m_index);
+		ch->m_desc->Close("guild");
+		return;
+	}
+
 	if (packet->takeMoney == 0 && packet->listCount == 0)
 	{
 		std::string str = boost::str(boost::format(
@@ -4184,6 +4276,13 @@ void do_newGuildStashTake( CPC* ch, CNetMsg::SP& msg )
 									 % packet->takeMoney % packet->listCount % ch->m_index);
 		LOG_ERROR(str.c_str());
 		ch->m_desc->Close("invalid takeMoney or listCount");
+		return;
+	}
+
+	if (packet->listCount > 5)
+	{
+		LOG_ERROR("HACKING? : invalid listCount[%d]. char_index[%d]", packet->listCount, ch->m_index);
+		ch->m_desc->Close("invalid listCount");
 		return;
 	}
 
@@ -4209,10 +4308,20 @@ void do_newGuildStashTake( CPC* ch, CNetMsg::SP& msg )
 				return;
 			}
 
+			if (packet->list[i].itemCount <= 0)
+			{
+				LOG_ERROR("HACKING? : invalid itemCount[%d]. char_index[%d]", packet->list[i].itemCount, ch->m_index);
+				ch->m_desc->Close("invalid itemCount");
+				return;
+			}
+
 			RefMsg(rmsg) << packet->list[i].stashIndex
 						 << packet->list[i].itemCount;
 		}
+
 		SEND_Q( rmsg, gserver->m_helper );
+
+		ch->m_guildStashLock = true;
 	}
 }
 
@@ -4641,16 +4750,6 @@ int do_CheckGuildJoin(CPC* bossPC, CPC* joinPC)
 		return MSG_NEW_GUILD_ERROR_EXIST_GUILD;
 	}
 
-	// 가입할 캐릭터의 재가입 딜레이 검사
-	if (joinPC->m_guildoutdate != 0)
-	{
-		time_t t;
-		if (time(&t) / 60 / 60 / 24 < joinPC->m_guildoutdate + GUILD_REG_DELAY)
-		{
-			return MSG_GUILD_ERROR_REGDELAY;
-		}
-	}
-
 	//int guildindex = guild->index();
 
 	// 보스 검사
@@ -4741,6 +4840,127 @@ void do_GuildRecall(CPC* pc, CNetMsg::SP& rmsg)
 			pZone->m_zonePos[0][0],														// ylayer
 			GetRandom(pZone->m_zonePos[0][1], pZone->m_zonePos[0][3]) / 2.0f,		// x
 			GetRandom(pZone->m_zonePos[0][2], pZone->m_zonePos[0][4]) / 2.0f);	// z
+	}
+}
+
+void do_GuildContributeData(CPC* pc, CNetMsg::SP& rmsg)
+{
+	if(pc->m_guildInfo == NULL)
+		return;
+
+	if(pc->m_guildInfo->guild() == NULL)
+		return;
+
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildContributeDataMsg(rmsg, pc);
+		SEND_Q(rmsg, pc->m_desc);
+	}
+}
+void do_GuildContributeSet(CPC* pc, CNetMsg::SP& msg)
+{
+	if(pc->m_guildInfo == NULL)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_SET_FAIL );
+		SEND_Q( rmsg, pc->m_desc );
+		return;
+	}
+
+	if(pc->m_guildInfo->guild() == NULL)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_SET_FAIL );
+		SEND_Q( rmsg, pc->m_desc );
+		return;
+	}
+
+	int contribute_exp_data;
+	int contribute_fame_data;
+	RefMsg(msg) >> contribute_exp_data
+		>> contribute_fame_data;
+
+	if(pc->m_guildInfo->GetcontributeExp_min() > contribute_exp_data || pc->m_guildInfo->GetcontributeExp_max() < contribute_exp_data)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_INVALID_VALUE );
+		SEND_Q( rmsg, pc->m_desc );
+		return;
+	}
+	if(pc->m_guildInfo->GetcontributeFame_min() > contribute_fame_data || pc->m_guildInfo->GetcontributeFame_max() < contribute_fame_data)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_INVALID_VALUE );
+		SEND_Q( rmsg, pc->m_desc );
+		return;
+	}
+
+	if(gserver->isRunHelper())
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		HelperGuildContributeSet(rmsg, pc->m_index, pc->m_guildInfo->guild()->index(), contribute_exp_data, contribute_fame_data);
+		SEND_Q(rmsg, gserver->m_helper);
+	}
+}
+void do_GuildContributeSetAll(CPC* pc, CNetMsg::SP& msg)
+{
+	if(pc->m_guildInfo == NULL)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_SET_ALL_FAIL );
+		SEND_Q( rmsg, pc->m_desc );
+		return;
+	}
+
+	if(pc->m_guildInfo->guild() == NULL)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_SET_ALL_FAIL );
+		SEND_Q( rmsg, pc->m_desc );
+		return;
+	}
+
+	if(pc->m_guildInfo->guild()->boss()->GetPC() != pc)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_SET_ALL_FAIL );
+		SEND_Q( rmsg, pc->m_desc );
+		return;
+	}
+
+	int contribute_exp;
+	int contribute_fame;
+	int contribute_exp_min, contribute_exp_max;
+	int contribute_fame_min, contribute_fame_max;
+	
+	RefMsg(msg) >> contribute_exp
+		>> contribute_fame
+		>> contribute_exp_min
+		>> contribute_exp_max
+		>> contribute_fame_min
+		>> contribute_fame_max;
+
+	if(contribute_exp_min > contribute_exp_max)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_INVALID_VALUE );
+		SEND_Q( rmsg, pc->m_desc );
+		return;
+	}
+
+	if(contribute_fame_min > contribute_fame_max)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_INVALID_VALUE );
+		SEND_Q( rmsg, pc->m_desc );
+		return;
+	}
+
+	if(gserver->isRunHelper())
+	{
+		 CNetMsg::SP rmsg(new CNetMsg);
+		 HelperGuildContributeSetAll(rmsg, pc->m_index, pc->m_guildInfo->guild()->index(), contribute_exp, contribute_exp_min, contribute_exp_max, contribute_fame, contribute_fame_min, contribute_fame_max);
+		 SEND_Q(rmsg, gserver->m_helper);
 	}
 }
 //

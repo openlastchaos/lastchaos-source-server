@@ -34,7 +34,7 @@ void CashItemMoonstoneStartRepMsg(CNetMsg::SP& msg, MSG_EX_CASHITEM_MOONSTONE_ER
 void CashItemGiftRecvNoticeRepMsg(CNetMsg::SP& msg, char bGiftExist);
 void CashItemGiftSendRepMsg(CNetMsg::SP& msg, MSG_EX_CASHITEM_ERROR_TYPE errCode);
 void CashItemGiftHistoryRepMsg(CNetMsg::SP& msg, bool bSend, MSG_EX_CASHITEM_ERROR_TYPE errCode );
-void CashItemGiftRecvListRepMsg(CNetMsg::SP& msg, unsigned char listflag, CNetMsg::SP& recvMsg);
+void CashItemGiftRecvListRepMsg(CNetMsg::SP& msg, unsigned char listflag, std::vector<std::pair<int,int> >& vec, CNetMsg::SP& recvMsg);
 
 // 변신 관련
 void ChangeErrMsg(CNetMsg::SP& msg, MSG_CHANGE_ERR_TYPE type);
@@ -373,6 +373,7 @@ void GuildBattleStopRejectMsg(CNetMsg::SP& msg, int reject_charindex);
 void GuildBattleEndMsg(CNetMsg::SP& msg, int winner_guildindex, int guidindex1, const char* name1, int guildindex2, const char* name2, int prize);
 void GuildBattleStatusMsg(CNetMsg::SP& msg, int guildindex1, const char* name1, int killcount1, int guildindex2, const char* name2, int killcount2, int battletime, int battleZone);
 void GuildBattleErrMsg(CNetMsg::SP& msg, MSG_GUILD_EROOR_BATTLE_TYPE type);
+void GuildBattleCoreInitMsg(CNetMsg::SP& msg);
 
 void GuildWarGetTimeMsg(CNetMsg::SP& msg, MSG_GUILD_WAR_ERROR_TYPE errcode, CWarCastle* castle);
 void GuildWarNoticeTimeMsg(CNetMsg::SP& msg, int zoneindex, char month, char day, char hour, char min);
@@ -396,12 +397,8 @@ void GuildStashTakeRepMsg(CNetMsg::SP& msg, MSG_GUILD_STASH_ERROR_TYPE errcode);
 
 void GuildInclineEstablishMsg( CNetMsg::SP& msg, char guildincline );
 void GuildNewInfo( CNetMsg::SP& msg, CPC* ch, int avelevel, int guildpoint, int usepoint );
-void GuildMemberListRep( CNetMsg::SP& msg, int membercount, int* membercharindex, int* cumulatePoint, const char CharName[][MAX_CHAR_NAME_LENGTH  + 1], const char PositionName[][GUILD_POSITION_NAME+1], char* job, char* job2, int* level, int* position, CGuild* guild );
-#ifdef DEV_GUILD_STASH
-void GuildNewManageRep( CNetMsg::SP& msg, int membercount, int* membercharindex, int* contributeExp, int* contributeFame, const char CharName[][MAX_CHAR_NAME_LENGTH  + 1], const char PositionName[][GUILD_POSITION_NAME+1], int* level, int* position, char* stashAuth, CGuild* guild, char first );
-#else
-void GuildNewManageRep( CNetMsg::SP& msg, int membercount, int* membercharindex, int* contributeExp, int* contributeFame, const char CharName[][MAX_CHAR_NAME_LENGTH  + 1], const char PositionName[][GUILD_POSITION_NAME+1], int* level, int* position,  CGuild* guild, char first );
-#endif //DEV_GUILD_STASH
+void GuildMemberListRep( CNetMsg::SP& msg, int membercount, int* membercharindex, int* cumulatePoint, const char CharName[][MAX_CHAR_NAME_LENGTH  + 1], const char PositionName[][GUILD_POSITION_NAME+1], char* job, char* job2, int* level, int* position, CGuild* guild, int* logout_date );
+void GuildNewManageRep( CNetMsg::SP& msg, int membercount, int* membercharindex, int* contributeExp, int* contributeFame, int*contributeExp_min, int*contributeExp_max, int* contributeFame_min, int* contributeFame_max, const char CharName[][MAX_CHAR_NAME_LENGTH  + 1], const char PositionName[][GUILD_POSITION_NAME+1], int* level, int* position, char* stashAuth, CGuild* guild, char first );
 void GuildNewNotify( CNetMsg::SP& msg,const char* title, const char* text );
 void GuildNewNotifyTrans( CNetMsg::SP& msg, const char* guildname, const char* title, const char* text );
 void GuildSkillListRepMsg(CNetMsg::SP& msg, int active_count, int active_skill_index[], int active_skill_level[], int active_skill_cooltime[], int passive_count, int passive_skill_index[],	int passive_skill_level[], int etc_count, int etc_skill_index[], int etc_skill_level[]);
@@ -409,8 +406,10 @@ void GuildSkillListRepMsg(CNetMsg::SP& msg, int active_count, int active_skill_i
 void GuildSkillLearnMsg(CNetMsg::SP& msg, CSkill* skill);
 void GuildPointInfo(CNetMsg::SP& msg, int guildpoint);
 
+void GuildContributeDataMsg(CNetMsg::SP& msg, CPC* pc);
+
 void HelperGuildInclineEstablishReqMsg( CNetMsg::SP& msg, CPC* ch, char guildincline );
-void HelperGuildMemberAdjust( CNetMsg::SP& msg, CPC* ch, int charindex, const char* strPositionName, int contributeExp, int contributFame, int pos );
+void HelperGuildMemberAdjust( CNetMsg::SP& msg, CPC* ch, int charindex, const char* strPositionName, int contributeExp_min, int contributeExp_max, int contributeFame_min, int contributeFame_max, int pos );
 void HelperNewGuildInfo( CNetMsg::SP& msg, CPC* ch );
 void HelperNewGuildMemberList( CNetMsg::SP& msg, CPC* ch );
 void HelperNewGuildManage( CNetMsg::SP& msg, CPC* ch );
@@ -443,19 +442,23 @@ void HelperGuildLevelUpReqMsg(CNetMsg::SP& msg, int guildindex, int charindex);
 void HelperGuildBreakUpReqMsg(CNetMsg::SP& msg, CPC* boss);
 void HelperGuildMemberAddReqMsg(CNetMsg::SP& msg, int guildindex, int targetindex, int requester, const char* name);
 void HelperGuildOutReqMsg(CNetMsg::SP& msg, int guildindex, int charindex);
-void HelperGuildKickReqMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex);
+void HelperGuildKickReqMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex, int guild_out_date);
 void HelperGuildChangeBossReqMsg(CNetMsg::SP& msg, int guildindex, int current, int change);
 void HelperGuildAppointOfficerReqMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex);
 void HelperGuildChat(CNetMsg::SP& msg, int guildindex, int charindex, const char* charname, const char* chat);
 void HelperGuildFireOfficerReqMsg(CNetMsg::SP& msg, int guildindex, int bossindex, int charindex);
 void HelperCharDelMsg(CNetMsg::SP& msg, int charindex);
 
-void HelperGuildBattleReqMsg(CNetMsg::SP& msg, int guildindex1, int guildindex2, int prize, int zone, int time);
-void HelperGuildBattleStopReqMsg(CNetMsg::SP& msg, int guildindex1, int guildindex2);
+void HelperGuildBattleReqMsg(CNetMsg::SP& msg, int guildindex1, int guildindex2, int prize_nas, int prize_gp, int zone, int time);
+void HelperGuildBattleStopReqMsg(CNetMsg::SP& msg, int guildindex1, int guildindex2, int isAccept = false);
 void HelperGuildBattlePeaceReqMsg(CNetMsg::SP& msg, CGuild* g);
 void HelperGuildBattleKillReqMsg(CNetMsg::SP& msg, int of_guildindex, int df_guildindex);
+void HelperGuildBattleGiveUpReqMsg(CNetMsg::SP& msg, int guildindex1, int guildindex2);
 void HelperEventMoonStoneUpdateReqMsg(CNetMsg::SP& msg);
 void HelperEventMoonStoneJackPotReqMsg(CNetMsg::SP& msg, int chaindex);
+
+void HelperGuildContributeSet(CNetMsg::SP& rmsg, int char_index, int guild_index, int exp, int fame);
+void HelperGuildContributeSetAll(CNetMsg::SP& rmsg, int char_index, int guild_index, int exp, int exp_min, int exp_max, int fame, int fame_min, int fame_max);
 
 void HelperWarNoticeTimeMsg(CNetMsg::SP& msg, int zoneindex, char month, char day, char hour, char min);
 void HelperWarNoticeRemainMsg(CNetMsg::SP& msg, int zoneindex, char remain);
@@ -939,8 +942,8 @@ void PartyRecallErrorMsg(CNetMsg::SP& msg, MSG_EX_PARTY_RECALL_TYPE type);
 
 void SubHelperTitleSystemInsertReq(CNetMsg::SP& msg, int char_index, int title_index, int endtime, int tab, int invenIndex, CLCString serial, int custom_title_index);
 void SubHelperTitleSystemCheckTimeReq(CNetMsg::SP& msg, int char_index, CTitleNode* temp);
-void SubHelperTitleSystemDeleteReq(CNetMsg::SP& msg, int char_index, int title_index);
-void SubHelperTitleSystemTitleDelReq(CNetMsg::SP& msg, int char_index, int title_index);
+void SubHelperTitleSystemDeleteReq(CNetMsg::SP& msg, int char_index, int title_index, int custom_title_index = -1);
+void SubHelperTitleSystemTitleDelReq(CNetMsg::SP& msg, int char_index, int title_index, int custom_title_index = -1);
 // [selo: 101105] 종료 시간 강제 변경
 
 void TakeAgainQuestItemMsg(CNetMsg::SP& msg, MSG_EX_TAKE_AGAIN_QUEST_ITEM_TYPE type);

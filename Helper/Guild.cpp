@@ -17,6 +17,11 @@ CGuildMember::CGuildMember()
 	m_listindex = -1;
 	m_online = 0;
 
+	m_contributeExp_min = 0;
+	m_contributeExp_max = 0;
+	m_contributeFame_min = 0;
+	m_contributeFame_max = 0;
+
 	m_contributeExp		= 0;
 	m_contributeFame	= 0;
 	m_cumulatePoint		= 0;
@@ -45,7 +50,7 @@ char CGuildMember::GetGuildMark()
 	return 0;
 }
 
-CGuild::CGuild(int guildindex, const char* name, int level, int battleIndex, int battlePrize, int battleTime, int battleZone, int battleKillCount, int battleState)
+CGuild::CGuild(int guildindex, const char* name, int level, int battleIndex, int battlePrize_nas, int battleTime, int battleZone, int battleKillCount, int battleState)
 	: m_name(MAX_GUILD_NAME_LENGTH + 1)
 {
 	if (name && level > 0)
@@ -61,7 +66,7 @@ CGuild::CGuild(int guildindex, const char* name, int level, int battleIndex, int
 		m_index = guildindex;
 
 		m_battleIndex = battleIndex;
-		m_battlePrize = battlePrize;
+		m_battlePrize_nas = battlePrize_nas;
 		m_battleTime = battleTime;
 		m_battleZone = battleZone;
 		m_killCount = battleKillCount;
@@ -98,6 +103,12 @@ CGuild::CGuild(int guildindex, const char* name, int level, int battleIndex, int
 	m_Background_col		= -1;
 	m_GuildMarkExpire		= -1;
 #endif
+	m_isUseTheStashAndSkill = true;
+
+	m_guild_contribute_all_exp_min      = 0;
+	m_guild_contribute_all_exp_max      = 0;
+	m_guild_contribute_all_fame_min     = 0;
+	m_guild_contribute_all_fame_max     = 0;
 }
 
 CGuild::~CGuild()
@@ -224,7 +235,7 @@ CGuildList::~CGuildList()
 	}
 }
 
-CGuild* CGuildList::create(int guildindex, const char* guildname, int charindex, const char* bossname)
+CGuild* CGuildList::create(int guildindex, const char* guildname, int charindex, const char* bossname, int create_date)
 {
 	if (guildname == NULL || guildindex < 1 || charindex < 1 || bossname == NULL)
 		return NULL;
@@ -237,11 +248,12 @@ CGuild* CGuildList::create(int guildindex, const char* guildname, int charindex,
 	int listindex = guild->addmember(charindex, bossname);
 	// 보스 지정
 	guild->changeboss(listindex);
+	guild->m_create_date = create_date;
 
 	return guild;
 }
 
-CGuild* CGuildList::create(int guildindex, const char* guildname, int guildlevel, int battleIndex, int battlePrize, int battleTime, int battleZone, int battleKillCount, int battleState)
+CGuild* CGuildList::create(int guildindex, const char* guildname, int guildlevel, int battleIndex, int battlePrize, int battleTime, int battleZone, int battleKillCount, int battleState, int create_date)
 {
 	if (guildname == NULL || guildindex < 1 || guildlevel < 1 || guildlevel > GUILD_MAX_GUILD_LEVEL)
 		return NULL;
@@ -254,13 +266,14 @@ CGuild* CGuildList::create(int guildindex, const char* guildname, int guildlevel
 	if (battleIndex != -1)
 	{
 		if (battleZone != ZONE_START && battleZone != ZONE_DRATAN && battleZone != ZONE_MERAC && battleZone != ZONE_EGEHA
-				&& battleZone != ZONE_STREIANA && battleZone != ZONE_MONDSHINE && battleZone != ZONE_TARIAN && battleZone != ZONE_BLOODYMIR )
+				&& battleZone != ZONE_STREIANA && battleZone != ZONE_MONDSHINE && battleZone != ZONE_TARIAN && battleZone != ZONE_BLOODYMIR && battleZone != ZONE_PK_TOURNAMENT )
 			return NULL;
 		if (battleKillCount < 0 || battleState < 0)
 			return NULL;
 	}
 
 	CGuild* guild = new CGuild(guildindex, guildname, guildlevel, battleIndex, battlePrize, battleTime, battleZone, battleKillCount, battleState);
+	guild->m_create_date = create_date;
 
 	return guild;
 }

@@ -1668,6 +1668,13 @@ void ApplyDamage(CCharacter* of, CCharacter* df, MSG_DAMAGE_TYPE damageType, con
 			df->m_hp = df->m_maxHP;
 		if (df->m_hp <= 0)
 			df->m_hp = 0;
+
+		if(IS_PC(df))
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			UpdateClient::CharStatusHPMP(rmsg, df->m_maxHP, df->m_hp, df->m_maxMP, df->m_mp);
+			SEND_Q(rmsg, TO_PC(df)->m_desc);
+		}
 	}
 	//아이템에 옵션(패시브, 공격형, 방어형) 이 있는 경우 적용.
 	//TODO	1단계 : 캐릭터가 입고 있는 아이템을 검사한다.
@@ -2501,63 +2508,18 @@ bool IsPK(CPC* of, CCharacter* df)
 			return false;
 	}
 
-#ifdef CHANGE_WARCASTLE_SETTING
-	// 서로 적대 관계(공성, 수성)이면 페널티가 없다.
-	CPC* pDf = TO_PC(df);
-	int nZoneIdx = -1;
-	CWarCastle* castle = CWarCastle::GetCastleObject(ZONE_DRATAN);
-	if (castle && castle->GetState() != WCSF_NORMAL)
-	{
-		nZoneIdx = ZONE_DRATAN;
-	}
-	else
-	{
-		castle = CWarCastle::GetCastleObject(ZONE_MERAC);
-		if (castle && castle->GetState() != WCSF_NORMAL)
-		{
-			nZoneIdx = ZONE_MERAC;
-		}
-	}
-	if ( pDf && nZoneIdx > 0 )
-	{
-		if ( (IS_DEFENSE_TEAM(of->GetJoinFlag(nZoneIdx)) && IS_ATTACK_TEAM(pDf->GetJoinFlag(nZoneIdx))) ||					// 수성 vs 공성
-				(IS_ATTACK_TEAM(of->GetJoinFlag(nZoneIdx)) && pDf->GetJoinFlag(nZoneIdx) != WCJF_NONE) )						// 공성 vs 수성 or 공성
-		{
-			return false;
-		}
-#ifdef CHECK_CASTLE_AREA
-		if ((of->m_pZone->m_index == nZoneIdx && pDf->m_pZone->m_index == nZoneIdx ) &&										// 공성존이고,공성지역내에 있고, 공,수성(of) vs 3세력(df)
-				(of->GetMapAttr() & MATT_WAR || of->m_pZone->IsWarZone((int)of->m_pos.m_x, (int)of->m_pos.m_z)) &&
-				(df->GetMapAttr() & MATT_WAR || df->m_pZone->IsWarZone((int)df->m_pos.m_x, (int)df->m_pos.m_z)) &&
-				of->GetJoinFlag(nZoneIdx) != WCJF_NONE && pDf->GetJoinFlag(nZoneIdx) == WCJF_NONE)
-#else // CHECK_CASTLE_AREA
-		if ((of->m_pZone->m_index == nZoneIdx && pDf->m_pZone->m_index == nZoneIdx ) &&
-				(of->GetMapAttr() == pDf->GetMapAttr() && of->GetMapAttr() & MATT_WAR && of->GetJoinFlag(nZoneIdx) != WCJF_NONE && pDf->GetJoinFlag(nZoneIdx) == WCJF_NONE) )
-#endif // CHECK_CASTLE_AREA
-		{
-			return false;
-		}
-	}
-#else // CHANGE_WARCASTLE_SETTING
 	// 공성 도중 사망은 패널티 없음
 	CWarCastle* castle = CWarCastle::GetCastleObject(of->m_pZone->m_index);
 	if (castle)
 	{
 		if (castle->GetState() != WCSF_NORMAL)
 		{
-#ifdef CHECK_CASTLE_AREA
 			if ( (of->GetMapAttr() & MATT_WAR || of->m_pZone->IsWarZone((int)of->m_pos.m_x, (int)of->m_pos.m_z)) &&
 					(df->GetMapAttr() & MATT_WAR || df->m_pZone->IsWarZone((int)df->m_pos.m_x, (int)df->m_pos.m_z)) &&
 					(of->GetJoinFlag(of->m_pZone->m_index) != WCJF_NONE ))
 				return false;
-#else
-			if (of->GetMapAttr() & MATT_WAR &&
-					df->GetMapAttr() & MATT_WAR)
-				return false;
-#endif // CHECK_CASTLE_AREA
 		}
 	}
-#endif // CHANGE_WARCASTLE_SETTING
 //#endif
 
 	/////////////////////////////////////////////

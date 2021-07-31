@@ -3,7 +3,7 @@
 
 #include "ptype_base.h"
 
-#define RESERVED_GM_COMMAND_MAX_STRING			(25)
+#define RESERVED_GM_COMMAND_MAX_STRING			(200)
 #define RESERVED_GM_COMMAND_TITLE_MAX_STRING	(30)
 #define RESERVED_GM_COMMAND_DESC_MAX_STRING		(100)
 
@@ -15,6 +15,14 @@ enum
 	MSG_SUB_ACTION_RESERVED_GM_COMMAND,
 	MSG_SUB_ADD_RESERVED_GM_COMMAND,
 	MSG_SUB_DELETE_RESERVED_GM_COMMAND,
+
+
+	////////////////////////////////////////////////////////////////////////
+	//gm명령어를 이용한 명령어 예약
+	MSG_SUB_ADD_RESERVED_GM_COMMAND_BY_GMCOMMAND,
+	MSG_SUB_DELETE_RESERVED_GM_COMMAND_BY_GMCOMMAND,
+	MSG_SUB_LIST_RESERVED_GM_COMMAND_BY_GMCOMMAND,
+	MSG_SUB_ACTION_RESERVED_GM_COMMAND_BY_GMCOMMAND,
 };
 
 enum
@@ -45,6 +53,14 @@ struct reservedGMCommandElement
 	char	a_desc[RESERVED_GM_COMMAND_DESC_MAX_STRING + 1];
 };
 
+struct reservedGMCommandData
+{
+	int index;
+	int startTime;
+	int subno;	
+	char command[RESERVED_GM_COMMAND_MAX_STRING + 1];
+};
+
 //////////////////////////////////////////////////////////////////////////
 namespace RequestClient
 {
@@ -55,6 +71,25 @@ struct reservedGMCommandList : public pTypeBase
 	unsigned short year;
 	unsigned short month;
 };
+
+//GM 커맨드를 이용한 명령
+struct reservedGMCommandAddByGMCommand : public pTypeBase
+{
+	int subNo;
+	int startTime;
+	char command[RESERVED_GM_COMMAND_MAX_STRING + 1];
+};
+
+struct reservedGMCommandDeleteByGMCommand : public pTypeBase
+{
+	int index;
+};
+
+struct reservedGMCommandListByGMCommand : public pTypeBase
+{
+	int char_index;
+};
+//
 }
 
 namespace ResponseClient
@@ -67,6 +102,13 @@ struct reservedGMCommandList : public pTypeBase
 	unsigned short month;
 	unsigned short count;
 	reservedGMCommandElement ele[0];
+};
+
+struct reservedGMCommandListByGm : public pTypeBase
+{
+	int char_index;
+	int count;
+	reservedGMCommandData data[0];
 };
 }
 //////////////////////////////////////////////////////////////////////////
@@ -124,6 +166,12 @@ struct addReservedGMCommand : public pTypeBase
 	char command[RESERVED_GM_COMMAND_MAX_STRING + 1];
 };
 
+struct addReservedGMCommandByGm : public pTypeBase
+{
+	char command[RESERVED_GM_COMMAND_MAX_STRING + 1];
+	int subno;
+};
+
 #ifndef _CLIENT_
 inline void makeAddReservedGMCommand(CNetMsg::SP& msg, std::string gmstr)
 {
@@ -134,6 +182,18 @@ inline void makeAddReservedGMCommand(CNetMsg::SP& msg, std::string gmstr)
 	packet->command[RESERVED_GM_COMMAND_MAX_STRING] = '\0';
 	msg->setSize(sizeof(addReservedGMCommand));
 }
+
+inline void makeAddReservedGMCommandByGmCommand(CNetMsg::SP& msg, std::string command, int subno)
+{
+	addReservedGMCommandByGm* packet = reinterpret_cast<addReservedGMCommandByGm*>(msg->m_buf);
+	msg->m_mtype = packet->type = MSG_RESERVED_GM_COMMAND;
+	packet->subType = MSG_SUB_ACTION_RESERVED_GM_COMMAND_BY_GMCOMMAND;
+	strcpy(packet->command, command.c_str());
+	packet->command[RESERVED_GM_COMMAND_MAX_STRING] = '\0';
+	packet->subno = subno;
+	msg->setSize(sizeof(addReservedGMCommandByGm));
+}
+
 #endif
 }
 //////////////////////////////////////////////////////////////////////////

@@ -2582,7 +2582,7 @@ int ApplySkill(CCharacter* ch, CCharacter* tch, CSkill* skill, int itemidx, bool
 	}
 
 	//아이템 스킬일 경우 
-	if(itemidx > 0)
+	if(itemidx > 0 && skill->m_proto->m_targetType != STT_PARTY_ALL)
 	{
 		if(ch->checkItemCoolTime(itemidx, skill) == false)
 			return 0;
@@ -3239,6 +3239,15 @@ void ApplySkillParty(CPC* ch, CSkill* skill, int itemidx, bool& bApply)
 	{
 		ApplySkill(ch, ch, skill, itemidx, bApply);
 		return ;
+	}
+
+	if(itemidx > 0)
+	{
+		if(ch->checkItemCoolTime(itemidx, skill) == false)
+		{
+			bApply = false;
+			return ;
+		}
 	}
 
 	bool bApplyParty = false;

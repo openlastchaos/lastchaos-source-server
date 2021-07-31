@@ -64,29 +64,33 @@ void do_TradeAgent(CPC* ch, CNetMsg::SP& msg)
 	case MSG_TRADEAGENT_ERROR:
 		do_TradeAgent_Error(ch, msg);
 		break;
+
+	default:
+		LOG_ERROR("ERROR - invalid packet type(%d)", pBase->subType);
+		ch->m_desc->Close("invalid packet type");
+		return;
 	}
 }
 
 // 등록 리스트 요청
 void do_TradeAgent_RegListReq(CPC* ch, CNetMsg::SP& msg)
 {
-	if (gserver->isRunSubHelper())
-	{
-		/*CNetMsg::SP rmsg(msg);
-		RequestClient::TradeAgentSystemRegList *p = reinterpret_cast<RequestClient::TradeAgentSystemRegList*>(rmsg->m_buf);
-		rmsg->setSize(sizeof(RequestClient::TradeAgentSystemRegList));
-		p->charIndex = ch->m_index;
-		SEND_Q(rmsg, gserver->m_subHelper);*/
-		RequestClient::TradeAgentSystemRegList *p = reinterpret_cast<RequestClient::TradeAgentSystemRegList*>(msg->m_buf);
-		p->charIndex = ch->m_index;
-		SEND_Q(msg, gserver->m_subHelper);
-	}
-	else
+	if (gserver->isRunSubHelper() == false)
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
 		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_SEARCH_ERROR);
 		SEND_Q(rmsg, ch->m_desc);
+		return;
 	}
+
+	/*CNetMsg::SP rmsg(msg);
+	RequestClient::TradeAgentSystemRegList *p = reinterpret_cast<RequestClient::TradeAgentSystemRegList*>(rmsg->m_buf);
+	rmsg->setSize(sizeof(RequestClient::TradeAgentSystemRegList));
+	p->charIndex = ch->m_index;
+	SEND_Q(rmsg, gserver->m_subHelper);*/
+	RequestClient::TradeAgentSystemRegList *p = reinterpret_cast<RequestClient::TradeAgentSystemRegList*>(msg->m_buf);
+	p->charIndex = ch->m_index;
+	SEND_Q(msg, gserver->m_subHelper);
 }
 
 // 등록 요청
@@ -100,99 +104,95 @@ void do_TradeAgent_RegReq(CPC* ch, CNetMsg::SP& msg)
 		return ;
 	}
 
+	RequestClient::TradeAgentSystemReg *p = reinterpret_cast<RequestClient::TradeAgentSystemReg*>(msg->m_buf);
+
+	//현재 등록이 처리중인지 체크(에러 메세지 보내지 않고 차단)
+	if(ch->m_bTradeAgentRegIng == true)
 	{
-		RequestClient::TradeAgentSystemReg *p = reinterpret_cast<RequestClient::TradeAgentSystemReg*>(msg->m_buf);
+		LOG_ERROR("tradeagent - registering. charIndex[%d]", ch->m_index);
+		ch->m_desc->Close("tradeagent - registering");
+		return ;
+	}
 
-		//현재 등록이 처리중인지 체크(에러 메세지 보내지 않고 차단)
-		if(ch->m_bTradeAgentRegIng == true)
-		{
-			LOG_ERROR("tradeagent - registering. charIndex[%d]", ch->m_index);
-			return ;
-		}
+	if(ch->m_tradeAgentRegCount >= MAX_REG_COUNT)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_ITEM_REG_FULL);
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
 
-		if(ch->m_tradeAgentRegCount >= MAX_REG_COUNT)
-		{
-			CNetMsg::SP rmsg(new CNetMsg);
-			makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_ITEM_REG_FULL);
-			SEND_Q(rmsg, ch->m_desc);
-			return;
-		}
+	// 아이템 찾기
+	CItem* item = ch->m_inventory.getItem(p->tab, p->invenIndex);
+	if (item == NULL || item->getDBIndex() != p->itemIndex || item->getWearPos() != WEARING_NONE)
+	{
+		ch->m_desc->Close("invalid inventory tab/index");
+		return;
+	}
 
-		// 아이템 찾기
-		CItem* item = ch->m_inventory.getItem(p->tab, p->invenIndex);
-		if (item == NULL || item->getDBIndex() != p->itemIndex || item->getWearPos() != WEARING_NONE)
-			return;
+	const CItemProto* itemproto = item->m_itemProto;
+	if (itemproto == NULL)
+	{
+		ch->m_desc->Close("not found item");
+		return;
+	}
 
-		const CItemProto* itemproto = item->m_itemProto;
-		if (itemproto == NULL)
-			return;
+	if(item->m_socketList.GetSocketCount() > 0 && item->m_socketList.getSocketPos(0)->GetJewelDBIdx() == -1)
+	{
+		ch->m_desc->Close("item socket is not 0");
+		return;
+	}
 
-		if(item->m_socketList.GetSocketCount() > 0 && item->m_socketList.getSocketPos(0)->GetJewelDBIdx() == -1)
-			return;
+	//아이템 수량 체크
+	if(p->quantity <= 0 || item->Count() < p->quantity)
+	{
+		// 에러 메세지: 아이템 개수 부정확
+		CNetMsg::SP rmsg(new CNetMsg);
+		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_NOT_EXIST_ITEM);
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
 
-		//아이템 수량 체크
-		if(p->quantity <= 0 || item->Count() < p->quantity)
-		{
-			// 에러 메세지: 아이템 개수 부정확
-			CNetMsg::SP rmsg(new CNetMsg);
-			makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_NOT_EXIST_ITEM);
-			SEND_Q(rmsg, ch->m_desc);
-			return;
-		}
+	//돈 체크 (게런티)
+	if(ch->m_inventory.getMoney() < (ch->m_tradeAgentRegCount + 1) * g_TradeAgent_Deposit)
+	{
+		// 에러 메세지: 돈 부족
+		CNetMsg::SP rmsg(new CNetMsg);
+		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_NOT_ENOUGH_MONEY);
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
 
-		//돈 체크 (게런티)
-		if(ch->m_inventory.getMoney() < (ch->m_tradeAgentRegCount + 1) * g_TradeAgent_Deposit)
-		{
-			// 에러 메세지: 돈 부족
-			CNetMsg::SP rmsg(new CNetMsg);
-			makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_NOT_ENOUGH_MONEY);
-			SEND_Q(rmsg, ch->m_desc);
-			return;
-		}
-
-		//총 금액 체크
-		if(p->TotalMoney <= 0)
-		{
-			// 에러 메세지: 판매 총 금액 부정확
-			CNetMsg::SP rmsg(new CNetMsg);
-			makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_INCORRECT_MONEY);
-			SEND_Q(rmsg, ch->m_desc);
-			return;
-		}
+	//총 금액 체크
+	if(p->TotalMoney <= 0)
+	{
+		// 에러 메세지: 판매 총 금액 부정확
+		CNetMsg::SP rmsg(new CNetMsg);
+		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_INCORRECT_MONEY);
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
 
 #ifdef ENABLE_SUBJOB
-		if( item && item->CheckTrader() && item->CanUseTrader( TRADE_TRADEAGENT, ch->IsSubJob(JOB_SUB_TRADER) ) == false )
-		{
-			CNetMsg::SP rmsg(new CNetMsg);
-			makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_NOT_TRADEITEM);
-			SEND_Q(rmsg, ch->m_desc);
-			return;
-		}
+	if( item && item->CheckTrader() && item->CanUseTrader( TRADE_TRADEAGENT, ch->IsSubJob(JOB_SUB_TRADER) ) == false )
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_NOT_TRADEITEM);
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
 
-		if( !item->CheckTrader() )
-		{
+	if( !item->CheckTrader() )
+	{
 #endif //ENABLE_SUBJOB
-			if( !(itemproto->getItemFlag() & ITEM_FLAG_EXCHANGE) ||
-					(itemproto->getItemFlag() & ITEM_FLAG_COMPOSITE) ||
-					(item->getFlag() & FLAG_ITEM_SEALED) ||
-					(item->getFlag() & FLAG_ITEM_COMPOSITION) ||
-					(item->getFlag() & FLAG_ITEM_LENT) ||
-					(item->getFlag() & FLAG_ITEM_BELONG) ||
-					( item->getUsed() > 0 ) || ( item->getUsed_2() > 0 ) || (itemproto->getItemFlag() & ITEM_FLAG_NOTTRADEAGENT)
-			  )
-			{
-				// 에러 메세지: 거래 불가능 아이템
-				CNetMsg::SP rmsg(new CNetMsg);
-				makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_NOT_TRADEITEM);
-				SEND_Q(rmsg, ch->m_desc);
-				return;
-			}
-#ifdef ENABLE_SUBJOB
-		}
-#endif //ENABLE_SUBJOB
-		//악세사리 , 애완동물 거래 불가 || 악세사리 , 공격형 애완동물 거래 불가
-		if( ((itemproto->getItemTypeIdx() == 5) && (itemproto->getItemSubTypeIdx() == 6)) ||
-				((itemproto->getItemTypeIdx() == 5) && (itemproto->getItemSubTypeIdx() == 7)) )
+		if( !(itemproto->getItemFlag() & ITEM_FLAG_EXCHANGE) ||
+			(itemproto->getItemFlag() & ITEM_FLAG_COMPOSITE) ||
+			(item->getFlag() & FLAG_ITEM_SEALED) ||
+			(item->getFlag() & FLAG_ITEM_COMPOSITION) ||
+			(item->getFlag() & FLAG_ITEM_LENT) ||
+			(item->getFlag() & FLAG_ITEM_BELONG) ||
+			( item->getUsed() > 0 ) || ( item->getUsed_2() > 0 ) || (itemproto->getItemFlag() & ITEM_FLAG_NOTTRADEAGENT)
+			)
 		{
 			// 에러 메세지: 거래 불가능 아이템
 			CNetMsg::SP rmsg(new CNetMsg);
@@ -200,115 +200,121 @@ void do_TradeAgent_RegReq(CPC* ch, CNetMsg::SP& msg)
 			SEND_Q(rmsg, ch->m_desc);
 			return;
 		}
-
-		int itemCount;
-		itemCount = item->Count();
-
+#ifdef ENABLE_SUBJOB
+	}
+#endif //ENABLE_SUBJOB
+	//악세사리 , 애완동물 거래 불가 || 악세사리 , 공격형 애완동물 거래 불가
+	if( ((itemproto->getItemTypeIdx() == 5) && (itemproto->getItemSubTypeIdx() == 6)) ||
+		((itemproto->getItemTypeIdx() == 5) && (itemproto->getItemSubTypeIdx() == 7)) )
+	{
+		// 에러 메세지: 거래 불가능 아이템
 		CNetMsg::SP rmsg(new CNetMsg);
-		rmsg->BufferClear();
-		RequestClient::TradeAgentSystemRegServer* packet = reinterpret_cast<RequestClient::TradeAgentSystemRegServer *>(rmsg->m_buf);
-		packet->type = MSG_TRADEAGENT;
-		packet->subType = MSG_TRADEAGENT_REG;
+		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_NOT_TRADEITEM);
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
 
-		packet->itemIndex = item->getDBIndex();
-		packet->item.item_index = item->getDBIndex();
-		packet->charIndex = ch->m_index;
-		strcpy(packet->charName, (const char*)ch->m_nick);
-		packet->Guarantee = (ch->m_tradeAgentRegCount + 1) * g_TradeAgent_Deposit;
-		strcpy(packet->item.serial, item->m_serial.c_str());
-		packet->item.flag = item->getFlag();
-		packet->item.plus = item->getPlus();
-		packet->item.plus2 = item->getPlus_2();
-		packet->item.item_level = item->GetItemLevel();
-		packet->itemCount = itemCount;
-		packet->quantity = p->quantity;
-		packet->TotalMoney = p->TotalMoney;
+	int itemCount;
+	itemCount = item->Count();
+
+	CNetMsg::SP rmsg(new CNetMsg);
+	rmsg->BufferClear();
+	RequestClient::TradeAgentSystemRegServer* packet = reinterpret_cast<RequestClient::TradeAgentSystemRegServer *>(rmsg->m_buf);
+	packet->type = MSG_TRADEAGENT;
+	packet->subType = MSG_TRADEAGENT_REG;
+
+	packet->itemIndex = item->getDBIndex();
+	packet->item.item_index = item->getDBIndex();
+	packet->charIndex = ch->m_index;
+	strcpy(packet->charName, (const char*)ch->m_nick);
+	packet->Guarantee = (ch->m_tradeAgentRegCount + 1) * g_TradeAgent_Deposit;
+	strcpy(packet->item.serial, item->m_serial.c_str());
+	packet->item.flag = item->getFlag();
+	packet->item.plus = item->getPlus();
+	packet->item.plus2 = item->getPlus_2();
+	packet->item.item_level = item->GetItemLevel();
+	packet->itemCount = itemCount;
+	packet->quantity = p->quantity;
+	packet->TotalMoney = p->TotalMoney;
 #ifdef DURABILITY
-		packet->item.now_durability = item->getNowDurability();
-		packet->item.max_durability = item->getMaxDurability();
+	packet->item.now_durability = item->getNowDurability();
+	packet->item.max_durability = item->getMaxDurability();
 #endif
-		if(item->IsRareItem())
+	if(item->IsRareItem())
+	{
+		//감정된 아이템이면
+		if( item->m_pRareOptionProto != NULL
+			&& item->m_pRareOptionProto->GetIndex() > 0)
 		{
-			//감정된 아이템이면
-			if( item->m_pRareOptionProto != NULL
-					&& item->m_pRareOptionProto->GetIndex() > 0)
-			{
-				//레어 아이템이면 등급을 따로 뽑아 전달해준다.
-				packet->item.rareGrade = item->m_pRareOptionProto->GetGrade();
-			}
-			//미감정 아이템이면
-			else
-			{
-				packet->item.rareGrade = eITEM_GRADE_RARE_NOTOPEN;
-			}
+			//레어 아이템이면 등급을 따로 뽑아 전달해준다.
+			packet->item.rareGrade = item->m_pRareOptionProto->GetGrade();
 		}
-		else if(item->IsOriginItem())
-		{
-			packet->item.rareGrade = eITEM_GRADE_ORIGIN;
-		}
+		//미감정 아이템이면
 		else
 		{
-			packet->item.rareGrade = eITEM_GRADE_NORMAL;
+			packet->item.rareGrade = eITEM_GRADE_RARE_NOTOPEN;
 		}
-
-		packet->item.option_count = item->m_nOption;
-		for( int i = 0; i< item->m_nOption; i++)
-		{
-			packet->item.option_type[i] = item->m_option[i].m_type;
-			packet->item.option_level[i] = item->m_option[i].m_level;
-		}
-
-		packet->item.socketCount = item->m_socketList.GetSocketCount();
-		memset(packet->item.socket, -1, sizeof(packet->item.socket));
-		if (packet->item.socketCount > 0)
-		{
-			int count = (item->m_socketList.GetJewelAt(0) == -1) ? 1 : 0;
-			int end = (item->m_socketList.GetJewelAt(0) == -1) ? item->m_socketList.GetSocketCount() + 1 : item->m_socketList.GetSocketCount();
-			for( int i = count; i < end; i++)
-			{
-				packet->item.socket[i] = item->m_socketList.GetJewelAt(i);
-			}
-		}
-
-		for( int i = 0; i < MAX_VARIATION_COUNT; i++)
-		{
-			packet->item.item_origin[i] = item->m_OriginVar[i];
-		}
-		packet->tab = p->tab;
-		packet->invenIndex = p->invenIndex;
-		packet->itemCount = item->Count() - p->quantity;
-
-		rmsg->setSize(sizeof(RequestClient::TradeAgentSystemRegServer));
-
-		//나스 지우고, 아이템 지우고 (메모리상에서만 삭제)
-
-		{
-			int Guarantee = (ch->m_tradeAgentRegCount + 1) * g_TradeAgent_Deposit;
-			ch->m_inventory.decreaseMoney(Guarantee);
-			ch->m_inventory.decreaseItemCount(item, p->quantity);
-
-			// 서버 크래시때 아이템 복사를 방지하기 위해서 실시간 저장을 함
-			DBManager::instance()->SaveCharacterInfo(ch->m_desc, false);
-		}
-
-		// 서버 크래시때 처리를 위해 캐릭터 정보를 먼저 저장하고 SubHelper로 정보를 보냄
-		SEND_Q(rmsg, gserver->m_subHelper);
-
-		//현재 등록 처리 중 설정
-		ch->m_bTradeAgentRegIng = true;
 	}
+	else if(item->IsOriginItem())
+	{
+		packet->item.rareGrade = eITEM_GRADE_ORIGIN;
+	}
+	else
+	{
+		packet->item.rareGrade = eITEM_GRADE_NORMAL;
+	}
+
+	packet->item.option_count = item->m_nOption;
+	for( int i = 0; i< item->m_nOption; i++)
+	{
+		packet->item.option_type[i] = item->m_option[i].m_type;
+		packet->item.option_level[i] = item->m_option[i].m_level;
+	}
+
+	packet->item.socketCount = item->m_socketList.GetSocketCount();
+	memset(packet->item.socket, -1, sizeof(packet->item.socket));
+	if (packet->item.socketCount > 0)
+	{
+		int count = (item->m_socketList.GetJewelAt(0) == -1) ? 1 : 0;
+		int end = (item->m_socketList.GetJewelAt(0) == -1) ? item->m_socketList.GetSocketCount() + 1 : item->m_socketList.GetSocketCount();
+		for( int i = count; i < end; i++)
+		{
+			packet->item.socket[i] = item->m_socketList.GetJewelAt(i);
+		}
+	}
+
+	for( int i = 0; i < MAX_VARIATION_COUNT; i++)
+	{
+		packet->item.item_origin[i] = item->m_OriginVar[i];
+	}
+	packet->tab = p->tab;
+	packet->invenIndex = p->invenIndex;
+	packet->itemCount = item->Count() - p->quantity;
+
+	rmsg->setSize(sizeof(RequestClient::TradeAgentSystemRegServer));
+
+	//나스 지우고, 아이템 지우고 (메모리상에서만 삭제)
+
+	{
+		int Guarantee = (ch->m_tradeAgentRegCount + 1) * g_TradeAgent_Deposit;
+		ch->m_inventory.decreaseMoney(Guarantee);
+		ch->m_inventory.decreaseItemCount(item, p->quantity);
+
+		// 서버 크래시때 아이템 복사를 방지하기 위해서 실시간 저장을 함
+		DBManager::instance()->SaveCharacterInfo(ch->m_desc, false);
+	}
+
+	// 서버 크래시때 처리를 위해 캐릭터 정보를 먼저 저장하고 SubHelper로 정보를 보냄
+	SEND_Q(rmsg, gserver->m_subHelper);
+
+	//현재 등록 처리 중 설정
+	ch->m_bTradeAgentRegIng = true;
 }
 
 // 등록 취소
 void do_TradeAgent_RegCancelReq(CPC* ch, CNetMsg::SP& msg)
 {
-	if (gserver->isRunSubHelper())
-	{
-		RequestClient::TradeAgentSystemRegCancel *p = reinterpret_cast<RequestClient::TradeAgentSystemRegCancel*>(msg->m_buf);
-		p->charIndex = ch->m_index;
-		SEND_Q(msg, gserver->m_subHelper);
-	}
-	else
+	if (gserver->isRunSubHelper() == false)
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
 		ResponseClient::TradeAgentSystemError *p = reinterpret_cast<ResponseClient::TradeAgentSystemError*>(rmsg->m_buf);
@@ -316,59 +322,83 @@ void do_TradeAgent_RegCancelReq(CPC* ch, CNetMsg::SP& msg)
 		SEND_Q(rmsg, ch->m_desc);
 		return ;
 	}
+
+	RequestClient::TradeAgentSystemRegCancel *p = reinterpret_cast<RequestClient::TradeAgentSystemRegCancel*>(msg->m_buf);
+	p->charIndex = ch->m_index;
+	SEND_Q(msg, gserver->m_subHelper);
 }
 
 // 조회
 void do_TradeAgent_SearchReq(CPC* ch, CNetMsg::SP& msg)
 {
-	if (gserver->isRunSubHelper())
-	{
-		RequestClient::TradeAgentSystemListBase *p = reinterpret_cast<RequestClient::TradeAgentSystemListBase*>(msg->m_buf);
-
-		if(findPercentChar(p->itemName) != NULL)
-		{
-			CNetMsg::SP rmsg(new CNetMsg);
-			makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_SEARCH_ERROR);
-			SEND_Q(rmsg, ch->m_desc);
-			return;
-		}
-
-		if(p->itemTypeTab < 2)
-		{
-			const int nGrade[] = { eITEM_GRADE_MAX,
-								   eITEM_GRADE_NORMAL,
-								   eITEM_GRADE_RARE_BASIC,
-								   eITEM_GRADE_RARE_MAGIC,
-								   eITEM_GRADE_RARE_RARE,
-								   eITEM_GRADE_RARE_UNIQUE,
-								   eITEM_GRADE_RARE_HERO,
-								   eITEM_GRADE_ORIGIN,
-								   eITEM_GRADE_RARE_NOTOPEN
-								 };
-
-			RequestClient::TradeAgentSystemList *packet = reinterpret_cast<RequestClient::TradeAgentSystemList*>(msg->m_buf);
-			packet->itemGrade = nGrade[packet->itemGrade];
-			packet->charIndex = ch->m_index;
-			SEND_Q(msg, gserver->m_subHelper);
-		}
-		else
-		{
-			p->charIndex = ch->m_index;
-			SEND_Q(msg, gserver->m_subHelper);
-		}
-	}
-	else
+	if (gserver->isRunSubHelper() == false)
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
 		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_SEARCH_ERROR);
 		SEND_Q(rmsg, ch->m_desc);
 		return;
 	}
+
+	RequestClient::TradeAgentSystemList *p = reinterpret_cast<RequestClient::TradeAgentSystemList*>(msg->m_buf);
+	p->itemName[sizeof(p->itemName) - 1] = '\0';
+
+	if (p->pageNo < 1)
+	{
+		ch->m_desc->Close("invalid page no");
+		return;
+	}
+
+	if (p->itemTypeTab < 0 || p->itemTypeTab > 2)
+	{
+		ch->m_desc->Close("invalid itemTypeTab");
+		return;
+	}
+
+	if(findPercentChar(p->itemName) != NULL)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_SEARCH_ERROR);
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
+
+	if(p->itemTypeTab < 2)
+	{
+		static const int nGrade[] = { eITEM_GRADE_MAX,
+			eITEM_GRADE_NORMAL,
+			eITEM_GRADE_RARE_BASIC,
+			eITEM_GRADE_RARE_MAGIC,
+			eITEM_GRADE_RARE_RARE,
+			eITEM_GRADE_RARE_UNIQUE,
+			eITEM_GRADE_RARE_HERO,
+			eITEM_GRADE_ORIGIN,
+			eITEM_GRADE_RARE_NOTOPEN
+		};
+
+		if (p->itemGrade < 0 || p->itemGrade >= (sizeof(nGrade) / sizeof(nGrade[0])))
+		{
+			ch->m_desc->Close("invalid itemgrade");
+			return;
+		}
+
+		p->itemGrade = nGrade[p->itemGrade];
+	}
+
+	p->charIndex = ch->m_index;
+	SEND_Q(msg, gserver->m_subHelper);
 }
 
 // 구매
 void do_TradeAgent_BuyReq(CPC* ch, CNetMsg::SP& msg)
 {
+	if (gserver->isRunSubHelper() == false)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_ITEM_BUY_FAIL);
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
+
 	RequestClient::TradeAgentSystemBuy *p = reinterpret_cast<RequestClient::TradeAgentSystemBuy*>(msg->m_buf);
 
 	CCharacter::tradestash_t::iterator it = ch->m_tradeAgentViewMap.find(p->TradeAgentIndex);
@@ -392,31 +422,20 @@ void do_TradeAgent_BuyReq(CPC* ch, CNetMsg::SP& msg)
 		return;
 	}
 
-	if (gserver->isRunSubHelper())
-	{
-		ch->m_inventory.decreaseMoneyNotSend(needNas);
+	ch->m_inventory.decreaseMoneyNotSend(needNas);
 
-		GAMELOG << init("TRADEAGENT BUY.1.(GameServer)", ch)
-				<< "TradeAgent Index" << delim
-				<< p->TradeAgentIndex << delim
-				<< "needNas" << delim
-				<< needNas << end;
+	GAMELOG << init("TRADEAGENT BUY.1.(GameServer)", ch)
+		<< "TradeAgent Index" << delim
+		<< p->TradeAgentIndex << delim
+		<< "needNas" << delim
+		<< needNas << end;
 
-		//구매 패킷 만들어서 전송
-		RequestClient::TradeAgentSystemBuy *packet = reinterpret_cast<RequestClient::TradeAgentSystemBuy*>(msg->m_buf);
-		packet->charIndex = ch->m_index;
-		packet->needNas = needNas;
-		packet->TradeAgentIndex = p->TradeAgentIndex;
-		SEND_Q(msg, gserver->m_subHelper);
-		return;
-	}
-	else
-	{
-		CNetMsg::SP rmsg(new CNetMsg);
-		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_ITEM_BUY_FAIL);
-		SEND_Q(rmsg, ch->m_desc);
-		return;
-	}
+	//구매 패킷 만들어서 전송
+	RequestClient::TradeAgentSystemBuy *packet = reinterpret_cast<RequestClient::TradeAgentSystemBuy*>(msg->m_buf);
+	packet->charIndex = ch->m_index;
+	packet->needNas = needNas;
+	packet->TradeAgentIndex = p->TradeAgentIndex;
+	SEND_Q(msg, gserver->m_subHelper);
 }
 
 void do_TradeAgent_Error(CPC* ch, CNetMsg::SP& msg)
@@ -435,47 +454,44 @@ void do_TradeAgent_Error(CPC* ch, CNetMsg::SP& msg)
 
 void do_TradeAgent_LikeListReq(CPC* ch, CNetMsg::SP& msg)
 {
-	if (gserver->isRunSubHelper())
-	{
-		RequestClient::TradeAgentSystemLikeList *p = reinterpret_cast<RequestClient::TradeAgentSystemLikeList*>(msg->m_buf);
-		p->charIndex = ch->m_index;
-		SEND_Q(msg, gserver->m_subHelper);
-	}
-	else
+	if (gserver->isRunSubHelper() == false)
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
-		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_ITEM_BUY_FAIL);
+		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_ITEM_LIKE_LIST_FAIL);
 		SEND_Q(rmsg, ch->m_desc);
+		return;
 	}
+
+	RequestClient::TradeAgentSystemLikeList *p = reinterpret_cast<RequestClient::TradeAgentSystemLikeList*>(msg->m_buf);
+	p->charIndex = ch->m_index;
+	SEND_Q(msg, gserver->m_subHelper);
 }
 void do_TradeAgent_LikeRegReq(CPC* ch, CNetMsg::SP& msg)
 {
-	if (gserver->isRunSubHelper())
-	{
-		RequestClient::TradeAgentSystemLikeReg *p = reinterpret_cast<RequestClient::TradeAgentSystemLikeReg*>(msg->m_buf);
-		p->charIndex = ch->m_index;
-		SEND_Q(msg, gserver->m_subHelper);
-	}
-	else
+	if (gserver->isRunSubHelper() == false)
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
 		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_ITEM_LIKE_REG_FAIL);
 		SEND_Q(rmsg, ch->m_desc);
+		return;
 	}
+
+	RequestClient::TradeAgentSystemLikeReg *p = reinterpret_cast<RequestClient::TradeAgentSystemLikeReg*>(msg->m_buf);
+	p->charIndex = ch->m_index;
+	SEND_Q(msg, gserver->m_subHelper);
 }
 void do_TradeAgent_LikeCancel(CPC* ch, CNetMsg::SP& msg)
 {
-	if (gserver->isRunSubHelper())
-	{
-		RequestClient::TradeAgentSystemLikeCancel *p = reinterpret_cast<RequestClient::TradeAgentSystemLikeCancel*>(msg->m_buf);
-		p->charIndex = ch->m_index;
-		SEND_Q(msg, gserver->m_subHelper);
-	}
-	else
+	if (gserver->isRunSubHelper() == false)
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
 		makeTradeAgentError(rmsg, ResponseClient::TRADEAGENT_ERROR_ITEM_LIKE_CANCEL_FAIL);
 		SEND_Q(rmsg, ch->m_desc);
+		return;
 	}
+
+	RequestClient::TradeAgentSystemLikeCancel *p = reinterpret_cast<RequestClient::TradeAgentSystemLikeCancel*>(msg->m_buf);
+	p->charIndex = ch->m_index;
+	SEND_Q(msg, gserver->m_subHelper);
 }
 

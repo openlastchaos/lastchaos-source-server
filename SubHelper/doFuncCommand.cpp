@@ -166,6 +166,7 @@ void do_Command_TitleSystem_DisableReq(CNetMsg::SP& msg, CDescriptor* dest)
 	int count = 0;
 	int char_index = 0;
 	int title_index = 0;
+	int custom_title_index = 0;
 	CLCString sql(1024);
 	RefMsg(msg) >> char_index;
 	RefMsg(msg) >> count;
@@ -176,13 +177,21 @@ void do_Command_TitleSystem_DisableReq(CNetMsg::SP& msg, CDescriptor* dest)
 		return ;
 	}
 
+	CDBCmd cmd;
+	cmd.Init(&gserver.m_dbchar);
+
 	for(int i = 0; i < count; i++)
 	{
-		RefMsg(msg) >> title_index;
+		RefMsg(msg) >> title_index
+			>> custom_title_index;
+		if(title_index == CUSTOM_TITLE_DUMMY_INDEX)
+		{
+			sql.Format("DELETE FROM t_title_make where a_index = %d and a_char_index = %d", custom_title_index, char_index);
+			cmd.SetQuery(sql);
+			cmd.Update();
+		}
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		sql.Format("DELETE from t_titlelist where a_char_index = %d and a_title_index = %d", char_index, title_index);
-		CDBCmd cmd;
-		cmd.Init(&gserver.m_dbchar);
 		cmd.SetQuery(sql);
 		if( cmd.Update() )
 		{
@@ -200,10 +209,11 @@ void do_Command_TitleSystem_DeleteReq(CNetMsg::SP& msg, CDescriptor* dest)
 {
 	int char_index;
 	int title_index;
+	int custom_title_index;
 	CLCString sql(1024);
 	CDBCmd cmd;
 	CNetMsg::SP rmsg(new CNetMsg);
-	RefMsg(msg) >> char_index >> title_index;
+	RefMsg(msg) >> char_index >> title_index >> custom_title_index;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	sql.Format("DELETE from t_titlelist where a_char_index = %d and a_title_index = %d", char_index, title_index);
@@ -223,6 +233,13 @@ void do_Command_TitleSystem_DeleteReq(CNetMsg::SP& msg, CDescriptor* dest)
 				<< "TITLE INDEX" << delim << title_index << end;
 		do_Command_TitleSystem_DeleteRep(rmsg, char_index, title_index, 0);
 	}
+
+	if(title_index == CUSTOM_TITLE_DUMMY_INDEX)
+	{
+		sql.Format("DELETE from t_title_make where a_index = %d and a_char_index = %d", custom_title_index, char_index);
+		cmd.SetQuery(sql);
+		cmd.Update();
+	}
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	SEND_Q(rmsg, dest);
 }
@@ -231,9 +248,10 @@ void do_Command_TitleSystem_AutoDelete(CNetMsg::SP& msg, CDescriptor* dest)
 {
 	int char_index;
 	int title_index;
+	int custom_title_index;
 	CLCString sql(1024);
 	CDBCmd cmd;
-	RefMsg(msg) >> char_index >> title_index;
+	RefMsg(msg) >> char_index >> title_index >> custom_title_index;
 	sql.Format("DELETE from t_titlelist where a_char_index = %d and a_title_index = %d", char_index, title_index);
 	cmd.Init(&gserver.m_dbchar);
 	cmd.SetQuery(sql);
@@ -248,6 +266,13 @@ void do_Command_TitleSystem_AutoDelete(CNetMsg::SP& msg, CDescriptor* dest)
 		GAMELOG << init("CANT DELETE TITLE") << delim
 				<< "CHAR INDEX" << delim << char_index << delim
 				<< "TITLE INDEX" << delim << title_index << end;
+	}
+
+	if(title_index == CUSTOM_TITLE_DUMMY_INDEX)
+	{
+		sql.Format("DELETE from t_title_make where a_char_index = %d and a_index = %d", char_index, custom_title_index);
+		cmd.SetQuery(sql);
+		cmd.Update();
 	}
 }
 

@@ -695,75 +695,25 @@ bool CCharacter::IsEnemy(CCharacter* tch)
 					}
 				}
 
-				// 둘다 공성 참여자 이면
-				// 서로의 참여 플래그가 적대적이면 적이다
-#ifdef CHANGE_WARCASTLE_SETTING
-				int nZoneIdx = -1;
-				CWarCastle* castle = CWarCastle::GetCastleObject(ZONE_DRATAN);
-				if (castle && castle->GetState() != WCSF_NORMAL)
-				{
-					nZoneIdx = ZONE_DRATAN;
-				}
-				else
-				{
-					castle = CWarCastle::GetCastleObject(ZONE_MERAC);
-					if (castle && castle->GetState() != WCSF_NORMAL)
-					{
-						nZoneIdx = ZONE_MERAC;
-					}
-				}
-				if ( nZoneIdx > 0 )
-				{
-					// 서로 적대 관게일 경우 전장 내, 전장 밖 모두 공격 가능하다.
-					if ( (IS_DEFENSE_TEAM(ch->GetJoinFlag(nZoneIdx)) && IS_ATTACK_TEAM(target->GetJoinFlag(nZoneIdx))) ||
-							( IS_ATTACK_TEAM(ch->GetJoinFlag(nZoneIdx)) && target->GetJoinFlag(nZoneIdx) != WCJF_NONE) )
-					{
-						return true;
-					}
-					// 공격자가 공수성이면, 3세력 공격 가능하다.
-#ifdef CHECK_CASTLE_AREA
-					// 공성존이고, 공성 지역 내이다.
-					if ((ch->m_pZone->m_index == nZoneIdx && tch->m_pZone->m_index == nZoneIdx) &&
-							(ch->GetMapAttr() & MATT_WAR || ch->m_pZone->IsWarZone((int)ch->m_pos.m_x, (int)ch->m_pos.m_z)) &&
-							(tch->GetMapAttr() & MATT_WAR || tch->m_pZone->IsWarZone((int)tch->m_pos.m_x, (int)tch->m_pos.m_z)) )
-#else
-					if ( ch->m_pZone->m_index == nZoneIdx && tch->m_pZone->m_index == nZoneIdx && ch->GetMapAttr() == tch->GetMapAttr() && ch->GetMapAttr() & MATT_WAR )
-#endif // CHECK_CASTLE_AREA
-					{
-						// 공,수성 vs 3세력
-						if ( (IS_DEFENSE_TEAM(ch->GetJoinFlag(nZoneIdx)) && target->GetJoinFlag(nZoneIdx) == WCJF_NONE ) ||
-								( IS_ATTACK_TEAM(ch->GetJoinFlag(nZoneIdx)) && target->GetJoinFlag(nZoneIdx) == WCJF_NONE) )
-							return true;
-					}
-
-#else // CHANGE_WARCASTLE_SETTING
 				CWarCastle* castle = CWarCastle::GetCastleObject(ch->m_pZone->m_index);
 				if (castle && castle->GetState() != WCSF_NORMAL)
 				{
-#ifdef CHECK_CASTLE_AREA
 					if ((ch->GetMapAttr() & MATT_WAR || ch->m_pZone->IsWarZone((int)ch->m_pos.m_x, (int)ch->m_pos.m_z))
 							&& (tch->GetMapAttr() & MATT_WAR || tch->m_pZone->IsWarZone((int)tch->m_pos.m_x, (int)tch->m_pos.m_z)))
 					{
 						if ( (IS_DEFENSE_TEAM(ch->GetJoinFlag(ch->m_pZone->m_index)) && IS_ATTACK_TEAM(target->GetJoinFlag(ch->m_pZone->m_index))) ||
-								( IS_ATTACK_TEAM(ch->GetJoinFlag(ch->m_pZone->m_index)) && target->GetJoinFlag(ch->m_pZone->m_index) != WCJF_NONE)  )
+								( IS_ATTACK_TEAM(ch->GetJoinFlag(ch->m_pZone->m_index)) && ( (target->GetJoinFlag(ch->m_pZone->m_index) != WCJF_ATTACK_GUILD) &&
+																							 (target->GetJoinFlag(ch->m_pZone->m_index) != WCJF_ATTACK_CHAR) ) ) ) 
 							return true;
 
-						if( ch->GetJoinFlag(ch->m_pZone->m_index) != WCJF_NONE )
-							return true;
+						if( ch->m_pZone->m_index == ZONE_DRATAN )
+						{
+							if(IS_DEFENSE_TEAM(ch->GetJoinFlag(ch->m_pZone->m_index)) && IS_DEFENSE_TEAM(target->GetJoinFlag(ch->m_pZone->m_index)))
+								return false;
 
-						if( target->GetJoinFlag(ch->m_pZone->m_index) != WCJF_NONE)
-							return false;
+							return true;
+						}
 					}
-#else
-					if (ch->GetMapAttr() == tch->GetMapAttr() && ch->GetMapAttr() & MATT_WAR)
-					{
-						if ( (IS_DEFENSE_TEAM(ch->GetJoinFlag(ch->m_pZone->m_index)) && IS_ATTACK_TEAM(target->GetJoinFlag(ch->m_pZone->m_index))) ||
-								( IS_ATTACK_TEAM(ch->GetJoinFlag(ch->m_pZone->m_index)) && target->GetJoinFlag(ch->m_pZone->m_index) != WCJF_NONE)  )
-							return true;
-					}
-
-#endif // CHECK_CASTLE_AREA
-#endif // CHANGE_WARCASTLE_SETTING
 				}
 //#endif
 				/////////////////////////////////////////////
@@ -782,12 +732,7 @@ bool CCharacter::IsEnemy(CCharacter* tch)
 				{
 					bool bSkipLevel = false;
 
-#ifdef CHANGE_WARCASTLE_SETTING
-					// 공성전 지역에서 공성 진행시에는 레벨 검사 안함
-					if (ch->m_pZone->m_index == tch->m_pZone->m_index && ch->GetMapAttr() == tch->GetMapAttr() && ch->GetMapAttr() & MATT_WAR)
-#else	// CHANGE_WARCASTLE_SETTING
 					if (ch->m_pZone->m_index == tch->m_pZone->m_index && ch->m_pZone->m_index == CWarCastle::GetCurSubServerCastleZoneIndex() && ch->GetMapAttr() == tch->GetMapAttr() && ch->GetMapAttr() & MATT_WAR)
-#endif	// CHANGE_WARCASTLE_SETTING
 					{
 						CWarCastle* castle = CWarCastle::GetCastleObject(ch->m_pZone->m_index);
 						if (castle && castle->GetState() != WCSF_NORMAL)
@@ -2081,6 +2026,68 @@ void CPC::CastllanTitleDelete(int castleZoneindex, bool bExclude, char bCastella
 	}
 }
 
+
+bool CPC::is_valid_cash_purchase_list(int purchaseindex, int ctid)
+{
+	std::vector<std::pair<int, int> >::iterator sit = m_cash_purchase_list.begin();
+	std::vector<std::pair<int, int> >::iterator eit = m_cash_purchase_list.end();
+	for (; sit != eit; ++sit)
+	{
+		std::pair<int, int> t = *sit;
+		if (t.first == purchaseindex && t.second == ctid)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void CPC::erase_cash_purchase_list(int purchaseindex, int ctid)
+{
+	std::vector<std::pair<int, int> >::iterator sit = m_cash_purchase_list.begin();
+	std::vector<std::pair<int, int> >::iterator eit = m_cash_purchase_list.end();
+	for (; sit != eit; ++sit)
+	{
+		std::pair<int, int> t = *sit;
+		if (t.first == purchaseindex && t.second == ctid)
+		{
+			m_cash_purchase_list.erase(sit);
+			return;
+		}
+	}
+}
+
+bool CPC::is_valid_cash_gift_list(int purchaseindex, int ctid)
+{
+	std::vector<std::pair<int, int> >::iterator sit = m_cash_gift_list.begin();
+	std::vector<std::pair<int, int> >::iterator eit = m_cash_gift_list.end();
+	for (; sit != eit; ++sit)
+	{
+		std::pair<int, int> t = *sit;
+		if (t.first == purchaseindex && t.second == ctid)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void CPC::erase_cash_gift_list(int purchaseindex, int ctid)
+{
+	std::vector<std::pair<int, int> >::iterator sit = m_cash_gift_list.begin();
+	std::vector<std::pair<int, int> >::iterator eit = m_cash_gift_list.end();
+	for (; sit != eit; ++sit)
+	{
+		std::pair<int, int> t = *sit;
+		if (t.first == purchaseindex && t.second == ctid)
+		{
+			m_cash_gift_list.erase(sit);
+			return;
+		}
+	}
+}
 
 bool CPC::AddExpUseGP(LONGLONG exp)
 {

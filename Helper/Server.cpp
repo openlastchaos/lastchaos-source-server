@@ -342,10 +342,10 @@ bool CServer::LoadSettings()
 	//!===>
 
 #ifdef DEV_GUILD_MARK
-	cmd.SetQuery( "SELECT g.*, eg.a_guild_point, eg.a_guild_incline, eg.a_guild_maxmember, eg.a_guild_land, eg.a_passiveskill_index, eg.a_passiveskill_level, eg.a_gm_row, eg.a_gm_col, eg.a_bg_row, eg.a_bg_col, eg.a_marktime, eg.a_kick_status, eg.a_kick_request_char_index, eg.a_kick_request_time"
+	cmd.SetQuery( "SELECT g.*, UNIX_TIMESTAMP(g.a_createdate) as a_unix_createdate, eg.a_guild_point, eg.a_guild_incline, eg.a_guild_maxmember, eg.a_guild_land, eg.a_passiveskill_index, eg.a_passiveskill_level, eg.a_gm_row, eg.a_gm_col, eg.a_bg_row, eg.a_bg_col, eg.a_marktime, eg.a_kick_status, eg.a_kick_request_char_index, eg.a_kick_request_time, eg.a_contribute_exp_min, eg.a_contribute_exp_max, eg.a_contribute_fame_min, eg.a_contribute_fame_max"
 				  " FROM t_guild AS g, t_extend_guild AS eg WHERE g.a_index = eg.a_guild_index AND g.a_enable = 1 ORDER BY g.a_index " );
 #else
-	cmd.SetQuery( "SELECT g.*, eg.a_guild_point, eg.a_guild_incline, eg.a_guild_maxmember, eg.a_guild_land, eg.a_passiveskill_index, eg.a_passiveskill_level, eg.a_kick_status, eg.a_kick_request_char_index, eg.a_kick_request_time"
+	cmd.SetQuery( "SELECT g.*, UNIX_TIMESTAMP(g.a_createdate) as a_unix_createdate, eg.a_guild_point, eg.a_guild_incline, eg.a_guild_maxmember, eg.a_guild_land, eg.a_passiveskill_index, eg.a_passiveskill_level, eg.a_kick_status, eg.a_kick_request_char_index, eg.a_kick_request_time"
 				  " FROM t_guild AS g, t_extend_guild AS eg WHERE g.a_index = eg.a_guild_index AND g.a_enable = 1 ORDER BY g.a_index " );
 #endif
 	if (!cmd.Open())
@@ -381,10 +381,19 @@ bool CServer::LoadSettings()
 		int kickRequestChar		= 0;
 		int kickRequestTime		= 0;
 		//int lastTimeBossChange	= 0;
+		int	create_date;
+
+		int battle_total_count = 0;
+		int battle_win_count = 0;
+		int battle_lose_count = 0;
+
+		int contribute_exp_min = 0, contribute_exp_max = 0;
+		int contribute_fame_min = 0, contribute_fame_max = 0;
 
 		cmd.GetRec("a_index", guildindex);
 		cmd.GetRec("a_name", guildname);
 		cmd.GetRec("a_level", guildlevel);
+		cmd.GetRec("a_unix_createdate", create_date);
 
 		cmd.GetRec("a_battle_index",	battleIndex);
 		cmd.GetRec("a_battle_prize",	battlePrize);
@@ -392,6 +401,9 @@ bool CServer::LoadSettings()
 		cmd.GetRec("a_battle_time",		battleTime);
 		cmd.GetRec("a_battle_killcount",battleKillCount);
 		cmd.GetRec("a_battle_state",	battleState);
+		cmd.GetRec("a_battle_fight",	battle_total_count);
+		cmd.GetRec("a_battle_win",		battle_win_count);
+		cmd.GetRec("a_battle_lose",		battle_lose_count);
 #ifdef DEV_GUILD_MARK
 		cmd.GetRec("a_gm_row", gm_row);
 		cmd.GetRec("a_gm_col", gm_col);
@@ -403,6 +415,11 @@ bool CServer::LoadSettings()
 		cmd.GetRec("a_kick_status", kickStatus);
 		cmd.GetRec("a_kick_request_char_index", kickRequestChar);
 		cmd.GetRec("a_kick_request_time", kickRequestTime);
+
+		cmd.GetRec("a_contribute_exp_min", contribute_exp_min);
+		cmd.GetRec("a_contribute_exp_max", contribute_exp_max);
+		cmd.GetRec("a_contribute_fame_min", contribute_fame_min);
+		cmd.GetRec("a_contribute_fame_max", contribute_fame_max);
 
 		int guildpoint;
 		int incline;
@@ -447,7 +464,7 @@ bool CServer::LoadSettings()
 		}
 
 		std::string select_guild_member_query = boost::str(boost::format(
-				"SELECT g.*, eg.a_position_name, eg.a_contribute_exp, eg.a_contribute_fame, a_point"
+				"SELECT g.*, eg.a_position_name, eg.a_contribute_exp, eg.a_contribute_fame, eg.a_contribute_exp_min as a_contribute_exp_min, eg.a_contribute_exp_max as a_contribute_exp_max, eg.a_contribute_fame_min as a_contribute_fame_min, eg.a_contribute_fame_max as a_contribute_fame_max, a_point"
 				" FROM t_guildmember AS g, t_extend_guildmember AS eg "
 				" WHERE g.a_guild_index = eg.a_guild_index AND g.a_char_index = eg.a_char_index AND g.a_guild_index = %d ")
 												% guildindex);
@@ -467,10 +484,19 @@ bool CServer::LoadSettings()
 		}
 
 		// TODO : GUILD : 차후 트리 구조 고려
-		CGuild * guild = m_guildlist.create(guildindex, guildname, guildlevel, battleIndex, battlePrize, battleTime, battleZone, battleKillCount, battleState);
+		CGuild * guild = m_guildlist.create(guildindex, guildname, guildlevel, battleIndex, battlePrize, battleTime, battleZone, battleKillCount, battleState, create_date);
 
 		if (guild == NULL)
 			continue ;
+
+		guild->m_battle_total_count = battle_total_count;
+		guild->m_battle_win_count = battle_win_count;
+		guild->m_battle_lose_count = battle_lose_count;
+
+		guild->m_guild_contribute_all_exp_min  = contribute_exp_min;
+		guild->m_guild_contribute_all_exp_max  = contribute_exp_max;
+		guild->m_guild_contribute_all_fame_min = contribute_fame_min;
+		guild->m_guild_contribute_all_fame_max = contribute_fame_max;
 
 		m_guildlist.add(guild);
 		GAMELOG << init("NEW_GUILD" )
@@ -522,17 +548,27 @@ bool CServer::LoadSettings()
 			//char positionname[GUILD_POSITION_NAME+1];
 			int	contributeExp;
 			int contributeFame;
+			int exp_min, exp_max;
+			int fame_min, fame_max;
 			int point;
 
 			cmd2.GetRec( "a_position_name", positionname );
 			cmd2.GetRec( "a_contribute_exp", contributeExp );
 			cmd2.GetRec( "a_contribute_fame", contributeFame );
+			cmd2.GetRec( "a_contribute_exp_min", exp_min );
+			cmd2.GetRec( "a_contribute_exp_max", exp_max );
+			cmd2.GetRec( "a_contribute_fame_min", fame_min );
+			cmd2.GetRec( "a_contribute_fame_max", fame_max );
 			cmd2.GetRec( "a_point", point );
 
 			guild->member(listidx)->contributeExp( contributeExp );
 			guild->member(listidx)->contributeFame( contributeFame );
 			guild->member(listidx)->positionName( positionname );
 			guild->member(listidx)->cumulatePoint( point );
+			guild->member(listidx)->SetContributeExp_min(exp_min);
+			guild->member(listidx)->SetContributeExp_max(exp_max);
+			guild->member(listidx)->SetContributeFame_min(fame_min);
+			guild->member(listidx)->SetContributeFame_max(fame_max);
 
 			switch( pos )
 			{
@@ -910,6 +946,10 @@ void CServer::SendExtendGuildMemberList(CGuild* guild, CDescriptor* desc)
 					RefMsg(rmsg) << guildmember[i]->charindex();
 					RefMsg(rmsg) << guildmember[i]->GetcontributeExp()
 								 << guildmember[i]->GetcontributeFame()
+								 << guildmember[i]->GetcontributeExp_min()
+								 << guildmember[i]->GetcontributeExp_max()
+								 << guildmember[i]->GetcontributeFame_min()
+								 << guildmember[i]->GetcontributeFame_max()
 								 << guildmember[i]->GetcumulatePoint()
 								 << guildmember[i]->GetPositionName()
 								 << guildmember[i]->GetChannel()
@@ -937,7 +977,6 @@ void CServer::SendExtendGuildMemberList(CGuild* guild, CDescriptor* desc)
 	while( (startidx < GUILD_MAX_MEMBER) && sendcount < sendmaxmember);
 }
 
-#ifdef PARTY_BUG_GER
 void CServer::PrintPartyMemberList(int nSubNo, int nFindCharIdx)
 {
 	CParty* party = gserver.FindPartyByMemberIndex(nSubNo, nFindCharIdx, true);
@@ -965,7 +1004,6 @@ void CServer::PrintPartyMemberList(int nSubNo, int nFindCharIdx)
 				<< end;
 	}
 }
-#endif // PARTY_BUG_GER
 
 #ifdef EXTREME_CUBE_VER2
 void CServer::CubePointRanking(int CubePointUpdateTime)

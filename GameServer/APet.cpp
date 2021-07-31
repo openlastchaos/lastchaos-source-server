@@ -644,7 +644,10 @@ void CAPet::ApplyItemValue( )
 			if( i==APET_WEAR_HEAD || i== APET_WEAR_BODY )
 			{
 				m_eqDefense += item->m_itemProto->getItemNum0();
+				applyItemPlusValue(m_eqDefense, item->getPlus());
+
 				m_eqResist	+= item->m_itemProto->getItemNum1();
+				applyItemPlusValue(m_eqResist, item->getPlus());
 			}
 			else if ( i==APET_WEAR_WEAPON )
 			{
@@ -654,14 +657,17 @@ void CAPet::ApplyItemValue( )
 				if( item->IsMagicWeapon() )
 				{
 					m_eqMagic += item->m_itemProto->getItemNum1();
+					applyItemPlusValue(m_eqMagic, item->getPlus());
 				}
 				else if ( item->IsRangeWeapon() )
 				{
 					m_eqRange += item->m_itemProto->getItemNum0();
+					applyItemPlusValue(m_eqRange, item->getPlus());
 				}
 				else
 				{
 					m_eqMelee += item->m_itemProto->getItemNum0();
+					applyItemPlusValue(m_eqMelee, item->getPlus());
 				}
 			}
 
@@ -695,6 +701,12 @@ void CAPet::ApplyItemValue( )
 			}
 		}
 	}
+}
+
+void CAPet::applyItemPlusValue(int& value, int plus)
+{
+	const float plus_cst = 1.09;
+	value = value * pow(plus_cst, plus);
 }
 
 float CAPet::GetHitrate(CCharacter* df, MSG_DAMAGE_TYPE type)

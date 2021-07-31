@@ -770,9 +770,21 @@ void CDescriptor::setExtendCharacterSlotTime(const time_t _time)
 
 void CDescriptor::operate( rnSocketIOService* service )
 {
-	if (static_cast<rnSocketIOServiceTcp*>(service)->isCallCloseFunction())
+	rnSocketIOServiceTcp* pServiceTcp =  dynamic_cast<rnSocketIOServiceTcp*>(service);
+
 	{
-		return;
+		if (pServiceTcp->isCallCloseFunction())
+		{
+			return;
+		}
+
+		if (pServiceTcp->get_rqueue_size() > 100)
+		{
+			LOG_ERROR("HACKING? Too many read queue userIndex[%d] ", this->m_index);
+			this->Close("Too many read queue.");
+
+			return;
+		}
 	}
 
 	CNetMsg::SP msg(service->GetMessage());
@@ -1217,6 +1229,13 @@ void CDescriptor::sendData_StartAndMoveZone()
 				rmsg->setSize(sizeof(UpdateClient::TitleSystemMakeList) + sizeof(TitleSystemMakeInfo) * count);
 				SEND_Q(rmsg, m_pChar->m_desc);
 			}
+		}
+
+		if(m_pChar->m_ep > 0)
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			UpdateClient::EPInitMsg(rmsg, false);
+			SEND_Q(rmsg, m_pChar->m_desc);
 		}
 
 		m_pChar->m_firstSendData = false;

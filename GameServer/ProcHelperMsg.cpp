@@ -12,6 +12,7 @@
 #include "../ShareLib/DBCmd.h"
 #include "DratanCastle.h"
 #include "Party_recall_manager.h"
+#include "GuildBattleManager.h"
 #include "../ShareLib/packetType/ptype_old_do_item.h"
 #include "../ShareLib/packetType/ptype_syndicate.h"
 #include "../ShareLib/packetType/ptype_old_do_changejob.h"
@@ -19,11 +20,13 @@
 #include "../ShareLib/packetType/ptype_server_to_server_kick.h"
 #include "../ShareLib/packetType/ptype_old_do_friend.h"
 #include "../ShareLib/packetType/ptype_old_do_guild.h"
+#include "../ShareLib/packetType/ptype_guild_battle.h"
 #include "DescManager.h"
 
 #ifdef PREMIUM_CHAR
 #include "../ShareLib/packetType/ptype_premium_char.h"
 #endif
+#include "../ShareLib/Config.h"
 
 void ProcHelperWhisperReq(CNetMsg::SP& msg, int seq, int server, int subno, int zone);
 void ProcHelperWhisperRep(CNetMsg::SP& msg, int seq, int server, int subno, int zone);
@@ -152,6 +155,9 @@ void ProcHelperNewGuildNotice( CNetMsg::SP& msg );
 void ProcHelperNewGuildMemberPointSaveMsg( CNetMsg::SP& msg );
 void ProcHelperNewGuildSkillLearnSendMember( CNetMsg::SP& msg );
 
+void ProcHelperGuildContributeSet(CNetMsg::SP& msg);
+void ProcHelperGuildContributeSetAll(CNetMsg::SP& msg);
+
 void ProcHelperHalloween2007( CNetMsg::SP& msg );
 
 void ProcHelperDVDRateChange(CNetMsg::SP& msg);
@@ -251,6 +257,9 @@ void ProcHelperKickUserAnswer(CNetMsg::SP& msg);
 void ProcHelperKickUserByCharIndexAnswer(CNetMsg::SP& msg);
 void ProcHelperKickUserByUserIndexAnswer(CNetMsg::SP& msg);
 void ProcHelperKickUserByUserIdAnswer(CNetMsg::SP& msg);
+
+void ProcHelperGuildBattleChallenge(CNetMsg::SP& msg);
+void ProcHelperGuildBattleReg(CNetMsg::SP& msg);
 
 
 void CServer::ProcessHelperMessage(CNetMsg::SP& msg)
@@ -580,6 +589,14 @@ void CServer::ProcessHelperMessage(CNetMsg::SP& msg)
 				break;
 			case MSG_HELPER_SAVE_GUILD_MEMBER_POINT:
 				ProcHelperNewGuildMemberPointSaveMsg( msg );
+				break;
+
+			case MSG_HELPER_GUILD_CONTRIBUTE_SET_REP:
+				ProcHelperGuildContributeSet(msg);
+				break;
+
+			case MSG_HELPER_GUILD_CONTRIBUTE_SETALL_REP:
+				ProcHelperGuildContributeSetAll(msg);
 				break;
 
 			case MSG_HELPER_GUILD_SKILL_LEARN_SEND_MEMBER:
@@ -969,6 +986,14 @@ void CServer::ProcessHelperMessage(CNetMsg::SP& msg)
 
 			case MSG_SUB_SERVERTOSERVER_KICK_BY_USER_ID_ANSER:
 				ProcHelperKickUserByUserIdAnswer(msg);
+				break;
+			
+			case MSG_SUB_GUILD_BATTLE_REG_TO_HELPER:
+				ProcHelperGuildBattleReg(msg);
+				break;
+
+			case MSG_SUB_GUILD_BATTLE_CHALLENGE_TO_HELPER:
+				ProcHelperGuildBattleChallenge(msg);
 				break;
 
 			default:
@@ -1569,7 +1594,7 @@ void ProcHelperGuildCreateNotify(CNetMsg::SP& msg)
 		>> bossindex
 		>> bossname;
 
-	CGuild* guild = gserver->m_guildlist.create(guildindex, guildname, bossindex, bossname);
+	CGuild* guild = gserver->m_guildlist.create(guildindex, guildname, bossindex, bossname, gserver->m_nowseconds, 0, 0, 0);
 	if (!guild)
 	{
 		return ;
@@ -2064,6 +2089,11 @@ void ProcHelperGuildMemberAddNotify(CNetMsg::SP& msg)
 
 	member->zoneindex(zoneindex);
 
+	member->SetContributeExp_min(guild->m_guild_contribute_all_exp_min);
+	member->SetContributeExp_max(guild->m_guild_contribute_all_exp_max);
+	member->SetContributeFame_min(guild->m_guild_contribute_all_fame_min);
+	member->SetContributeFame_max(guild->m_guild_contribute_all_fame_max);
+
 	{
 		// 길드원 전부에게 추가 메세지   // 071210 kjban edit
 		CNetMsg::SP rmsg(new CNetMsg);
@@ -2080,7 +2110,8 @@ void ProcHelperGuildMemberAddNotify(CNetMsg::SP& msg)
 	member->online(1);
 	member->SetPC(pc);
 
-	pc->m_guildoutdate = 0;
+	time_t t;
+	member->GetPC()->m_guild_in_date = time(&t) / 60 / 60 / 24;
 
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
@@ -2211,8 +2242,6 @@ void ProcHelperGuildMemberOutNotify(CNetMsg::SP& msg)
 		CNetMsg::SP rmsg(new CNetMsg);
 		GuildInfoChangeMsg(rmsg, member->charindex(), -1, "", MSG_GUILD_POSITION_UNKNOWN, member->GetPC());
 		member->GetPC()->m_pArea->SendToCell(rmsg, member->GetPC(), false);
-		time_t t;
-		member->GetPC()->m_guildoutdate = time(&t) / 60 / 60 / 24;
 	}
 
 #ifdef GMTOOL
@@ -2467,11 +2496,6 @@ void ProcHelperGuildMemberKickNotify(CNetMsg::SP& msg)
 			pc->m_pArea->SendToCell(rmsg, pc, false);
 		}
 
-#ifdef GUILD_MEMBER_KICK_JOIN_DELAY
-		time_t t;
-		pc->m_guildoutdate = time(&t) / 60 / 60 / 24;
-#endif
-
 #ifdef GMTOOL
 		if(pc->m_bGmMonitor)
 		{
@@ -2548,6 +2572,7 @@ void ProcHelperGuildMemberKickNotify(CNetMsg::SP& msg)
 
 	if(pc != NULL)
 	{
+		pc->m_guild_in_date = 0;
 		pc->CalcStatus(true);
 	}
 }
@@ -3048,6 +3073,7 @@ void ProcHelperGuildLoadNotify(CNetMsg::SP& msg)
 	int bossindex;
 	CLCString bossname(MAX_CHAR_NAME_LENGTH + 1);
 	int battleIndex;
+	int create_time;
 
 #ifdef DEV_GUILD_MARK
 	char gm_row;
@@ -3057,18 +3083,25 @@ void ProcHelperGuildLoadNotify(CNetMsg::SP& msg)
 	int markTime;
 #endif
 
+	int battle_win_count, battle_lose_count, battle_total_count;
+	int contribute_exp_min, contribute_exp_max, contribute_fame_min, contribute_fame_max;
+
 	RefMsg(msg) >> guildindex
 		>> guildlevel
 		>> guildname
 		>> bossindex
 		>> bossname
-		>> battleIndex;
+		>> battleIndex
+		>> create_time
+		>> battle_win_count
+		>> battle_lose_count
+		>> battle_total_count;
 
 	CGuild* guild = gserver->m_guildlist.findguild(guildindex);
 
 	if (!guild)
 	{
-		guild = gserver->m_guildlist.create(guildindex, guildname, bossindex, bossname);
+		guild = gserver->m_guildlist.create(guildindex, guildname, bossindex, bossname, create_time, battle_win_count, battle_lose_count, battle_total_count);
 		if (!guild)
 			return;
 
@@ -3103,14 +3136,24 @@ void ProcHelperGuildLoadNotify(CNetMsg::SP& msg)
 	RefMsg(msg) >> gm_row >> gm_col >> bg_row >> bg_col >> markTime;
 	guild->SetGuildMark(gm_row, gm_col, bg_row, bg_col, markTime);
 #endif
-	int _kickStatus = GMKS_NORMAL, _requestChar = 0, _requestTime = 0, _lastTimeBossChange = 0;
+	int _kickStatus = GMKS_NORMAL, _requestChar = 0, _requestTime = 0, create_date = 0;
 	RefMsg(msg) >> _kickStatus
 		>> _requestChar
 		>> _requestTime
-		>> _lastTimeBossChange;
+		>> contribute_exp_min
+		>> contribute_exp_max
+		>> contribute_fame_min
+		>> contribute_fame_max;
+
 	guild->getGuildKick()->setKickStatus(_kickStatus);
 	guild->getGuildKick()->setKickReuestChar(_requestChar);
 	guild->getGuildKick()->setKickRequestTime(_requestTime);
+	guild->m_create_date = create_time;
+
+	guild->m_guild_contribute_all_exp_min = contribute_exp_min;
+	guild->m_guild_contribute_all_exp_max = contribute_exp_max;
+	guild->m_guild_contribute_all_fame_min = contribute_fame_min;
+	guild->m_guild_contribute_all_fame_max = contribute_fame_max;
 
 	/*
 	CGuild* guild = gserver->m_guildlist.create(guildindex, guildname, bossindex, bossname);
@@ -3157,34 +3200,36 @@ void ProcHelperGuildBattleRep(CNetMsg::SP& msg)
 	if (!g1 || !g2 || !boss1 || !boss2)
 		return ;
 
-	if (boss1)
-	{
-		if (boss1->m_inventory.getMoney())
-		{
-			if (boss1->m_inventory.getMoney() >= (LONGLONG)prize)
-			{
-				boss1->m_inventory.decreaseMoney(prize);
-			}
-		}
-	}
+	//if (boss1)
+	//{
+	//	if (boss1->m_inventory.getMoney())
+	//	{
+	//		if (boss1->m_inventory.getMoney() >= (LONGLONG)prize)
+	//		{
+	//			//길드창고에서 차감하도록 수정
+	//			boss1->m_inventory.decreaseMoney(prize);
+	//		}
+	//	}
+	//}
 
-	if (boss2)
-	{
-		if (boss2->m_inventory.getMoney())
-		{
-			if (boss2->m_inventory.getMoney() >= (LONGLONG)prize)
-			{
-				boss2->m_inventory.decreaseMoney(prize);
-			}
-		}
-	}
+	//if (boss2)
+	//{
+	//	if (boss2->m_inventory.getMoney())
+	//	{
+	//		if (boss2->m_inventory.getMoney() >= (LONGLONG)prize)
+	//		{
+	//			//길드창고에서 차감하도록 수정
+	//			boss2->m_inventory.decreaseMoney(prize);
+	//		}
+	//	}
+	//}
 
 	// 세부 셋팅
-	g1->BattleSet(g2->index(), prize * 2 * 95 / 100, g1->battleZone());
+	g1->BattleSet(g2->index(), prize * 95 / 100, zone);
 	g1->BattleTime(time);
 	g1->BattleState(GUILD_BATTLE_STATE_WAIT);
 
-	g2->BattleSet(g1->index(), prize * 2 * 95 / 100, g1->battleZone());
+	g2->BattleSet(g1->index(), prize * 95 / 100, zone);
 	g2->BattleTime(time);
 	g2->BattleState(GUILD_BATTLE_STATE_WAIT);
 
@@ -3238,10 +3283,14 @@ void ProcHelperGuildBattleStopRep(CNetMsg::SP& msg)
 	CLCString guildname1(MAX_GUILD_NAME_LENGTH + 1);
 	int guildindex2;
 	CLCString guildname2(MAX_GUILD_NAME_LENGTH + 1);
-	int prize;
+	int prize_nas;
+	int prize_gp;
 	int zone;
 	int guildkill1;
 	int guildkill2;
+	int battle_win_count1, battle_lose_count1, battle_total_count1;
+	int battle_win_count2, battle_lose_count2, battle_total_count2;
+	int isAccept;
 
 	RefMsg(msg) >> winner_index
 		>> guildindex1
@@ -3250,8 +3299,16 @@ void ProcHelperGuildBattleStopRep(CNetMsg::SP& msg)
 		>> guildindex2
 		>> guildname2
 		>> guildkill2
-		>> prize
-		>> zone;
+		>> prize_nas
+		>> prize_gp
+		>> zone
+		>> battle_win_count1
+		>> battle_lose_count1
+		>> battle_total_count1
+		>> battle_win_count2
+		>> battle_lose_count2
+		>> battle_total_count2
+		>> isAccept;
 
 	CGuild* g1 = gserver->m_guildlist.findguild(guildindex1);
 	CGuild* g2 = gserver->m_guildlist.findguild(guildindex2);
@@ -3262,54 +3319,73 @@ void ProcHelperGuildBattleStopRep(CNetMsg::SP& msg)
 	// 동점이면 상금이 반
 	if (winner_index == -1)
 	{
-		prize /= 2;
+		prize_nas /= 2;
+		prize_gp /= 2;
 
 		if (g1)
-			g1->BattleSet(guildindex2, prize, zone);
+			g1->BattleSet(guildindex2, prize_nas, zone);
 		if (g2)
-			g2->BattleSet(guildindex1, prize, zone);
+			g2->BattleSet(guildindex1, prize_nas, zone);
 	}
-
+	
 	// 있는 길드 우선 셋팅 해제
 	if (g1)
 	{
 		g1->BattleState(GUILD_BATTLE_STATE_PRIZE);
 
-		// 동점이거나 승리길드일때 길드장 찾기
-		if (winner_index == -1 || winner_index == g1->index())
+		//승리길드일때 길드장 찾기
+		if(isAccept == true)
+		{
+			int origin_gp = prize_gp * 100 / 90;
+			int fee = origin_gp - prize_gp;
+			g1->AddGuildPoint(-fee);
+		}
+		else if (winner_index == g1->index())
 		{
 			boss = g1->boss()->GetPC();
 
 			// 길드장이 있으면 상금 주고 길드 상태 해제 요청
 			if (boss)
 			{
-				boss->m_inventory.increaseMoney(prize);
-
-				// 길드전 해제 요청
-				if (gserver->isRunHelper())
-				{
-					CNetMsg::SP rmsg(new CNetMsg);
-					HelperGuildBattlePeaceReqMsg(rmsg, g1);
-					SEND_Q(rmsg, gserver->m_helper);
-				}
-				else
-				{
-					return ;
-				}
-
-				g1->BattleSet(-1, 0, -1);
-				g1->BattleTime(0);
-				g1->KillCount(0);
-				g1->BattleState(GUILD_BATTLE_STATE_PEACE);
+				g1->AddGuildPoint(prize_gp);
 			}
+		}
+		else if(winner_index == -1)
+		{
+			//무승부일때는 아무것도 하지 않는다.
 		}
 		else
 		{
+			//졌을때 처리
 			g1->BattleSet(-1, 0, -1);
 			g1->BattleTime(0);
 			g1->KillCount(0);
 			g1->BattleState(GUILD_BATTLE_STATE_PEACE);
+
+			if(g2 != NULL)
+			{
+				g2->AddGuildPoint(-prize_gp * 100 / 90);
+			}
 		}
+
+		// 길드전 해제 요청
+		if (gserver->isRunHelper())
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			HelperGuildBattlePeaceReqMsg(rmsg, g1);
+			SEND_Q(rmsg, gserver->m_helper);
+		}
+
+		g1->BattleSet(-1, 0, -1);
+		g1->BattleTime(0);
+		g1->KillCount(0);
+		g1->BattleState(GUILD_BATTLE_STATE_PEACE);
+
+		g1->m_battle_win_count = battle_win_count1;
+		g1->m_battle_lose_count = battle_lose_count1;
+		g1->m_battle_total_count = battle_total_count1;
+
+		g1->m_isUseTheStashAndSkill = true;
 	}
 
 	boss = NULL;
@@ -3320,32 +3396,24 @@ void ProcHelperGuildBattleStopRep(CNetMsg::SP& msg)
 		g2->BattleState(GUILD_BATTLE_STATE_PRIZE);
 
 		// 동점이거나 승리길드일때 길드장 찾기
-		if (winner_index == -1 || winner_index == g2->index())
+		if(isAccept == true)
+		{
+			int origin_gp = prize_gp * 100 / 90;
+			int fee = origin_gp - prize_gp;
+			g2->AddGuildPoint(-fee);
+		}
+		else if (winner_index == g2->index())
 		{
 			boss = g2->boss()->GetPC();
 
 			// 길드장이 있으면 상금 주고 길드 상태 해제 요청
 			if (boss)
 			{
-				boss->m_inventory.increaseMoney(prize);
-
-				// 길드전 해제 요청
-				if (gserver->isRunHelper())
-				{
-					CNetMsg::SP rmsg(new CNetMsg);
-					HelperGuildBattlePeaceReqMsg(rmsg, g2);
-					SEND_Q(rmsg, gserver->m_helper);
-				}
-				else
-				{
-					return ;
-				}
-
-				g2->BattleSet(-1, 0, -1);
-				g2->BattleTime(0);
-				g2->KillCount(0);
-				g2->BattleState(GUILD_BATTLE_STATE_PEACE);
+				g2->AddGuildPoint(prize_gp);
 			}
+		}
+		else if(winner_index == -1)
+		{
 		}
 		else
 		{
@@ -3353,17 +3421,62 @@ void ProcHelperGuildBattleStopRep(CNetMsg::SP& msg)
 			g2->BattleTime(0);
 			g2->KillCount(0);
 			g2->BattleState(GUILD_BATTLE_STATE_PEACE);
+
+			if(g2 != NULL)
+			{
+				g2->AddGuildPoint(-prize_gp * 100 / 90);
+			}
+		}
+
+		// 길드전 해제 요청
+		if (gserver->isRunHelper())
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			HelperGuildBattlePeaceReqMsg(rmsg, g2);
+			SEND_Q(rmsg, gserver->m_helper);
+		}
+
+		g2->BattleSet(-1, 0, -1);
+		g2->BattleTime(0);
+		g2->KillCount(0);
+		g2->BattleState(GUILD_BATTLE_STATE_PEACE);
+
+		g2->m_battle_win_count = battle_win_count2;
+		g2->m_battle_lose_count = battle_lose_count2;
+		g2->m_battle_total_count = battle_total_count2;
+
+		g2->m_isUseTheStashAndSkill = true;
+	}
+
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildBattleCoreInitMsg(rmsg);
+		CZone* _zone = gserver->FindZone(zone);
+
+		if(_zone == NULL)
+			return;
+
+		for(int i = 0 ; i < _zone->m_countArea; i++)
+		{
+			_zone->m_area[i].SendToAllClient(rmsg);
 		}
 	}
 
 	{
 		// 길드전 종료 메시지
 		CNetMsg::SP rmsg(new CNetMsg);
-		GuildBattleEndMsg(rmsg, winner_index, guildindex1, guildname1, guildindex2, guildname2, prize);
+		GuildBattleEndMsg(rmsg, winner_index, guildindex1, guildname1, guildindex2, guildname2, prize_nas);
 		if (g1)
 			g1->SendToAll(rmsg);
 		if (g2)
 			g2->SendToAll(rmsg);
+	}
+	
+	if( (g1 != NULL && gserver->m_battle_guild_index == g1->index()) || 
+		(g2 != NULL && gserver->m_battle_guild_index == g2->index()) )
+	{
+		gserver->m_battle_guild_index = -1;
+		gserver->m_battle_guild_gm = -1;
 	}
 }
 
@@ -3395,20 +3508,52 @@ void ProcHelperGuildBattleStatus(CNetMsg::SP& msg)
 		g1->KillCount(killCount1);
 		g1->BattleTime(battleTime);
 	}
+	else
+		return;
+	
 	if (g2)
 	{
 		g2->KillCount(killCount2);
 		g2->BattleTime(battleTime);
 	}
+	else
+		return;
 
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
 
 		GuildBattleStatusMsg(rmsg, guildindex1, guildname1, killCount1, guildindex2, guildname2, killCount2, battleTime, battleZone);
-		if (g1)
+
+		if(g1)
 			g1->SendToAll(rmsg);
-		if (g2)
+
+		if(g2)
 			g2->SendToAll(rmsg);
+		
+		//운영자 명령어에 의해서 명령어가 있는 경우 존에 있는 모든 유저들에게 전송 아닐경우 길드원에게만 전송
+		if( (g1 != NULL && gserver->m_battle_guild_index == g1->index()) || 
+			(g2 != NULL && gserver->m_battle_guild_index == g2->index()) )
+		{
+			//gm및 진행 중인 유저에게 패킷 전달
+			if(gserver->m_battle_guild_gm != -1)
+			{
+				//gm에게도 패킷 전달
+				CPC* gm = PCManager::instance()->getPlayerByCharIndex(gserver->m_battle_guild_gm);
+				SEND_Q(rmsg, gm->m_desc);
+			}
+			//모든 유저에게 전달
+			else
+			{
+				CZone* zone = gserver->FindZone(battleZone);
+				if(zone == NULL)
+					return;
+
+				for(int i = 0 ; i < zone->m_countArea;  i++)
+				{
+					zone->m_area[i].SendToAllClient(rmsg);
+				}
+			}
+		}
 	}
 }
 
@@ -5322,6 +5467,7 @@ void ProcHelperPartyRejectRep(CNetMsg::SP& msg)
 				CCubeMemList* memlist = gserver->m_extremeCube.FindMemList(pParty);
 				if(memlist && memlist->IsPartyCubeMemList())
 				{
+					memlist->GetOutAll();
 					((CPartyCubeMemList*)memlist)->SetParty(NULL);
 				}
 			}
@@ -5499,6 +5645,7 @@ void ProcHelperPartyQuitRep(CNetMsg::SP& msg)
 			CCubeMemList* memlist = gserver->m_extremeCube.FindMemList(pParty);
 			if(memlist && memlist->IsPartyCubeMemList())
 			{
+				memlist->GetOutAll();
 				((CPartyCubeMemList*)memlist)->SetParty(NULL);
 			}
 		}
@@ -5693,6 +5840,7 @@ void ProcHelperPartyKickRep(CNetMsg::SP& msg)
 			CCubeMemList* memlist = gserver->m_extremeCube.FindMemList(pParty);
 			if(memlist && memlist->IsPartyCubeMemList())
 			{
+				memlist->GetOutAll();
 				((CPartyCubeMemList*)memlist)->SetParty(NULL);
 			}
 		}
@@ -5765,6 +5913,18 @@ void ProcHelperPartyChangeBossRep(CNetMsg::SP& msg)
 			HelperPartyBreakReqMsg(rmsg, nNewBossIndex);
 			SEND_Q(rmsg, gserver->m_helper);
 		}
+
+#ifdef EXTREME_CUBE
+		if(pParty->m_cubeUniqueIdx != -1)
+		{
+			CCubeMemList* memlist = gserver->m_extremeCube.FindMemList(pParty);
+			if(memlist && memlist->IsPartyCubeMemList())
+			{
+				memlist->GetOutAll();
+				((CPartyCubeMemList*)memlist)->SetParty(NULL);
+			}
+		}
+#endif // EXTREME_CUBE
 
 		gserver->m_listParty.erase(pParty->GetBossIndex());
 		pParty->SetEndParty();
@@ -5850,6 +6010,18 @@ void ProcHelperPartyEndPartyRep(CNetMsg::SP& msg)
 	CParty* pParty = gserver->FindPartyByBossIndex(nBossIndex);
 	if (!pParty)
 		return ;
+
+#ifdef EXTREME_CUBE
+	if(pParty->m_cubeUniqueIdx != -1)
+	{
+		CCubeMemList* memlist = gserver->m_extremeCube.FindMemList(pParty);
+		if(memlist && memlist->IsPartyCubeMemList())
+		{
+			memlist->GetOutAll();
+			((CPartyCubeMemList*)memlist)->SetParty(NULL);
+		}
+	}
+#endif // EXTREME_CUBE
 
 	// 파티 해체(리스트 삭제)
 	gserver->m_listParty.erase(pParty->GetBossIndex());
@@ -6746,6 +6918,7 @@ void ProcHelperPartyMatchJoinRejectRep(CNetMsg::SP& msg)
 				CCubeMemList* memlist = gserver->m_extremeCube.FindMemList(pParty);
 				if(memlist && memlist->IsPartyCubeMemList())
 				{
+					memlist->GetOutAll();
 					((CPartyCubeMemList*)memlist)->SetParty(NULL);
 				}
 			}
@@ -6828,6 +7001,8 @@ void ProcHelperPartyInfoParty(CNetMsg::SP& msg)
 		>> strCharName;
 
 	CParty* pParty = new CParty(cPartyType, nBossIndex, strCharName, NULL, nRequestIndex, strRequestName);
+
+	LOG_INFO("PARTY CALL ProcHelperPartyInfoParty. boss_index[%d], boss_name[%s]", nBossIndex, (const char*)strCharName);
 
 	int i;
 	for (i = 1; i < nMemberCount; i++)
@@ -6946,8 +7121,9 @@ void ProcHelperGuildMemberAdjust( CNetMsg::SP& msg )
 	int ownerindexindex;
 	int charindex;
 	CLCString strPositionName(GUILD_POSITION_NAME+1);
-	int contributeExp;
-	int contributeFame;
+	int contribute_exp, contribute_fame;
+	int contributeExp_min, contributeExp_max;
+	int contributeFame_min, contributeFame_max;
 	int errorcode;
 	int pos;
 
@@ -6955,8 +7131,12 @@ void ProcHelperGuildMemberAdjust( CNetMsg::SP& msg )
 		>> ownerindexindex
 		>> charindex
 		>> strPositionName
-		>> contributeExp
-		>> contributeFame
+		>> contribute_exp
+		>> contribute_fame
+		>> contributeExp_min
+		>> contributeExp_max
+		>> contributeFame_min
+		>> contributeFame_max
 		>> errorcode;
 	RefMsg(msg) >> pos;
 
@@ -6970,12 +7150,13 @@ void ProcHelperGuildMemberAdjust( CNetMsg::SP& msg )
 
 	if( errorcode == MSG_NEW_GUILD_ERROR_ADJUST_OK && guildMember )
 	{
-	//	guildMember->m_guildInfo->positionName( strPositionName );
-	//	guildMember->m_guildInfo->contributeExp( contributeExp );
-	//	guildMember->m_guildInfo->contributeFame( contributeFame );
 		guildMember->positionName( strPositionName );
-		guildMember->contributeExp( contributeExp );
-		guildMember->contributeFame( contributeFame );
+		guildMember->contributeExp(contribute_exp);
+		guildMember->contributeFame(contribute_fame);
+		guildMember->SetContributeExp_min(contributeExp_min);
+		guildMember->SetContributeExp_max(contributeExp_max);
+		guildMember->SetContributeFame_min(contributeFame_min);
+		guildMember->SetContributeFame_max(contributeFame_max);
 		guild->ChangeGradeExPosCount(guildMember->pos(), pos);
 		guildMember->pos(pos);
 		int needGP = guild->GetGradeExPosNeedGuilPoint( pos ) ;
@@ -7045,6 +7226,7 @@ void ProcHelperNewGuildMemberListRep( CNetMsg::SP& msg )
 	char job2[GUILD_MAX_MEMBER];
 	int level[GUILD_MAX_MEMBER];
 	int position[GUILD_MAX_MEMBER];
+	int logout_date[GUILD_MAX_MEMBER];
 
 	RefMsg(msg) >> charindex
 		>> guildindex
@@ -7066,7 +7248,8 @@ void ProcHelperNewGuildMemberListRep( CNetMsg::SP& msg )
 				>> job[i]
 				>> job2[i]
 				>> level[i]
-				>> position[i];
+				>> position[i]
+				>> logout_date[i];
 			strcpy( CharName[i], strCharName );
 			strcpy( PositionName[i], strPositionName );
 			guild->AddGradeExPosCount(position[i]);
@@ -7074,7 +7257,7 @@ void ProcHelperNewGuildMemberListRep( CNetMsg::SP& msg )
 
 		{
 			CNetMsg::SP rmsg(new CNetMsg);
-			GuildMemberListRep( rmsg, membercount, membercharindex, cumulatePoint, CharName, PositionName, job, job2, level, position, guild );
+			GuildMemberListRep( rmsg, membercount, membercharindex, cumulatePoint, CharName, PositionName, job, job2, level, position, guild, logout_date );
 			SEND_Q( rmsg, pc->m_desc );
 		}
 	}
@@ -7093,6 +7276,10 @@ void ProcHelperNewGuilManageRep( CNetMsg::SP& msg )
 	int errorcode;
 	int membercount;
 	int membercharindex[GUILD_MAX_MEMBER];
+	int contributeExp_min[GUILD_MAX_MEMBER];
+	int contributeExp_max[GUILD_MAX_MEMBER];
+	int contributeFame_min[GUILD_MAX_MEMBER];
+	int contributeFame_max[GUILD_MAX_MEMBER];
 	int contributeExp[GUILD_MAX_MEMBER];
 	int contributeFame[GUILD_MAX_MEMBER];
 
@@ -7123,15 +7310,17 @@ void ProcHelperNewGuilManageRep( CNetMsg::SP& msg )
 		for( int i = 0; i < membercount; i++ )
 		{
 			RefMsg(msg) >> membercharindex[i]
+				>> contributeExp_min[i]
+				>> contributeExp_max[i]
+				>> contributeFame_min[i]
+				>> contributeFame_max[i]
 				>> contributeExp[i]
 				>> contributeFame[i]
 				>> strCharName
 				>> strPositionName
 				>> level[i]
 				>> position[i];
-#ifdef DEV_GUILD_STASH
 			RefMsg(msg) >> cStashAuth[i];
-#endif //DEV_GUILD_STASH
 			strcpy( charName[i], strCharName );
 			strcpy( positionName[i], strPositionName );
 			guild->AddGradeExPosCount(position[i]);
@@ -7139,11 +7328,7 @@ void ProcHelperNewGuilManageRep( CNetMsg::SP& msg )
 
 		{
 			CNetMsg::SP rmsg(new CNetMsg);
-#ifdef DEV_GUILD_STASH
-			GuildNewManageRep( rmsg, membercount, membercharindex, contributeExp, contributeFame, charName, positionName, level, position, cStashAuth, guild, first );
-#else
-			GuildNewManageRep( rmsg, membercount, membercharindex, contributeExp, contributeFame, charName, positionName, level, position, guild, first );
-#endif //DEV_GUILD_STASH
+			GuildNewManageRep( rmsg, membercount, membercharindex, contributeExp, contributeFame, contributeExp_min, contributeExp_max, contributeFame_min, contributeFame_max, charName, positionName, level, position, cStashAuth, guild, first );
 			SEND_Q( rmsg, pc->m_desc );
 		}
 	}
@@ -7501,6 +7686,8 @@ void ProcHelperNewGuildMemberList( CNetMsg::SP& msg )
 	int charindex;
 	int contributeExp;
 	int contributeFame;
+	int exp_min, exp_max;
+	int fame_min, fame_max;
 	int cumulatePoint;
 	int channel;
 	int zoneNum;
@@ -7519,6 +7706,10 @@ void ProcHelperNewGuildMemberList( CNetMsg::SP& msg )
 		RefMsg(msg) >> charindex
 			>> contributeExp
 			>> contributeFame
+			>> exp_min
+			>> exp_max
+			>> fame_min
+			>> fame_max
 			>> cumulatePoint
 			>> positionName
 			>> channel
@@ -7529,6 +7720,10 @@ void ProcHelperNewGuildMemberList( CNetMsg::SP& msg )
 
 			member->contributeExp( contributeExp );
 			member->contributeFame( contributeFame );
+			member->SetContributeExp_min(exp_min);
+			member->SetContributeExp_max(exp_max);
+			member->SetContributeFame_min(fame_min);
+			member->SetContributeFame_max(fame_max);
 			member->cumulatePoint( cumulatePoint );
 			member->positionName( positionName );
 			member->channel( channel );
@@ -7638,6 +7833,108 @@ void ProcHelperNewGuildSkillLearnSendMember(CNetMsg::SP& msg)
 		UpdateClient::makenewGuildSkillLearnToMemberMsg(rmsg, skill_type, skill_index, skill_level);
 		guild->SendToAll(rmsg, false);
 	}
+}
+
+void ProcHelperGuildContributeSet(CNetMsg::SP& msg)
+{
+	int char_index;
+	int exp, fame;
+	int error_code;
+
+	RefMsg(msg) >> char_index
+		>> exp
+		>> fame
+		>> error_code;
+	
+	CPC* pc = PCManager::instance()->getPlayerByCharIndex(char_index);
+	if( pc == NULL )
+		return;
+	
+	if(error_code != 0)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_SET_FAIL );
+		SEND_Q( rmsg, pc->m_desc );
+		return;
+	}
+
+	pc->m_guildInfo->contributeExp(exp);
+	pc->m_guildInfo->contributeFame(fame);
+
+	//성공 패킷 전송
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg( rmsg, MSG_GUILD_ERROR_CONTRIBUTE_SET_SUCCESS );
+		SEND_Q( rmsg, pc->m_desc );
+	}
+}
+
+void ProcHelperGuildContributeSetAll(CNetMsg::SP& msg)
+{
+	int char_index, guild_index;
+	int exp, fame;
+	int exp_min, exp_max;
+	int fame_min, fame_max;
+	int error_code;
+	
+	RefMsg(msg) >> char_index
+		>> guild_index
+		>> exp
+		>> fame
+		>> exp_min
+		>> exp_max
+		>> fame_min
+		>> fame_max
+		>> error_code;
+
+	CPC* pc = PCManager::instance()->getPlayerByCharIndex(char_index);
+
+	if(pc == NULL)
+		return;
+
+	if(error_code != 0)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg(rmsg, MSG_GUILD_ERROR_CONTRIBUTE_SET_ALL_FAIL);
+		SEND_Q(rmsg, pc->m_desc);
+		return;
+	}
+	else
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		GuildErrorMsg(rmsg, MSG_GUILD_ERROR_CONTRIBUTE_SET_ALL_SUCCESS);
+		SEND_Q(rmsg, pc->m_desc);
+	}
+
+	CGuild* guild = gserver->m_guildlist.findguild(guild_index);
+	
+	if(guild == NULL)
+		return;
+
+	CPC* ch;
+
+	for(int i = 0; i < GUILD_MAX_MEMBER; i++)
+	{
+		if(guild->m_member[i] != NULL)
+		{
+			ch = guild->m_member[i]->GetPC();
+
+			if(ch != NULL)
+			{
+				ch->m_guildInfo->SetContributeExp_min(exp_min);
+				ch->m_guildInfo->SetContributeExp_max(exp_max);
+				ch->m_guildInfo->SetContributeFame_min(fame_min);
+				ch->m_guildInfo->SetContributeFame_max(fame_max);
+				ch->m_guildInfo->contributeExp(exp);
+				ch->m_guildInfo->contributeFame(fame);
+			}
+		}
+	}
+
+	guild->m_guild_contribute_all_exp_min = exp_min;
+	guild->m_guild_contribute_all_exp_max = exp_max;
+	guild->m_guild_contribute_all_fame_min = fame_min;
+	guild->m_guild_contribute_all_fame_max = fame_max;
 }
 
 void ProcHelperPetChangeName( CNetMsg::SP& msg )
@@ -10556,6 +10853,8 @@ void ProcHelperGuildStashKeep(CNetMsg::SP& msg)
 		return;
 	}
 
+	pc->m_guildStashLock = false;
+
 	// Helper 에서 온 error 처리
 	// 1,2,3 인경우 에만 Helper 에 Unlock 하고, 4 인경우는 보내지 않음 // error 1,2,3,4 는 클라에 전달
 	switch ( error )
@@ -10735,6 +11034,8 @@ void ProcHelperGuildStashTake(CNetMsg::SP& msg)
 		SEND_Q( rmsg, gserver->m_helper );
 		return;
 	}
+
+	pc->m_guildStashLock = false;
 
 	// Helper 에서 온 error 처리
 	// 1,2,3,5 인경우 에만 Helper 에 Unlock 하고, 4 인경우는 보내지 않음 // error 1,2,3,4 는 클라에 전달
@@ -11394,3 +11695,90 @@ void ProcHelperKickUserByUserIdAnswer(CNetMsg::SP& msg)
 	}
 }
 
+void ProcHelperGuildBattleReg(CNetMsg::SP& msg)
+{
+	ServerToServerPacket::GuildBattleRegToHelper* packet = reinterpret_cast<ServerToServerPacket::GuildBattleRegToHelper*>(msg->m_buf);
+
+	CGuild* guild = gserver->m_guildlist.findguild(packet->guild_index);
+	CPC* pc = PCManager::instance()->getPlayerByCharIndex(packet->char_index);
+	
+	if(pc == NULL || guild == NULL)
+	{
+		if(guild != NULL)
+			guild->m_isUseTheStashAndSkill = true;
+
+		CNetMsg::SP rmsg(new CNetMsg);
+		ServerToServerPacket::makeGuildBattleStashLockOff(rmsg, packet->guild_index);
+		SEND_Q(rmsg, gserver->m_helper);
+		return;
+	}
+	
+	CNetMsg::SP rmsg(new CNetMsg);
+	makeGuildBattleErrorMsg(rmsg, packet->error_code);
+	SEND_Q(rmsg, pc->m_desc);
+
+	if(packet->error_code == GUILD_BATTLE_SUCCESS_REGIST)
+	{
+		GuildBattleManager::instance()->regist(guild, packet->stake_nas, packet->stake_gp, packet->guild_battle_time, packet->ave_level, packet->zone_index);
+	}
+
+	guild->m_isUseTheStashAndSkill = false;
+}
+
+void ProcHelperGuildBattleChallenge(CNetMsg::SP& msg)
+{
+	ServerToServerPacket::GuildBattleChallengeToHelper* packet = reinterpret_cast<ServerToServerPacket::GuildBattleChallengeToHelper*>(msg->m_buf);
+
+	CPC* pc = PCManager::instance()->getPlayerByCharIndex(packet->char_index);
+	CGuild* guild = gserver->m_guildlist.findguild(packet->guild_index);
+	
+	if(pc == NULL || guild == NULL)
+	{
+		if(guild != NULL)
+			guild->m_isUseTheStashAndSkill = true;
+
+		CNetMsg::SP rmsg(new CNetMsg);
+		ServerToServerPacket::makeGuildBattleStashLockOff(rmsg, packet->guild_index);
+		SEND_Q(rmsg, gserver->m_helper);
+		return;
+	}
+
+	CPC* target = PCManager::instance()->getPlayerByCharIndex(packet->target_char_index);
+	CGuild* target_guild = gserver->m_guildlist.findguild(packet->target_guild_index);
+
+	if(target == NULL || target_guild == NULL)
+	{
+		guild->m_isUseTheStashAndSkill = true;
+
+		CNetMsg::SP rmsg(new CNetMsg);
+		ServerToServerPacket::makeGuildBattleStashLockOff(rmsg, packet->guild_index);
+		SEND_Q(rmsg, gserver->m_helper);
+		return;
+	}
+	
+	if(packet->error_code == GUILD_BATTLE_SUCCESS_CHALLENGE)
+	{
+		st_multi_index* data = GuildBattleManager::instance()->find(packet->target_guild_index);
+		//신청 성공 패킷 전달
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			MakeGuildBattleChallengeMsg(rmsg, data->guild->name(), packet->error_code);
+			SEND_Q(rmsg, pc->m_desc);
+		}
+
+		pc->m_guildInfo->guild()->m_isUseTheStashAndSkill = false;
+
+		{
+			//타겟 길드 마스터에게 패킷 전달
+			CNetMsg::SP rmsg(new CNetMsg);
+			makeGuildBattleChallengeAgreeMsgUpdate(rmsg, target_guild->level(), target_guild->membercount(), data->ave_level, target_guild->m_battle_win_count, target_guild->m_battle_total_count, data->stake_nas, data->stake_gp, pc->m_index, target_guild->name());
+			SEND_Q(rmsg, target->m_desc);
+		}
+	}
+	else
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		makeGuildBattleErrorMsg(rmsg, packet->error_code);
+		SEND_Q(rmsg, pc->m_desc);
+	}
+}

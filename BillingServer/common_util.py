@@ -22,6 +22,18 @@ def setstring(str):
 	buf += struct.pack('b', 0)
 	return buf
 
+def getstring_length(str, length):
+	for i, v in enumerate(str):
+		if v == '\x00':
+			break;
+
+	tstr = str[:i]
+	return tstr, str[length:]
+
+def setstring_length(str, length):
+	buf = struct.pack('%ds' % length, str)
+	return buf
+
 def getCash(user_index_map, user_index):
 	if user_index not in user_index_map:
 		user_index_map[user_index] = 100000000
@@ -35,6 +47,6 @@ def make_packet(body):
 	return packet
 #####################################################################################
 def make_packet_for_ger(type, body):
-	packet = struct.pack('<HiH', type, 0, len(body))
+	packet = struct.pack('>HiH', type, 0, len(body))
 	packet += body
 	return packet

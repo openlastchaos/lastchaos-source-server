@@ -26,10 +26,14 @@ void do_CommandGuildFireOfficerReq(CNetMsg::SP& msg, CDescriptor* dest);
 void do_CommandCharacterDelete(CNetMsg::SP& msg, CDescriptor* dest);
 void do_CommandGuildBattleReq(CNetMsg::SP& msg, CDescriptor* dest);
 void do_CommandGuildBattleStopReq(CNetMsg::SP& msg, CDescriptor* dest);
+void do_CommandGuildBattleGiveupReq(CNetMsg::SP& msg, CDescriptor* dest);
 void do_CommandGuildBattlePeaceReq(CNetMsg::SP& msg, CDescriptor* dest);
 void do_CommandGuildBattleKillReq(CNetMsg::SP& msg, CDescriptor* dest);
 void do_CommandEventMoonStoneUpdateReq(CNetMsg::SP& msg, CDescriptor* dest);
 void do_CommandEventMoonStoneJackPotReq(CNetMsg::SP& msg, CDescriptor* dest);
+
+void do_CommandGuildContributeSet(CNetMsg::SP& msg, CDescriptor* dest);
+void do_CommandGuildContributeSetAll(CNetMsg::SP& msg, CDescriptor* dest);
 
 void do_CommandFriendMemberAddReq(CNetMsg::SP& msg, CDescriptor* dest);
 void do_CommandFriendMemberDelReq(CNetMsg::SP& msg, CDescriptor* dest);

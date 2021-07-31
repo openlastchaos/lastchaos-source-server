@@ -269,10 +269,8 @@ void do_PartyQuit(CPC* ch, CNetMsg::SP& msg /* msg */)
 	// 파티 중이고
 	if (ch->m_party == NULL)
 	{
-#ifdef PARTY_BUG_GER
 		GAMELOG << init("PARTY_BUG_GER QUIT: NOT_PARTY", ch)
 				<< end;
-#endif // PARTY_BUG_GER
 		return ;
 	}
 
@@ -295,11 +293,9 @@ void do_PartyKick(CPC* ch, CNetMsg::SP& msg)
 	// 파티 중이고
 	if (ch->m_party == NULL)
 	{
-#ifdef PARTY_BUG_GER
 		GAMELOG << init("PARTY_BUG_GER KICK: NOT_PARTY", ch)
 				<< index
 				<< end;
-#endif // PARTY_BUG_GER
 		CNetMsg::SP rmsg(new CNetMsg);
 		PartyErrorMsg(rmsg, MSG_PARTY_ERROR_NOT_PARTY);
 		SEND_Q(rmsg, ch->m_desc);
@@ -309,12 +305,10 @@ void do_PartyKick(CPC* ch, CNetMsg::SP& msg)
 	// 보스이고
 	if (ch->m_party->GetBossIndex() != ch->m_index)
 	{
-#ifdef PARTY_BUG_GER
 		GAMELOG << init("PARTY_BUG_GER KICK: NOT_BOSS", ch)
 				<< "BOSSINDEX" << delim << ch->m_party->GetBossIndex() << delim
 				<< "TARGETINDEX" << delim << index
 				<< end;
-#endif // PARTY_BUG_GER
 		CNetMsg::SP rmsg(new CNetMsg);
 		PartyErrorMsg(rmsg, MSG_PARTY_ERROR_NOT_BOSS);
 		SEND_Q(rmsg, ch->m_desc);
@@ -370,11 +364,9 @@ void do_PartyChangeBoss(CPC* ch, CNetMsg::SP& msg)
 
 	if (ch->m_party == NULL)
 	{
-#ifdef PARTY_BUG_GER
 		GAMELOG << init("PARTY_BUG_GER CHANGEBOSS: NOT_PARTY", ch)
 				<< name
 				<< end;
-#endif // PARTY_BUG_GER
 		CNetMsg::SP rmsg(new CNetMsg);
 		PartyErrorMsg(rmsg, MSG_PARTY_ERROR_NOT_PARTY);
 		SEND_Q(rmsg, ch->m_desc);
@@ -384,12 +376,10 @@ void do_PartyChangeBoss(CPC* ch, CNetMsg::SP& msg)
 	if (ch->m_party->GetBossIndex() != ch->m_index)
 	{
 		// 파티장이 아님 메세지 보내고
-#ifdef PARTY_BUG_GER
 		GAMELOG << init("PARTY_BUG_GER CHANGEBOSS: NOT_BOSS", ch)
 				<< "BOSSINDEX" << delim << ch->m_party->GetBossIndex() << delim
 				<< "CHARINDEX" << delim << ch->m_index
 				<< end;
-#endif // PARTY_BUG_GER
 		CNetMsg::SP rmsg(new CNetMsg);
 		PartyErrorMsg(rmsg, MSG_PARTY_ERROR_NOT_BOSS);
 		SEND_Q(rmsg, ch->m_desc);

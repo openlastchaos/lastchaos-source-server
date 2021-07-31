@@ -90,7 +90,17 @@ void rnSocketIOServiceTcp::Run()
 {
 	NoDelayOn();
 
-	SetReadWaitTimer();
+	if (read_wait_time_sec_ > 0)
+	{
+		read_wait_timer_.expires_from_now( boost::posix_time::seconds( read_wait_time_sec_ ) );
+		read_wait_timer_.async_wait( boost_strand_.wrap(boost::bind( &rnSocketIOServiceTcp::ReadWaitTimerClose, this)) );
+	}
+
+	if (write_wait_time_sec_ > 0)
+	{
+		write_wait_timer_.expires_from_now( boost::posix_time::seconds( write_wait_time_sec_ ) );
+		write_wait_timer_.async_wait( boost_strand_.wrap(boost::bind( &rnSocketIOServiceTcp::WriteWaitTimerClose, this)) );
+	}
 
 	switch (this->packet_type_)
 	{
@@ -414,30 +424,6 @@ void rnSocketIOServiceTcp::Init()
 	unique_id_ = local_unique_id.fetch_add(1);
 }
 
-void rnSocketIOServiceTcp::SetReadWaitTimer()
-{
-	if (this->io_service_.stopped())
-		return;
-
-	if (read_wait_time_sec_ > 0)
-	{
-		read_wait_timer_.expires_from_now( boost::posix_time::seconds( read_wait_time_sec_ ) );
-		read_wait_timer_.async_wait( boost_strand_.wrap(boost::bind( &rnSocketIOServiceTcp::ReadWaitTimerClose, this, _1 )) );
-	}
-}
-
-void rnSocketIOServiceTcp::SetWriteWaitTimer()
-{
-	if (this->io_service_.stopped())
-		return;
-
-	if (write_wait_time_sec_ > 0)
-	{
-		write_wait_timer_.expires_from_now( boost::posix_time::seconds( write_wait_time_sec_ ) );
-		write_wait_timer_.async_wait( boost_strand_.wrap(boost::bind( &rnSocketIOServiceTcp::WriteWaitTimerClose, this, _1 )) );
-	}
-}
-
 void rnSocketIOServiceTcp::HandleAsyncConnect( const boost::system::error_code& error, boost::asio::ip::tcp::resolver::iterator endpoint_iterator )
 {
 	if( !error )
@@ -514,7 +500,7 @@ void rnSocketIOServiceTcp::HandleReadHeader(const boost::system::error_code& err
 		return;
 	}
 
-	SetReadWaitTimer();
+	read_wait_timer_.expires_from_now( boost::posix_time::seconds( read_wait_time_sec_ ) );
 
 	//////////////////////////////////////////////////////////////////////////
 	now_packet_ = new CNetMsg;
@@ -551,7 +537,7 @@ void rnSocketIOServiceTcp::HandleReadBody(const boost::system::error_code& error
 		return;
 	}
 
-	SetReadWaitTimer();
+	read_wait_timer_.expires_from_now( boost::posix_time::seconds( read_wait_time_sec_ ) );
 
 	//////////////////////////////////////////////////////////////////////////
 	memcpy((void *)now_packet_->m_buf_all, (void *)&packet_header_, sizeof(packet_header_));
@@ -624,8 +610,7 @@ void rnSocketIOServiceTcp::HandleWrite( const boost::system::error_code& error, 
 			return;
 		}
 		
-		if( write_wait_time_sec_ > 0 )
-			SetWriteWaitTimer();
+		write_wait_timer_.expires_from_now( boost::posix_time::seconds( write_wait_time_sec_ ) );
 
 		CNetMsg* next_packet = write_queue_.front().get();
 		int write_size = next_packet->m_size + sizeof(MsgHeader) + sizeof(int)/* crc32 */;
@@ -637,28 +622,36 @@ void rnSocketIOServiceTcp::HandleWrite( const boost::system::error_code& error, 
 	}
 }
 
-void rnSocketIOServiceTcp::ReadWaitTimerClose(const boost::system::error_code& error)
+void rnSocketIOServiceTcp::ReadWaitTimerClose()
 {
-	if (error)
-		return;
+	if (read_wait_timer_.expires_at() <= boost::asio::deadline_timer::traits_type::now())
+	{
+		timeout_ = true;
+		LOG_INFO( "bnf read time out - ip : %s : unique id : %010d", ip().c_str(), getUniqueId() );
 
-	timeout_ = true;
-	LOG_INFO( "bnf read time out - ip : %s : unique id : %010d", ip().c_str(), getUniqueId() );
+		write_queue_.clear();
+		__close();
 
-	write_queue_.clear();
-	__close();
+		read_wait_timer_.expires_at(boost::posix_time::pos_infin);
+	}
+
+	read_wait_timer_.async_wait( boost_strand_.wrap(boost::bind( &rnSocketIOServiceTcp::ReadWaitTimerClose, this)) );
 }
 
-void rnSocketIOServiceTcp::WriteWaitTimerClose(const boost::system::error_code& error)
+void rnSocketIOServiceTcp::WriteWaitTimerClose()
 {
-	if (error)
-		return;
+	if (write_wait_timer_.expires_at() <= boost::asio::deadline_timer::traits_type::now())
+	{
+		timeout_ = true;
+		LOG_INFO( "bnf write time out - ip : %s : unique id : %010d", ip().c_str(), getUniqueId() );
 
-	timeout_ = true;
-	LOG_INFO( "bnf write time out - ip : %s : unique id : %010d", ip().c_str(), getUniqueId() );
+		write_queue_.clear();
+		__close();
 
-	write_queue_.clear();
-	__close();
+		write_wait_timer_.expires_at(boost::posix_time::pos_infin);
+	}
+
+	write_wait_timer_.async_wait( boost_strand_.wrap(boost::bind( &rnSocketIOServiceTcp::WriteWaitTimerClose, this)) );
 }
 
 void rnSocketIOServiceTcp::__close()
@@ -666,10 +659,16 @@ void rnSocketIOServiceTcp::__close()
 	close_flag_ = true;
 
 	if( read_wait_time_sec_ > 0 )
+	{
+		read_wait_timer_.expires_at(boost::posix_time::pos_infin);
 		read_wait_timer_.cancel();
+	}
 
 	if( write_wait_time_sec_ > 0 )
+	{
+		write_wait_timer_.expires_at(boost::posix_time::pos_infin);
 		write_wait_timer_.cancel();
+	}
 
 	boost::system::error_code error;
 	socket_.shutdown( boost::asio::ip::tcp::socket::shutdown_receive, error );
@@ -736,7 +735,7 @@ void rnSocketIOServiceTcp::HandleReadHeaderForBilling( const boost::system::erro
 		return;
 	}
 
-	SetReadWaitTimer();
+	read_wait_timer_.expires_from_now( boost::posix_time::seconds( read_wait_time_sec_ ) );
 
 	//////////////////////////////////////////////////////////////////////////
 	now_packet_for_billing_ = new CBPacket;
@@ -772,7 +771,7 @@ void rnSocketIOServiceTcp::HandleReadBodyForBilling( const boost::system::error_
 		return;
 	}
 
-	SetReadWaitTimer();
+	read_wait_timer_.expires_from_now( boost::posix_time::seconds( read_wait_time_sec_ ) );
 
 	//////////////////////////////////////////////////////////////////////////
 	memcpy((void *)now_packet_for_billing_->m_buf_all, (void *)&packet_header_for_billing_, sizeof(packet_header_for_billing_));
@@ -821,8 +820,7 @@ void rnSocketIOServiceTcp::HandleWriteForBilling( const boost::system::error_cod
 			return;
 		}
 		
-		if( write_wait_time_sec_ > 0 )
-			SetWriteWaitTimer();
+		write_wait_timer_.expires_from_now( boost::posix_time::seconds( write_wait_time_sec_ ) );
 
 		CBPacket* next_packet = write_queue_for_billing_.front().get();
 		int write_size = next_packet->m_size + sizeof(BPacketHeader);
@@ -880,7 +878,7 @@ void rnSocketIOServiceTcp::HandleReadHeaderForTLDBilling(const boost::system::er
 		return;
 	}
 
-	SetReadWaitTimer();
+	read_wait_timer_.expires_from_now( boost::posix_time::seconds( read_wait_time_sec_ ) );
 
 	//////////////////////////////////////////////////////////////////////////
 	now_packet_ = new CNetMsg;
@@ -917,7 +915,7 @@ void rnSocketIOServiceTcp::HandleReadBodyForTLDForBilling(const boost::system::e
 		return;
 	}
 
-	SetReadWaitTimer();
+	read_wait_timer_.expires_from_now( boost::posix_time::seconds( read_wait_time_sec_ ) );
 
 	//////////////////////////////////////////////////////////////////////////
 	memcpy((void *)now_packet_->m_buf_all, (void *)&packet_header_, sizeof(packet_header_));
@@ -967,8 +965,7 @@ void rnSocketIOServiceTcp::HandleWriteForTLDBilling( const boost::system::error_
 			return;
 		}
 		
-		if( write_wait_time_sec_ > 0 )
-			SetWriteWaitTimer();
+		write_wait_timer_.expires_from_now( boost::posix_time::seconds( write_wait_time_sec_ ) );
 
 		CNetMsg* next_packet = write_queue_.front().get();
 		int write_size = next_packet->m_size + sizeof(MsgHeader);
@@ -989,8 +986,7 @@ void rnSocketIOServiceTcp::__deliver( CNetMsg::SP packet )
 	size_t write_queue_size = write_queue_.size();
 	if (write_queue_size == 1)
 	{
-		if (write_wait_time_sec_ > 0)
-			SetWriteWaitTimer();
+		write_wait_timer_.expires_from_now( boost::posix_time::seconds( write_wait_time_sec_ ) );
 
 		int write_size = packet->m_size + sizeof(MsgHeader) + sizeof(int)/* crc32 */;
 		boost::asio::async_write(socket_,
@@ -1010,8 +1006,7 @@ void rnSocketIOServiceTcp::__deliver_for_cbpacket( CBPacket::SP packet )
 	size_t write_queue_size = write_queue_for_billing_.size();
 	if (write_queue_size == 1)
 	{
-		if (write_wait_time_sec_ > 0)
-			SetWriteWaitTimer();
+		write_wait_timer_.expires_from_now( boost::posix_time::seconds( write_wait_time_sec_ ) );
 
 		int write_size = packet->m_size + sizeof(BPacketHeader);
 		boost::asio::async_write(socket_,
@@ -1032,8 +1027,8 @@ void rnSocketIOServiceTcp::__deliver__for_tld_billing( CNetMsg::SP packet )
 	size_t write_queue_size = write_queue_.size();
 	if (write_queue_size == 1)
 	{
-		if (write_wait_time_sec_ > 0)
-			SetWriteWaitTimer();
+		write_wait_timer_.expires_from_now( boost::posix_time::seconds( write_wait_time_sec_ ) );
+
 		int write_size = packet->m_size + sizeof(MsgHeader);
 		boost::asio::async_write(socket_,
 			boost::asio::buffer((void *)packet->m_buf_all, write_size),

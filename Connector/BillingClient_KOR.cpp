@@ -79,17 +79,12 @@ void CBillingClient::OnCashBalance(CBPacket::SP& msg)
 				>> bonusPoint;
 
 	CUser * user = NULL;
-	for(int i = 0; i < gserver.m_maxSubServer; i++)
-	{
-		user = gserver.m_userList[i].FindByUserIndex(userindex);
-		if( user )
-			break;
-	}
+	user = gserver.m_user_list->findByUserIndex(userindex);
 
 	if( !user )
 	{
 		GAMELOG << init("CASH_BALANCE_ERROR")
-				<< userindex;
+				<< userindex << end;
 		return;
 	}
 
@@ -179,11 +174,7 @@ void CBillingClient::OnCanBuy(CBPacket::SP& msg)
 			<< bonusPoint << end;
 
 	CUser* user = NULL;
-	for(i = 0; i < gserver.m_maxSubServer; i++)
-	{
-		user = gserver.m_userList[i].FindByUserIndex(userindex);
-		if(user) break;
-	}
+	user = gserver.m_user_list->findByUserIndex(userindex);
 
 	if(!user)
 	{
@@ -344,11 +335,7 @@ void CBillingClient::OnBuy(CBPacket::SP& msg)
 				>> bonuspoint;
 
 	CUser* user = NULL;
-	for(i = 0; i < gserver.m_maxSubServer; i++)
-	{
-		user = gserver.m_userList[i].FindByUserIndex(userindex);
-		if(user) break;
-	}
+	user = gserver.m_user_list->findByUserIndex(userindex);
 
 	if(user)
 	{

@@ -54,21 +54,6 @@ int main(int argc, char* argv[], char* envp[])
 
 	mysql_close(&gserver.m_dbdata);
 
-#if !defined(CIRCLE_WINDOWS) && defined(DEV_GAMIGO_HTTPS)
-	//char * ipAddr = inet_ntoa( *gserver.GetBindAddr() );
-	//if( strcmp(ipAddr, "10.1.90.31") !=0 && strcmp(ipAddr, "10.1.90.34") !=0 && strcmp(ipAddr, "10.1.90.35") !=0 && strcmp(ipAddr, "101.79.53.208") !=0)
-	if ( gserver.DoHttpsAuth() )
-	{
-		CLCHttps gamigoAuth;
-		if( gamigoAuth.Connect("https://chk.global.lc.gamigo.com/auth",
-							   "E8:E6:4C:1B:58:40:C9:70:A4:74:EB:F9:CF:C6:19:17:E3:F8:A7:DD") != CLCHttps::E_MATCH_FINGERPRINT )
-		{
-			LOG_INFO("Connect Fingerprint Error");
-			return 1;
-		}
-	}
-#endif // Linux Lib 사용에 GER 만 적용, // Gamigo 요청 Https 인증 방식
-
 	LOG_INFO("Login Server Running...");
 
 	atexit (at_exit_exec);

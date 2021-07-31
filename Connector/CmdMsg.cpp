@@ -269,7 +269,7 @@ void PlayerRepMsg(CNetMsg::SP& msg)
 		RefMsg(msg) << i;
 		if (result[i - 1])
 		{
-			RefMsg(msg) << gserver.m_userList[result[i - 1]->m_subno - 1].m_count;
+			RefMsg(msg) << gserver.m_user_list->getUserCountInChannel( result[i - 1]->m_subno );
 
 #ifdef SETTING_IF_INNER_IP_NEW // 외부 아이피와 내부 아이피가 나뉘면 사용, 새로운 버젼 ...yhj
 			CLCString ex_ip(100);

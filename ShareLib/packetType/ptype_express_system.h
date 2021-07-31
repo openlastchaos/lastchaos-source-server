@@ -20,7 +20,9 @@ enum
 	MSG_SUB_EXPRESS_EXIST,							// 창고 NPC에 아이템(또는 돈)이 있는지 0 - 없음, 1 - 있음
 	MSG_SUB_EXPREES_LIST,							// 창고 NPC에서 리스트 요청 처리
 	MSG_SUB_EXPRESS_TAKE,							// 창고 NPC에서 아이템(또는 돈)을 수령
+	MSG_SUB_EXPRESS_TAKE_ALL,						// 창고 NPC에서 모든 아이템(또는 돈)을 수령
 	MSG_SUB_EXPRESS_DELETE,							// 창고 NPC에서 아이템(또는 돈)을 삭제
+	MSG_SUB_EXPRESS_DELETE_ALL,						// 창고 NPC에서 모든 아이템(또는 돈)을 삭제
 
 	MSG_SUB_AUTHORIZE = 100,						// 운영툴 인증 절차
 	MSG_SUB_EXPRESS_ALL_USER,						// 접속한 모든 유저에게 아이템(또는 돈)지금 - Game Server에서 처리
@@ -102,10 +104,22 @@ struct expressTake : public pTypeBase
 	expressIndex_t	index;
 };
 
+struct expressTake_all : public pTypeBase
+{
+	unsigned short	npcIndex;
+	unsigned short	pageIndex;
+};
+
 struct expressDelete : public pTypeBase
 {
 	unsigned short	npcIndex;
 	expressIndex_t	index;
+};
+
+struct expressDelete_all : public pTypeBase
+{
+	unsigned short npcIndex;
+	unsigned short pageIndex;
 };
 
 // 신비한 석상의 구슬

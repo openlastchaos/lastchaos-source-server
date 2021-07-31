@@ -713,11 +713,6 @@ void CArea::LoadNPC(std::vector<tag_npc_regen_info>& vec)
 
 		if (data.pNPCProto->CheckFlag(NPC_RAID))
 		{
-#if !defined (LC_TLD) && !defined (LC_GAMIGO)  && !defined(LC_KOR) && !defined(LC_RUS) && !defined(LC_BILA)
-			if ( m_zone->m_index != ZONE_START
-			   )
-			{
-#endif // !defined (LC_TLD)
 				CNPCRegenInfo* pNewRegenInfo = new CNPCRegenInfo;
 				pNewRegenInfo->m_index = data.index;
 				pNewRegenInfo->m_npcIdx = data.npcIndex;
@@ -733,10 +728,6 @@ void CArea::LoadNPC(std::vector<tag_npc_regen_info>& vec)
 				pNewRegenInfo->m_regenSec = data.regenSec;
 				pNewRegenInfo->m_npcProto = data.pNPCProto;
 				m_raidNPCRegenList.push_back(pNewRegenInfo);
-
-#if !defined (LC_TLD) && !defined (LC_GAMIGO)  && !defined(LC_KOR) && !defined(LC_RUS) && !defined(LC_BILA)
-			}
-#endif // !defined (LC_TLD)
 		}
 		else
 		{

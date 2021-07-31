@@ -250,7 +250,7 @@ void do_FriendDeleteMember(CPC* ch, CNetMsg::SP& msg)
 	}
 
 	int lenname = strlen(packet->name);
-	if (lenname < 2 || lenname > 16)
+	if (lenname < 2 || lenname > MAX_CHAR_NAME_LENGTH)
 	{
 		CNetMsg::SP rmsg(new CNetMsg);
 		ResponseClient::FriendErrorMsg(rmsg, MSG_FRIEND_ERROR_FRIENDNAME);

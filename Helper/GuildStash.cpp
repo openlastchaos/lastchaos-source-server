@@ -49,7 +49,7 @@ bool CGuildStash::CheckStashSpace(MYSQL* mysql)
 
 	// 만료시간 확인
 	int nowStashCapacity = DefaultStashCapacity;
-	sql.Format("SELECT a_capacity, a_enable FROM t_guild_stash_info WHERE a_guild_idx = %d and a_limitdate > NOW() ",m_guildIndex );
+	sql.Format("SELECT a_capacity, a_enable FROM t_guild_stash_info WHERE a_guild_idx = %d",m_guildIndex );
 	cmd.SetQuery(sql);
 	if (cmd.Open() == false)
 		return false;

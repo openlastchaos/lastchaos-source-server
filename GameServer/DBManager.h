@@ -28,9 +28,11 @@ enum
 	DB_PROC_EXPRESS_EXIST,
 	DB_PROC_EXPRESS_LIST,
 	DB_PROC_EXPRESS_TAKE,
+	DB_PROC_EXPRESS_TAKE_ALL,
 	DB_PROC_EXPRESS_INPUT_ITEM,		// 창고NPC에게 아이템을 입력
 	DB_PROC_EXPRESS_INPUT_NAS,		// 창고NPC에게 나스(돈)을 입력
 	DB_PROC_EXPRESS_DELETE,			// 아이템(또는 돈)을 유저가 수령했을 경우 삭제함
+	DB_PROC_EXPRESS_DELETE_ALL,			// 아이템(또는 돈)을 유저가 수령했을 경우 삭제함
 
 	DB_PROC_QUERY,
 
@@ -94,7 +96,6 @@ enum
 #ifdef PREMIUM_CHAR
 	CHAR_SAVE_TYPE_PREMIUM_CHAR_INFO,
 #endif
-
 	CHAR_SAVE_TYPE_TCHAR_MAX,
 };
 
@@ -164,11 +165,13 @@ public:
 	void PushExpressExist(CDescriptor* desc, int send_type);
 	void PushExpressList(CDescriptor* desc, int pageIndex);
 	void PushExpressTake(CDescriptor* desc, expressIndex_t expressIndex);
+	void PushExpressTakeAll(CDescriptor* desc, int pageIndex);
 	void PushExpressInputItem(CDescriptor* desc, ExpressSystemItemInfo* itemInfo, bool contentsFlag);
 	void PushExpressInputNas(CDescriptor* desc, unsigned int nas, int send_type, std::string sender, bool contentsFlag);
 	void PushExpressInputItemNotConnectUser(int charIndex, ExpressSystemItemInfo* itemInfo, bool contentsFlag);
 	void PushExpressInputNasNotConnectUser(int charIndex, unsigned int nas, int send_type, std::string sender, bool contentsFlag);
 	void PushExpressDelete(CDescriptor* desc, expressIndex_t expressIndex, bool send_flag = false);
+	void PushExpressDeleteAll(CDescriptor* desc, int pageIndex, bool send_flag = false);
 	void PushExpressSearchNickName(CDescriptor* desc, const char* nickName);
 	void PushExpressSendItemToNickName(CDescriptor* desc, ExpressSystemItemInfo* itemInfo, std::string receiver, int sender_type);
 
@@ -257,9 +260,11 @@ public:
 	typedef boost::tuple<LONGLONG, int/*user_index*/, int/*char_index*/, int/*send_type*/> expressexist_t;
 	typedef boost::tuple<LONGLONG, int/*user_index*/, int/*char_index*/, int/*page index*/> expresslist_t;
 	typedef boost::tuple<LONGLONG, int/*m_index*/, int/*char_index*/, expressIndex_t> expresstake_t;
+	typedef boost::tuple<LONGLONG, int/*user_index*/, int/*char_index*/, int/*page index*/> expresstakeall_t;
 	typedef boost::tuple<LONGLONG, int/*char_index*/, ExpressSystemItemInfo*, bool> expressinputitem_t;
 	typedef boost::tuple<LONGLONG, int/*user_index*/, int/*char_index*/, unsigned int/*nas*/, int/*send_type*/, std::string/*sender*/, bool> expressinputnas_t;
 	typedef boost::tuple<LONGLONG, int/*user_index*/, int/*char_index*/, expressIndex_t, bool/*send_flag*/> expressdelete_t;
+	typedef boost::tuple<LONGLONG, int/*user_index*/, int/*char_index*/, int/*page index*/, bool/*send_flag*/> expressdeleteall_t;
 	typedef boost::tuple<LONGLONG, int/*user_index*/, int/*char_index*/> sendanyinfoafterlogin_t;
 	typedef boost::tuple<LONGLONG, int/*user_index*/, std::string/*nickName*/> expresssearchnickname_t;
 	typedef boost::tuple<LONGLONG, int/*user_index*/, int/*charIndex*/,ExpressSystemItemInfo*, std::string/*receiver*/, int/*sender_type*/> expresssenditemtonickname_t;
@@ -299,9 +304,11 @@ public:
 	void ExpressExist(boost::any& argv);
 	void ExpressList(boost::any& argv);
 	void ExpressTake(boost::any& argv);
+	void ExpressTakeAll(boost::any& argv);
 	void ExpressInputItem(boost::any& argv);
 	void ExpressInputNas(boost::any& argv);
 	void ExpressDelete(boost::any& argv);
+	void ExpressDeleteAll(boost::any& argv);
 	void ExpressSearchNickName(boost::any& argv);
 	void ExpressSendItemToNickName(boost::any& argv);
 

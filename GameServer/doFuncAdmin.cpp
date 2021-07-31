@@ -44,6 +44,8 @@
 #include "../ShareLib/packetType/ptype_premium_char.h"
 #endif
 
+#include "../ShareLib/packetType/ptype_reserved_gm_command.h"
+
 ///////////////////
 // 운영자 명령 관련
 
@@ -106,71 +108,6 @@ void do_GM(CPC* ch, CNetMsg::SP& msg)
 void do_GMEcho(CPC* ch, const char* arg, std::vector<std::string>& vec)
 {
 	char tmpBuf[MAX_MESSAGE_SIZE] = {0,};
-#ifdef GMTOOL
-	if(ch->m_desc->m_userFlag & IS_GM_CHAR)
-	{
-		*tmpBuf = '\0';		// argument for arg
-		if (!arg || !(*arg))		return ;
-
-		int serverno, subno;
-		char* p1;
-		arg = AnyOneArg(arg, tmpBuf);
-		p1 = tmpBuf;
-		while (*p1)
-		{
-			if (!isdigit(*p1))
-				return ;		//goto INVALID_FORMAT;
-			p1++;
-		}
-		serverno = atoi(tmpBuf);
-
-		if (!arg || !(*arg))
-			return;
-
-		arg = AnyOneArg(arg, tmpBuf);
-		p1 = tmpBuf;
-		while (*p1)
-		{
-			if (!isdigit(*p1))
-				return ;		//goto INVALID_FORMAT;
-			p1++;
-		}
-		subno = atoi(tmpBuf);
-
-		arg = AnyOneArg(arg, tmpBuf, true);
-		// 0: server, 1: all, 2: subserver
-		int type;
-		if (strcmp(tmpBuf, GM_CMD_ECHO_SERVER) == 0)		type = 0;
-		else if (strcmp(tmpBuf, GM_CMD_ECHO_ALL) == 0)	type = 1;
-		else if (strcmp(tmpBuf, GM_CMD_ECHO_SUBSERVER) == 0)		type = 2;
-		else return ;
-
-		arg = SkipSpaces(arg);
-		if (!arg || !(*arg))		return ;
-
-		{
-			CNetMsg::SP rmsg(new CNetMsg);
-			switch (type)
-			{
-			case 0:
-				MsgrNoticeMsg(rmsg, -1, serverno, -1, -1, arg);
-				break;
-			case 1:
-				MsgrNoticeMsg(rmsg, -1, -1, -1, -1, arg);
-				//DB에 내용(arg) 저장 및 게임 서버 리비전 번호 업데이트
-				//리비전 번호를 내가 알고 있는 것에 +1 을 해서 저장 하도록 함.
-				//후에 메신저 서버에서 패킷을 받으면 리비전 번호를 +1 해줌.
-				break;
-			case 2:
-				MsgrNoticeMsg(rmsg, -1, serverno, subno, -1, arg);
-				break;
-			}
-			SEND_Q(rmsg, gserver->m_messenger);
-		}
-
-		return ;
-	}
-#endif // GMTOOL
 	*tmpBuf = '\0';		// argument for arg
 	if (!arg || !(*arg))		return ;
 	arg = AnyOneArg(arg, tmpBuf, true);
@@ -1292,7 +1229,6 @@ void do_GMSilence(CPC* ch, const char* arg, std::vector<std::string>& vec)
 {
 	char tmpBuf[MAX_MESSAGE_SIZE] = {0,};
 #ifdef GMTOOL
-	if(ch->m_desc->m_userFlag & IS_GM_CHAR)
 	{
 		if (!arg || !(*arg))		return ;
 
@@ -1366,6 +1302,7 @@ void do_GMSilence(CPC* ch, const char* arg, std::vector<std::string>& vec)
 
 		return ;
 	}
+	
 #endif // GMTOOL
 
 	if (!arg || !(*arg))		return ;
@@ -1603,7 +1540,18 @@ void do_GMSetRegenSec(CPC* ch, const char* arg, std::vector<std::string>& vec)
 	for (i=0; i < ch->m_pArea->m_npcRegenList.m_nCount; i++)
 	{
 		if (ch->m_pArea->m_npcRegenList.m_infoList[i].m_npcIdx == index)
+		{
 			ch->m_pArea->m_npcRegenList.m_infoList[i].m_regenSec = regenSec;
+			ch->m_pArea->m_npcRegenList.m_infoList[i].m_lastDieTime = 1;
+		}
+	}
+	for (i = 0 ; i < ch->m_pArea->m_raidNPCRegenList.size(); i++)
+	{
+		if(ch->m_pArea->m_raidNPCRegenList[i]->m_npcIdx == index)
+		{
+			ch->m_pArea->m_raidNPCRegenList[i]->m_regenSec = regenSec;
+			ch->m_pArea->m_raidNPCRegenList[i]->m_lastDieTime = 1;
+		}
 	}
 }
 
@@ -1623,10 +1571,22 @@ void do_GMNPCRegen(CPC* ch, const char* arg, std::vector<std::string>& vec)
 	for (i=0; i < ch->m_pArea->m_npcRegenList.m_nCount; i++)
 	{
 		// 해당 npc이고 bAlive가 false이면
-		if (ch->m_pArea->m_npcRegenList.m_infoList[i].m_npcIdx == index &&
-				!ch->m_pArea->m_npcRegenList.m_infoList[i].m_bAlive)
-			// 바로 리젠
+		if ( ch->m_pArea->m_npcRegenList.m_infoList[i].m_npcIdx == index &&
+			 ch->m_pArea->m_npcRegenList.m_infoList[i].m_bAlive == false)
+		{
 			ch->m_pArea->m_npcRegenList.m_infoList[i].m_regenSec = 0;
+			ch->m_pArea->m_npcRegenList.m_infoList[i].m_lastDieTime = 1;
+		}
+	}
+
+	for (i = 0 ; i < ch->m_pArea->m_raidNPCRegenList.size(); i++)
+	{
+		if( ch->m_pArea->m_raidNPCRegenList[i]->m_npcIdx == index &&
+			ch->m_pArea->m_raidNPCRegenList[i]->m_bAlive == false)
+		{
+			ch->m_pArea->m_raidNPCRegenList[i]->m_regenSec = 0;
+			ch->m_pArea->m_raidNPCRegenList[i]->m_lastDieTime = 1;
+		}
 	}
 }
 
@@ -4366,8 +4326,14 @@ void do_GMKickGuildMember(CPC* ch, const char* arg, std::vector<std::string>& ve
 		CPC* bosspc = PCManager::instance()->getPlayerByCharIndex(boss->charindex());
 		if(bosspc)
 		{
+			int out_date = 0;
+			if(guildmember->GetPC() != NULL)
+			{
+				out_date = guildmember->GetPC()->m_guild_in_date;
+			}
+
 			CNetMsg::SP rmsg(new CNetMsg);
-			HelperGuildKickReqMsg(rmsg, guild->index(), boss->charindex(), guildmember->charindex());
+			HelperGuildKickReqMsg(rmsg, guild->index(), boss->charindex(), guildmember->charindex(), out_date);
 			SEND_Q(rmsg, gserver->m_helper);
 		}
 	}
@@ -4609,7 +4575,7 @@ void do_GMBattleStart(CPC* ch, const char* arg, std::vector<std::string>& vec)
 		{
 			// 토너먼트에선 보상금이 없다.
 			CNetMsg::SP rmsg(new CNetMsg);
-			HelperGuildBattleReqMsg(rmsg, guildindex1, guildindex2, 0 /*prize is 0 */, zone, time);
+			HelperGuildBattleReqMsg(rmsg, guildindex1, guildindex2, 0 /*prize is 0 */, 0, zone, time);
 			SEND_Q(rmsg, gserver->m_helper);
 		}
 	}
@@ -8112,68 +8078,86 @@ void do_GMJewelEvent(CPC* ch, const char* arg, std::vector<std::string>& vec)
 		kind = atoi(tmpBuf);
 
 	arg = AnyOneArg(arg, tmpBuf);
-	int eventData = atoi(tmpBuf);
 
-	switch (kind)
+	if( strcmp(tmpBuf, "ing") == 0)
 	{
-	case 0:
-		{
-			gserver->m_jewelDataList.m_jewelData->setEventChaosCreateProb(eventData);
-			message.Format("ChaosCreate Event setting values is %d", eventData);
-			CNetMsg::SP rmsg(new CNetMsg);
-			SayMsg(rmsg, MSG_CHAT_NOTICE, 0, "", "", message);
-			SEND_Q(rmsg, ch->m_desc);
-		}
-		break;
-	case 1:
-		{
-			gserver->m_jewelDataList.m_jewelData->setEventComposeProb(eventData);
-			message.Format("JewelCompose Event setting values is %d", eventData);
-			CNetMsg::SP rmsg(new CNetMsg);
-			SayMsg(rmsg, MSG_CHAT_NOTICE, 0, "", "", message);
-			SEND_Q(rmsg, ch->m_desc);
-		}
-		break;
-	case 2:
-		{
-			gserver->m_jewelDataList.m_jewelData->setEventUpgradePorb(eventData);
-			message.Format("JewelUpgrade Event setting values is %d", eventData);
-			CNetMsg::SP rmsg(new CNetMsg);
-			SayMsg(rmsg, MSG_CHAT_NOTICE, 0, "", "", message);
-			SEND_Q(rmsg, ch->m_desc);
-		}
-		break;
-	case 3:
-		{
-			gserver->m_jewelDataList.m_jewelData->setEventCombineProb(eventData);
-			message.Format("JewelCombine Event setting values is %d", eventData);
-			CNetMsg::SP rmsg(new CNetMsg);
-			SayMsg(rmsg, MSG_CHAT_NOTICE, 0, "", "", message);
-			SEND_Q(rmsg, ch->m_desc);
-		}
-		break;
-	case 4:
-		{
-			gserver->m_jewelDataList.m_jewelData->setEventCollectProb(eventData);
-			message.Format("JewelCollect Event setting values is %d", eventData);
-			CNetMsg::SP rmsg(new CNetMsg);
-			SayMsg(rmsg, MSG_CHAT_NOTICE, 0, "", "", message);
-			SEND_Q(rmsg, ch->m_desc);
-		}
-		break;
-	}
+		message.Format("JewelALL Event ChaosCreate[%d], Compose[%d], Upgrade[%d], Combine[%d], Collect[%d]", 
+			gserver->m_jewelDataList.m_jewelData->getEventCreateChaosProb(),
+			gserver->m_jewelDataList.m_jewelData->getEventComposeProb(),
+			gserver->m_jewelDataList.m_jewelData->getEventUpgradeProb(),
+			gserver->m_jewelDataList.m_jewelData->getEventCombineProb(),
+			gserver->m_jewelDataList.m_jewelData->getEventCollectProb()
+			);
 
-	if( isAll )
-	{
-		gserver->m_jewelDataList.m_jewelData->setEventChaosCreateProb(eventData);
-		gserver->m_jewelDataList.m_jewelData->setEventComposeProb(eventData);
-		gserver->m_jewelDataList.m_jewelData->setEventUpgradePorb(eventData);
-		gserver->m_jewelDataList.m_jewelData->setEventCombineProb(eventData);
-		gserver->m_jewelDataList.m_jewelData->setEventCollectProb(eventData);
-		message.Format("JewelALL Event setting values is %d", eventData);
 		CNetMsg::SP rmsg(new CNetMsg);
 		SayMsg(rmsg, MSG_CHAT_NOTICE, 0, "", "", message);
 		SEND_Q(rmsg, ch->m_desc);
+	}
+	else
+	{
+		int eventData = atoi(tmpBuf);
+
+		switch (kind)
+		{
+		case 0:
+			{
+				gserver->m_jewelDataList.m_jewelData->setEventChaosCreateProb(eventData);
+				message.Format("ChaosCreate Event setting values is %d", eventData);
+				CNetMsg::SP rmsg(new CNetMsg);
+				SayMsg(rmsg, MSG_CHAT_NOTICE, 0, "", "", message);
+				SEND_Q(rmsg, ch->m_desc);
+			}
+			break;
+		case 1:
+			{
+				gserver->m_jewelDataList.m_jewelData->setEventComposeProb(eventData);
+				message.Format("JewelCompose Event setting values is %d", eventData);
+				CNetMsg::SP rmsg(new CNetMsg);
+				SayMsg(rmsg, MSG_CHAT_NOTICE, 0, "", "", message);
+				SEND_Q(rmsg, ch->m_desc);
+			}
+			break;
+		case 2:
+			{
+				gserver->m_jewelDataList.m_jewelData->setEventUpgradePorb(eventData);
+				message.Format("JewelUpgrade Event setting values is %d", eventData);
+				CNetMsg::SP rmsg(new CNetMsg);
+				SayMsg(rmsg, MSG_CHAT_NOTICE, 0, "", "", message);
+				SEND_Q(rmsg, ch->m_desc);
+			}
+			break;
+		case 3:
+			{
+				gserver->m_jewelDataList.m_jewelData->setEventCombineProb(eventData);
+				message.Format("JewelCombine Event setting values is %d", eventData);
+				CNetMsg::SP rmsg(new CNetMsg);
+				SayMsg(rmsg, MSG_CHAT_NOTICE, 0, "", "", message);
+				SEND_Q(rmsg, ch->m_desc);
+			}
+			break;
+		case 4:
+			{
+				gserver->m_jewelDataList.m_jewelData->setEventCollectProb(eventData);
+				message.Format("JewelCollect Event setting values is %d", eventData);
+				CNetMsg::SP rmsg(new CNetMsg);
+				SayMsg(rmsg, MSG_CHAT_NOTICE, 0, "", "", message);
+				SEND_Q(rmsg, ch->m_desc);
+			}
+			break;
+		}
+
+		if( isAll )
+		{
+			gserver->m_jewelDataList.m_jewelData->setEventChaosCreateProb(eventData);
+			gserver->m_jewelDataList.m_jewelData->setEventComposeProb(eventData);
+			gserver->m_jewelDataList.m_jewelData->setEventUpgradePorb(eventData);
+			gserver->m_jewelDataList.m_jewelData->setEventCombineProb(eventData);
+			gserver->m_jewelDataList.m_jewelData->setEventCollectProb(eventData);
+			message.Format("JewelALL Event setting values is %d", eventData);
+			CNetMsg::SP rmsg(new CNetMsg);
+			SayMsg(rmsg, MSG_CHAT_NOTICE, 0, "", "", message);
+			SEND_Q(rmsg, ch->m_desc);
+		}
 	}
 }
 
@@ -10437,6 +10421,163 @@ void do_masterstone_prob_test( CPC* ch, const char* arg, std::vector<std::string
 	fclose(file);
 }
 
+void do_guild_battle_score(CPC* ch, const char* arg, std::vector<std::string>& vec)
+{
+	std::string message;
+
+	if(vec.size() != 2)
+	{
+		message = boost::str(boost::format("Invalid gm command"));
+		CNetMsg::SP rmsg(new CNetMsg);
+		SayMsg(rmsg, MSG_CHAT_GM, 0, "", "", message.c_str());
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
+
+	char guild_name[MAX_MESSAGE_SIZE] = {0,};
+
+	CGuild* guild = gserver->m_guildlist.findguild(vec[1].c_str());
+	
+	if(guild == NULL)
+	{
+		message = boost::str(boost::format("Not Found Guild"));
+		CNetMsg::SP rmsg(new CNetMsg);
+		SayMsg(rmsg, MSG_CHAT_GM, 0, "", "", message.c_str());
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
+
+	int zone_index = guild->battleZone();
+
+	if (strcmp(vec[0].c_str(), "all") == 0)
+	{
+		if(gserver->m_battle_guild_index != -1)
+		{
+			message = boost::str(boost::format("Already reg score data."));
+			CNetMsg::SP rmsg(new CNetMsg);
+			SayMsg(rmsg, MSG_CHAT_GM, 0, "", "", message.c_str());
+			SEND_Q(rmsg, ch->m_desc);
+			return;
+		}
+
+		gserver->m_battle_guild_index = guild->index();
+	}
+	else if (strcmp(vec[0].c_str(), "gm") == 0)
+	{
+		if(gserver->m_battle_guild_index != -1)
+		{
+			message = boost::str(boost::format("Already reg score data."));
+			CNetMsg::SP rmsg(new CNetMsg);
+			SayMsg(rmsg, MSG_CHAT_GM, 0, "", "", message.c_str());
+			SEND_Q(rmsg, ch->m_desc);
+			return;
+		}
+
+		gserver->m_battle_guild_index = guild->index();
+		gserver->m_battle_guild_gm = ch->m_index;
+	}
+	else if (strcmp(vec[0].c_str(), "off") == 0)
+	{
+		gserver->m_battle_guild_index = -1;
+		gserver->m_battle_guild_gm = -1;
+
+		//초기화 패킷 만들어서 전체에 전달 (클라이언트에서 판단하에 길드전인 유저들은 초기화를 건너뛰도록 한다.)
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			GuildBattleCoreInitMsg(rmsg);
+			CZone* zone = gserver->FindZone(zone_index);
+
+			if(zone == NULL)
+			{
+				message = boost::str(boost::format("Can not found zone index."));
+				CNetMsg::SP rmsg(new CNetMsg);
+				SayMsg(rmsg, MSG_CHAT_GM, 0, "", "", message.c_str());
+				SEND_Q(rmsg, ch->m_desc);
+				return;
+			}
+
+			for(int i = 0 ; i < zone->m_countArea; i++)
+			{
+				zone->m_area[i].SendToAllClient(rmsg);
+			}
+		}
+	}
+	return ;
+}
+
+void do_guild_battle_list(CPC* ch, const char* arg, std::vector<std::string>& vec)
+{
+	if(vec.size() != 1)
+	{
+		std::string message = boost::str(boost::format("Invalid gm command"));
+		CNetMsg::SP rmsg(new CNetMsg);
+		SayMsg(rmsg, MSG_CHAT_GM, 0, "", "", message.c_str());
+		SEND_Q(rmsg, ch->m_desc);
+		return;
+	}
+
+	//std::vector<string> guild_name;
+	std::map<CGuild*, CGuild*> data;
+
+	int zone_index = -1;
+
+	if(strcmp(vec[0].c_str(), "all") == 0)
+	{
+		CGuild* ret = gserver->m_guildlist.head();
+		while (ret)
+		{
+			if(ret->battleState() != GUILD_BATTLE_STATE_PEACE)
+			{
+				CGuild* guild = gserver->m_guildlist.findguild(ret->battleIndex());
+
+				std::map<CGuild*, CGuild*>::iterator it_first = data.find(ret);
+				std::map<CGuild*, CGuild*>::iterator it_second = data.find(guild);
+				
+				if(it_first == data.end() && it_second == data.end())
+				{
+					data.insert(std::map<CGuild*, CGuild*>::value_type(ret, guild));
+				}
+			}
+			ret = ret->nextguild();
+		}
+	}
+	else
+	{
+		zone_index = atoi(vec[0].c_str());
+
+		CGuild* ret = gserver->m_guildlist.head();
+		while (ret)
+		{
+			if(ret->battleState() != GUILD_BATTLE_STATE_PEACE && ret->battleZone() == zone_index)
+			{
+				CGuild* guild = gserver->m_guildlist.findguild(ret->battleIndex());
+
+				std::map<CGuild*, CGuild*>::iterator it_first = data.find(ret);
+				std::map<CGuild*, CGuild*>::iterator it_second = data.find(guild);
+
+				if(it_first == data.end() && it_second == data.end())
+				{
+					data.insert(std::map<CGuild*, CGuild*>::value_type(ret, guild));
+				}
+			}
+			ret = ret->nextguild();
+		}
+	}
+
+	std::map<CGuild*, CGuild*>::iterator it = data.begin();
+	std::map<CGuild*, CGuild*>::iterator it_end = data.end();
+
+	for(; it != it_end; it++)
+	{
+		std::string message = boost::str(boost::format("G_BATTLE zone : %d, %s vs %s") 
+			% it->first->battleZone() % it->first->name() % it->second->name());
+
+		CNetMsg::SP rmsg(new CNetMsg);
+		SayMsg(rmsg, MSG_CHAT_GM, 0, "", "", message.c_str());
+		SEND_Q(rmsg, ch->m_desc);
+	}
+}
+
 void do_test( CPC* ch, const char* arg, std::vector<std::string>& vec )
 {
 	/*CNetMsg::SP rmsg(new CNetMsg);
@@ -10466,4 +10607,253 @@ void do_test( CPC* ch, const char* arg, std::vector<std::string>& vec )
 	}
 
 	return ;
+}
+
+void do_GM_Guild_Memberout_Time( CPC* ch, const char* arg, std::vector<std::string>& vec )
+{
+	if(ch == NULL)
+		return;
+
+	if(ch->m_guildInfo == NULL)
+		return;
+
+	if(ch->m_guildInfo->guild() == NULL)
+		return;
+
+	if( arg == NULL)
+		return;
+
+	if(vec.size() == 0)
+		return;
+
+	struct tm tmStart;
+	int	year, mon, day, hour, min;
+	memset(&tmStart, 0, sizeof(tmStart));
+	char tmpBuf[MAX_MESSAGE_SIZE] = {0,};
+
+	tmpBuf[0] = '\0';
+	arg = AnyOneArg(arg, tmpBuf);
+	year = atoi(tmpBuf) - 1900;
+
+	tmpBuf[0] = '\0';
+	arg = AnyOneArg(arg, tmpBuf);
+	mon = atoi(tmpBuf) - 1;
+
+	tmpBuf[0] = '\0';
+	arg = AnyOneArg(arg, tmpBuf);
+	day = atoi(tmpBuf);
+
+	tmpBuf[0] = '\0';
+	arg = AnyOneArg(arg, tmpBuf);
+	hour = atoi(tmpBuf);
+
+	tmpBuf[0] = '\0';
+	arg = AnyOneArg(arg, tmpBuf);
+	min = atoi(tmpBuf);
+
+	tmStart.tm_year = year;
+	tmStart.tm_mon  = mon;
+	tmStart.tm_mday = day;
+	tmStart.tm_hour = hour;
+	tmStart.tm_min  = min;
+	tmStart.tm_isdst = -1;
+
+	time_t timeStart = mktime(&tmStart);
+
+	time_t timeCurrent;
+	time(&timeCurrent);
+	if (timeStart >= timeCurrent)
+		return ;
+
+	ch->m_guild_in_date = timeStart / 60 / 60 / 24;
+
+	std::string str = boost::str(boost::format("Guild Out Time Set : %d-%d-%d") % (year + 1900) % (mon + 1) % day);
+	CNetMsg::SP rmsg(new CNetMsg);
+	SayMsg(rmsg, MSG_CHAT_GM, 0, "", "", str.c_str());
+	SEND_Q(rmsg, ch->m_desc);
+
+	return;
+}
+
+void do_GM_Guild_Create_time( CPC* ch, const char* arg, std::vector<std::string>& vec )
+{
+	if(ch == NULL)
+		return;
+
+	if(ch->m_guildInfo == NULL)
+		return;
+
+	if(ch->m_guildInfo->guild() == NULL)
+		return;
+
+	if( arg == NULL)
+		return;
+
+	if(vec.size() == 0)
+		return;
+
+	struct tm tmStart;
+	int	year, mon, day, hour, min;
+	memset(&tmStart, 0, sizeof(tmStart));
+	char tmpBuf[MAX_MESSAGE_SIZE] = {0,};
+
+	tmpBuf[0] = '\0';
+	arg = AnyOneArg(arg, tmpBuf);
+	year = atoi(tmpBuf) - 1900;
+
+	tmpBuf[0] = '\0';
+	arg = AnyOneArg(arg, tmpBuf);
+	mon = atoi(tmpBuf) - 1;
+
+	tmpBuf[0] = '\0';
+	arg = AnyOneArg(arg, tmpBuf);
+	day = atoi(tmpBuf);
+
+	tmpBuf[0] = '\0';
+	arg = AnyOneArg(arg, tmpBuf);
+	hour = atoi(tmpBuf);
+
+	tmpBuf[0] = '\0';
+	arg = AnyOneArg(arg, tmpBuf);
+	min = atoi(tmpBuf);
+
+	tmStart.tm_year = year;
+	tmStart.tm_mon  = mon;
+	tmStart.tm_mday = day;
+	tmStart.tm_hour = hour;
+	tmStart.tm_min  = min;
+	tmStart.tm_isdst = -1;
+
+	time_t timeStart = mktime(&tmStart);
+
+	time_t timeCurrent;
+	time(&timeCurrent);
+	if (timeStart >= timeCurrent)
+		return ;
+
+	CGuild* guild = ch->m_guildInfo->guild();
+
+	guild->m_create_date = timeStart;
+
+	std::string str = boost::str(boost::format("Guild Create Time Set : %d-%d-%d %d:%d") % (year + 1900) % (mon + 1) % day % hour % min);
+	CNetMsg::SP rmsg(new CNetMsg);
+	SayMsg(rmsg, MSG_CHAT_GM, 0, "", "", str.c_str());
+	SEND_Q(rmsg, ch->m_desc);
+}
+
+void do_GM_reserve_command(CPC* ch, const char* arg, std::vector<std::string>& vec)
+{
+	struct tm tmStart;
+	int	year, mon, day, hour, min;
+	memset(&tmStart, 0, sizeof(tmStart));
+	char tmpBuf[MAX_MESSAGE_SIZE] = {0,};
+
+	tmpBuf[0] = '\0';
+	arg = AnyOneArg(arg, tmpBuf);
+	if(strcmp(tmpBuf, "add") == 0)
+	{
+		tmpBuf[0] = '\0';
+		arg = AnyOneArg(arg, tmpBuf);
+		year = atoi(tmpBuf) - 1900;
+
+		tmpBuf[0] = '\0';
+		arg = AnyOneArg(arg, tmpBuf);
+		mon = atoi(tmpBuf) - 1;
+
+		tmpBuf[0] = '\0';
+		arg = AnyOneArg(arg, tmpBuf);
+		day = atoi(tmpBuf);
+
+		tmpBuf[0] = '\0';
+		arg = AnyOneArg(arg, tmpBuf);
+		hour = atoi(tmpBuf);
+
+		tmpBuf[0] = '\0';
+		arg = AnyOneArg(arg, tmpBuf);
+		min = atoi(tmpBuf);
+
+		tmStart.tm_year = year;
+		tmStart.tm_mon  = mon;
+		tmStart.tm_mday = day;
+		tmStart.tm_hour = hour;
+		tmStart.tm_min  = min;
+		tmStart.tm_isdst = -1;
+
+		time_t timeStart = mktime(&tmStart);
+
+		time_t timeCurrent;
+		time(&timeCurrent);
+		if (timeStart <= timeCurrent)
+			return ;
+
+		arg = AnyOneArg(arg, tmpBuf);
+		int subNo = atoi(tmpBuf);
+
+		//gm command check
+		AnyOneArg(arg, tmpBuf);
+		if(gserver->set_gmlist.find(tmpBuf) == gserver->set_gmlist.end())
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			SayMsg(rmsg, MSG_CHAT_GM, 0, "", "", "check the gm_command.");
+			SEND_Q(rmsg, ch->m_desc);
+			return;
+		}
+
+		std::string gm_command;
+		do 
+		{
+			arg = AnyOneArg(arg, tmpBuf);
+			gm_command += tmpBuf;
+			gm_command += " ";
+
+		} while (strcmp(arg, "") != 0);
+
+		{
+			CNetMsg::SP rmsg(new CNetMsg);
+			RequestClient::reservedGMCommandAddByGMCommand* packet = reinterpret_cast<RequestClient::reservedGMCommandAddByGMCommand*>(rmsg->m_buf);
+			packet->type = MSG_RESERVED_GM_COMMAND;
+			packet->subType = MSG_SUB_ADD_RESERVED_GM_COMMAND_BY_GMCOMMAND;
+			strncpy(packet->command, gm_command.c_str(), RESERVED_GM_COMMAND_MAX_STRING + 1);
+			packet->startTime = timeStart;
+			packet->subNo = subNo;
+			rmsg->setSize(sizeof(RequestClient::reservedGMCommandAddByGMCommand));
+
+			SEND_Q(rmsg, gserver->m_subHelper);
+
+			LOG_INFO("RESERVE GM COMMAND ADD. char_index[%d], command[%s]", ch->m_index, gm_command.c_str());
+		}
+	}
+	else if(strcmp(tmpBuf, "del") == 0)
+	{
+		tmpBuf[0] = '\0';
+		arg = AnyOneArg(arg, tmpBuf);
+
+		int index = atoi(tmpBuf);
+
+		CNetMsg::SP rmsg(new CNetMsg);
+		RequestClient::reservedGMCommandDeleteByGMCommand* packet = reinterpret_cast<RequestClient::reservedGMCommandDeleteByGMCommand*>(rmsg->m_buf);
+		packet->type = MSG_RESERVED_GM_COMMAND;
+		packet->subType = MSG_SUB_DELETE_RESERVED_GM_COMMAND_BY_GMCOMMAND;
+		packet->index = index;
+		rmsg->setSize(sizeof(RequestClient::reservedGMCommandDeleteByGMCommand));
+
+		SEND_Q(rmsg, gserver->m_subHelper);
+
+		LOG_INFO("RESERVE GM COMMAND DEL. char_index[%d], command_index[%d]", ch->m_index, index);
+	}
+	else if(strcmp(tmpBuf, "list") == 0)
+	{
+		CNetMsg::SP rmsg(new CNetMsg);
+		RequestClient::reservedGMCommandListByGMCommand* packet = reinterpret_cast<RequestClient::reservedGMCommandListByGMCommand*>(rmsg->m_buf);
+		packet->type = MSG_RESERVED_GM_COMMAND;
+		packet->subType = MSG_SUB_LIST_RESERVED_GM_COMMAND_BY_GMCOMMAND;
+		packet->char_index = ch->m_index;
+		rmsg->setSize(sizeof(RequestClient::reservedGMCommandListByGMCommand));
+
+		SEND_Q(rmsg, gserver->m_subHelper);
+	}
+	else
+	{
+		return;
+	}
 }

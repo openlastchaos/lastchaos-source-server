@@ -1,7 +1,7 @@
 #ifndef __CONFIG_PACKET_H_
 #define __CONFIG_PACKET_H_
 
-#define MAX_PACKET_SIZE			(4096)
+#define MAX_PACKET_SIZE			(6000)
 
 // 버퍼관련 길이 상수
 #define MAX_MESSAGE_TYPE		((int)(sizeof(unsigned char)))

@@ -463,12 +463,18 @@ void CCubeMemList::GetOutAll()
 	{
 		pc = (CPC*)(m_pcList.GetData(pos));
 		pos = m_pcList.GetNext(pos);
-		if( pc )
-			pc->SummonNpcRemoveAll(true);
-		GoZone(pc, zone,
-			   pZone->m_zonePos[extra][0],
-			   GetRandom(pZone->m_zonePos[extra][1], pZone->m_zonePos[extra][3]) / 2.0f,		// x
-			   GetRandom(pZone->m_zonePos[extra][2], pZone->m_zonePos[extra][4]) / 2.0f);		// z
+		if( pc && pc->m_pZone )
+		{
+			if(pc->m_pZone->IsExtremeCube())
+			{
+				pc->SummonNpcRemoveAll(true);
+
+				GoZone(pc, zone,
+					pZone->m_zonePos[extra][0],
+					GetRandom(pZone->m_zonePos[extra][1], pZone->m_zonePos[extra][3]) / 2.0f,		// x
+					GetRandom(pZone->m_zonePos[extra][2], pZone->m_zonePos[extra][4]) / 2.0f);		// z
+			}
+		}
 	}
 
 	m_pcList.RemoveAll();

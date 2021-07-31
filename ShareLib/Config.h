@@ -292,6 +292,8 @@
 #define CHAT_FLAG_NO_SHOUT		(1 << 5)		// 외치기 금지
 #define CHAT_FLAG_NO_EXPED		(1 << 6)		// 원정대 채팅 금지
 
+#define CHAT_MESSAGE_MAX		(250)
+
 // 머리 모양 개수
 #define HAIR_TITAN			5
 #define HAIR_KNIGHT			5
@@ -496,7 +498,7 @@
 //미국을 위한 추가분
 #define 	TYPE_OLD_GOODS								90000
 #define		TYPE_LIST_START								0
-#define		TYPE_MAX_COUNT								30
+#define		TYPE_MAX_COUNT								50
 // subtype
 #define		SUBTYPE_HOTNNEW_NONE_NONE					10000 // TYPE, SUBTYPE 미분류
 #define		SUBTYPE_HOTNNEW_NEW_NONE					10100
@@ -581,7 +583,7 @@
 #define		SUBTYPE_PACKAGE_OTHERS_NONE					70900
 //미국을 위한 추가분
 #define		SUBTYPE_LIST_START							1
-#define		SUBTYPE_MAX_COUNT							80
+#define		SUBTYPE_MAX_COUNT							500
 // 상품 플래그
 #define		CATALOG_FLAG_NEW						(1 << 0)			// 신상품
 #define		CATALOG_FLAG_POPULAR					(1 << 1)			// 인기상품

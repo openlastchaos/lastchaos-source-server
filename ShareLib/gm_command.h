@@ -314,9 +314,15 @@
 #define		GM_CMD_POPUP_NOTICE						"popup"
 #define		GM_CMD_POPUP_NOTICEOFF					"popupoff"
 #define		GM_CMG_MASTERSTONE_PROB					"masterstoneprob"
+#define		GM_CMD_GUILD_BATTLE_CORE				"g_battle_score"
+#define		GM_CMD_GUILD_BATTLE_LIST				"g_battle_ing"
 
 
 #define		GM_CMD_TEST_COMMAND						"test"					// 테스트 명령어
+
+#define		GM_CMD_GUILD_MEMBER_OUT_TIME			"g_m_out_time"
+#define		GM_CMD_GUILD_CREATE_TIME				"g_c_time"
+#define		GM_CMD_RESERVED_GM_COMMAND				"reserve_gm"
 
 // 전 로컬 공통 운영자 명령 제한 레벨
 #define		GM_LEVEL_MY_ADMIN			1

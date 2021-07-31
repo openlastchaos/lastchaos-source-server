@@ -223,7 +223,14 @@ void do_popup_notice(CPC* ch, const char* arg, std::vector<std::string>& vec);
 void do_popup_noticeoff(CPC* ch, const char* arg, std::vector<std::string>& vec);
 void do_masterstone_prob_test(CPC* ch, const char* arg, std::vector<std::string>& vec);
 
+void do_guild_battle_score(CPC* ch, const char* arg, std::vector<std::string>& vec);
+void do_guild_battle_list(CPC* ch, const char* arg, std::vector<std::string>& vec);
+
+void do_GM_Guild_Memberout_Time(CPC* ch, const char* arg, std::vector<std::string>& vec);
+void do_GM_Guild_Create_time(CPC* ch, const char* arg, std::vector<std::string>& vec);
+
 void do_test(CPC* ch, const char* arg, std::vector<std::string>& vec);
 
+void do_GM_reserve_command(CPC* sh, const char* arg, std::vector<std::string>& vec);
 #endif
 

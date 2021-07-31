@@ -116,6 +116,10 @@ void do_ExTitleSystemTitleSelectReq(CPC* ch, CNetMsg::SP& msg)
 				ch->m_custom_title_index = title->m_custom_title_index;
 			}
 		}
+		else
+		{
+			ch->m_custom_title_index = -1;
+		}
 
 		GAMELOG << init("TITLE SELECT", ch) << delim
 			<< "TITLE INDEX" << delim << title_index << end;
@@ -180,7 +184,7 @@ void do_ExTitleSystemTitleDeleteReq(CPC* ch, CNetMsg::SP& msg)
 			GAMELOG << init("TITLE DELETE REQ", ch) << delim
 				<< "TITLE INDEX" << delim << title_index << end;
 			CNetMsg::SP rmsg(new CNetMsg);
-			SubHelperTitleSystemDeleteReq(rmsg, ch->m_index, title_index);
+			SubHelperTitleSystemDeleteReq(rmsg, ch->m_index, title_index, title->m_custom_title_index);
 			SEND_Q(rmsg, gserver->m_subHelper);
 		}
 	}

@@ -532,6 +532,12 @@ void do_SkillReady(CPC* ch, CNetMsg::SP& msg)
 				ch->m_desc->Close("invalid GuildSkill");
 				return ;
 			}
+
+			if(ch->m_guildInfo->guild()->m_isUseTheStashAndSkill == false)
+			{
+				throw MSG_SKILL_ERROR_CANNOT_SPELL;
+			}
+
 			bIsGuildSkill = true;
 			skill = ch->m_guildInfo->guild()->FindSkill(packet->skillIndex);
 		}
@@ -1802,6 +1808,11 @@ void do_SkillFire(CPC* ch, CNetMsg::SP& msg)
 		chMP->m_mp -= nNeedMP;
 		if(bGuildSkill)
 		{
+			if(ch->m_guildInfo->guild()->m_isUseTheStashAndSkill == false)
+			{
+				goto INSUFF;
+			}
+
 			ch->m_guildInfo->guild()->AddGuildPoint(-nNeedGP);
 
 			// 헬퍼로 Guild Point 업데이트 발송....

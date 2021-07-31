@@ -1,0 +1,18 @@
+
+void ConnBLogin(CDescriptor* d, CNetMsg& msg);
+void ConnBLogout(CDescriptor* d, CNetMsg& msg);
+void ConnCashItemBringReq(CDescriptor* d, CNetMsg& msg);
+void ConnCashItemBalanceReq(CDescriptor* d, CNetMsg& msg);
+void ConnCashItemPurchaseReq(CDescriptor* d, CNetMsg& msg);
+void ConnCashItemPurchaselistReq(CDescriptor* d, CNetMsg& msg);
+void ConnCashItemPurchaseHistoryReq(CDescriptor* d, CNetMsg& msg);
+void ConnCashItemGift(CDescriptor* d, CNetMsg& msg);
+void ConnCashItemSendHistory(CDescriptor* d, CNetMsg& msg);
+void ConnCashItemRecvHistory(CDescriptor* d, CNetMsg& msg);
+void ConnCashItemRecvList(CDescriptor* d, CNetMsg& msg);
+void ConnCashItemRecv(CDescriptor* d, CNetMsg& msg);
+void ConnCashItemPresentHistory(CDescriptor* d, CNetMsg& msg, bool bSend );
+// cashItemRecv, BringReq 둘다 씀, 선물인가 아닌가.
+void ConnCashItemBringProcess(CDescriptor* d, CNetMsg& msg, bool bPresent);
+void ConnCashItemCouponListReq(CDescriptor* d, CNetMsg& msg);
+void ConnCashItemPurchaseByCoupon(CDescriptor* d, CNetMsg& msg);

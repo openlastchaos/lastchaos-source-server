@@ -1,0 +1,9 @@
+
+void BillConnectMsg(CBPacket& msg);
+
+void BillBalanceReqMsg(CBPacket& msg, int userindex, const char* idname);
+void BillCanbuyReqMsg(CBPacket& msg, int userindex, const char* idname, int ctid[], char count, const char* ip);
+void BillBuyReqMsg(CBPacket& msg, int userindex, const char* userid, int serial, int ctid[], const char* ip, char count);
+
+void BillCouponListReqMsg( CBPacket& msg, int userindex, const char* idname);
+void BillBuyByCouponRepMsg(CBPacket& msg, int userindex, const char* userid, int serial, int ctid[], const char* ip, char count, int couponID );
